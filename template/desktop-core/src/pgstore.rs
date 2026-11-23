@@ -272,3 +272,14 @@ fn plain_path(path: std::path::PathBuf) -> std::path::PathBuf {
     }
     path
 }
+
+#[cfg(test)]
+mod path_tests {
+    #[test]
+    fn plain_path_has_no_verbatim_prefix() {
+        let dir = std::env::temp_dir();
+        let path = super::plain_path(std::fs::canonicalize(&dir).unwrap());
+        assert!(!path.to_string_lossy().starts_with(r"\\?\"), "{}", path.display());
+        assert!(path.join("x").parent().unwrap().is_dir());
+    }
+}
