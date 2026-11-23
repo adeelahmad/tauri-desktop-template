@@ -16,6 +16,7 @@ async function start() {
   show('python', f.pythonExample);
   if (f.backgroundAgent) { show('agent'); refreshAgent(); }
   if (f.mcp) { show('mcp'); invoke('mcp_setup').then((s) => { $('mcp-cmd').textContent = s.claude_code; }).catch(() => {}); }
+  show('llama', f.llama);
   if (f.ai) { show('ask'); invoke('ai_keys').then(keysText).catch(() => {}); }
   show('w-pg-option', f.postgres);
   if (f.postgres && !info.postgresAvailable) {
@@ -224,4 +225,10 @@ $('key-save').onclick = async () => {
 $('mcp-claude').onclick = async () => {
   try { $('mcp-status').textContent = `Claude Desktop: ${await invoke('mcp_register_claude')}. Restart it to load the server.`; }
   catch (e) { $('mcp-status').textContent = String(e); }
+};
+
+$('model-go').onclick = async () => {
+  const off = await listen('model-progress', (e) => { $('model-status').textContent = `Downloading: ${e.payload}`; });
+  try { $('model-status').textContent = `Ready: ${await invoke('download_model', {})}`; }
+  catch (e) { $('model-status').textContent = String(e); } finally { off(); }
 };

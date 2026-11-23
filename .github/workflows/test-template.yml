@@ -57,7 +57,7 @@ jobs:
         run: |
           common=(-d "app_name=Test App" -d identifier=com.example.testapp -d "description=Template test" -d github_repo=example/test-app)
           if [ "${{ matrix.variant }}" = all-on ]; then
-            opts=(-d embeddings=true -d embedding_model=bge-small-en-v1.5 -d postgres=true -d bm25=true -d watch_folders=true -d ai=true -d mcp_server=true -d pdf=true -d wizard=true -d updater=true
+            opts=(-d embeddings=true -d embedding_model=bge-small-en-v1.5 -d postgres=true -d bm25=true -d watch_folders=true -d ai=true -d local_llm=true -d mcp_server=true -d pdf=true -d wizard=true -d updater=true
                   -d installers=true -d macos_pkg=true -d install_scripts=true -d linux=true -d claude_mcp=true -d mcp_server_name=demo
                   -d mcp_package=demo-server -d frontend=react -d ipc_worker=true -d background_agent=true -d python_example=true)
           else
@@ -78,6 +78,11 @@ jobs:
         if: matrix.variant == 'all-on'
         working-directory: ${{ env.APP }}
         run: python python/test_worker.py
+      - name: Tiny GGUF model for the llama.cpp test (about 1 MB)
+        if: matrix.variant == 'all-on'
+        run: |
+          curl -sSLf --retry 3 -o "$RUNNER_TEMP/stories260K.gguf" https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+          echo "APP_TEST_GGUF=$RUNNER_TEMP/stories260K.gguf" >> "$GITHUB_ENV"
       - name: Test, build, self-test
         working-directory: ${{ env.APP }}
         run: |

@@ -95,6 +95,7 @@ fn features() -> Value {
         "bm25": cfg!(feature = "bm25"),
         "watch": cfg!(feature = "watch"),
         "ai": cfg!(feature = "ai"),
+        "llama": cfg!(feature = "llama"),
         "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
@@ -232,6 +233,20 @@ fn ask(app: tauri::AppHandle, state: tauri::State<AppState>, question: String) -
     state.service.call("ask", json!({"question": question}), &mut |t| {
         let _ = app.emit("ask-token", t.to_string());
     })
+}
+
+/// Download a GGUF model for the built-in llama.cpp and select it (`model-progress` events).
+#[cfg(feature = "llama")]
+#[tauri::command(async)]
+fn download_model(app: tauri::AppHandle, state: tauri::State<AppState>, url: Option<String>) -> Result<Value, String> {
+    let path = state.service.call("download_model", json!({"url": url}), &mut |p| {
+        let _ = app.emit("model-progress", p.to_string());
+    })?;
+    // Keep the saved settings in step with the engine.
+    let mut s = load_settings(&app);
+    s.config.llm.local.model_path = serde_json::from_value(path.clone()).ok();
+    save_settings(&app, &s)?;
+    Ok(path)
 }
 
 /// Providers that have a key (the keys never leave the backend).
@@ -414,6 +429,8 @@ pub fn run() {
             ai_keys,
             #[cfg(feature = "ai")]
             set_ai_key,
+            #[cfg(feature = "llama")]
+            download_model,
             #[cfg(feature = "mcp")]
             mcp_setup,
             #[cfg(feature = "mcp")]

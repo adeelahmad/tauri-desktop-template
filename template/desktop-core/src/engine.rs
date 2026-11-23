@@ -304,6 +304,21 @@ impl Engine {
         Ok(Answer { reply, sources })
     }
 
+{% endif %}{% if local_llm %}    /// Download a GGUF model (`url`, or the configured `llm.local.modelUrl`) into
+    /// `<data>/models`, resuming a partial download, and select it. Returns the file.
+    #[cfg(feature = "llama")]
+    pub fn download_model(&self, url: Option<&str>, progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<PathBuf> {
+        let mut cfg = self.config();
+        let url = url.map(str::to_owned).or_else(|| cfg.llm.local.model_url.clone()).ok_or_else(|| Error::Llm("no model URL".into()))?;
+        let dest = crate::local::model_file(&self.data_dir.join("models"), &url);
+        if !dest.is_file() {
+            crate::net::download_to(&url, &dest, progress).map_err(Error::Llm)?;
+        }
+        cfg.llm.local.model_path = Some(dest.clone());
+        self.configure(cfg)?;
+        Ok(dest)
+    }
+
 {% endif %}    pub fn remove_source(&self, source: &str) -> Result<usize> {
         self.store.remove_source(source)
     }
