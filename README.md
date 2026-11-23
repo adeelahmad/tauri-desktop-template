@@ -40,6 +40,10 @@ app data `logs/` folder (`APP_LOG=warn,desktop_core=debug`). Rust 1.89 or newer.
 Ingest is crash-safe: each multi-file import is journaled, and one cut short by a crash or
 quit resumes at the next start. Indexing threads run at background priority and use a
 configurable share of the CPU (macOS QoS, Windows background mode, Linux nice, with no crates).
+Every chunk carries its provenance (file SHA-256, size and time, extraction method including
+PDF OCR, position, embedding model, when it was indexed) into search hits, citations and MCP
+results. Stores are versioned: Postgres runs numbered migrations in transactions, and a store
+from a newer app version is refused instead of being damaged.
 
 ## Use
 

@@ -7,6 +7,13 @@ const say = (id, text, error = false) => { $(id).textContent = text; $(id).class
 
 let info;
 
+// One line on where a passage came from (chunk provenance from the backend).
+function provenance(p) {
+  if (!p) return '';
+  const parts = [p.extractor, p.sha256 && `sha256 ${p.sha256.slice(0, 12)}`, p.model, p.ingested && `indexed ${p.ingested.slice(0, 16).replace('T', ' ')} UTC`];
+  return parts.filter(Boolean).join(' · ');
+}
+
 async function start() {
   info = await invoke('app_info');
   const f = info.features;
@@ -129,6 +136,7 @@ async function runSearch() {
       meta.className = 'meta';
       meta.textContent = `${h.source}${h.page ? `, page ${h.page}` : ''} · ${h.score.toFixed(3)}` +
         (h.vector_score != null ? ` · vector ${h.vector_score.toFixed(3)}` : '') + (h.keyword_score != null ? ` · keyword ${h.keyword_score.toFixed(2)}` : '');
+      meta.title = provenance(h.prov);
       const body = document.createElement('div');
       body.textContent = h.text;
       li.append(meta, body);
@@ -212,6 +220,7 @@ async function ask() {
       const li = document.createElement('li');
       li.className = 'meta';
       li.textContent = `[${i + 1}] ${h.source}${h.page ? `, page ${h.page}` : ''}`;
+      li.title = provenance(h.prov);
       $('sources').append(li);
     });
   } catch (e) { $('answer').textContent = String(e); } finally { off(); }

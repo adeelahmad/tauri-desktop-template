@@ -17,7 +17,7 @@ embed = ["dep:fastembed", "dep:ort"]
 {% endif -%}
 {% if postgres -%}
 # Embedded Postgres 16 + pgvector store (server and extension download on first use).
-postgres = ["dep:postgresql_embedded", "dep:postgres", "dep:zip", "dep:sha2", "dep:getrandom"]
+postgres = ["dep:postgresql_embedded", "dep:postgres", "dep:zip", "dep:getrandom"]
 {% if bm25 -%}
 # BM25 keyword ranking in Postgres (VectorChord-BM25 + pg_tokenizer), for hybrid search.
 bm25 = ["postgres"]
@@ -37,11 +37,11 @@ llama = ["ai", "dep:llama-cpp-2"]
 {% endif -%}
 {% if tts -%}
 # Text to speech with tiny-voca through ONNX Runtime (linked statically).
-tts = ["dep:ort", "dep:sha2"]
+tts = ["dep:ort"]
 {% endif -%}
 {% if stt -%}
 # Speech to text with Whisper through ONNX Runtime (the same runtime, no whisper.cpp).
-stt = ["dep:ort", "dep:sha2"]
+stt = ["dep:ort"]
 {% endif -%}
 {% if telemetry -%}
 # Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
@@ -61,6 +61,8 @@ serde_json.workspace = true
 thiserror = "2"
 # Already in the tree through ureq and Tauri; the facade our JSON-lines logger plugs into.
 log = "0.4"
+# File hashes for provenance and download checks (pure Rust).
+sha2 = "0.10"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 {% if embeddings -%}
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }
@@ -70,9 +72,6 @@ postgresql_embedded = { version = "0.22", optional = true, features = ["blocking
 postgres = { version = "0.19", optional = true }
 zip = { version = "2", optional = true, default-features = false, features = ["deflate"] }
 getrandom = { version = "0.3", optional = true }
-{% endif -%}
-{% if postgres or tts or stt -%}
-sha2 = { version = "0.10", optional = true }
 {% endif -%}
 {% if embeddings or tts or stt -%}
 # The same ONNX Runtime build fastembed uses, so the two share one copy (and one environment).

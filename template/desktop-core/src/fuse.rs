@@ -52,7 +52,7 @@ mod tests {
     use super::*;
 
     fn cand(key: u64, text: &str, score: f32) -> Candidate {
-        Candidate { key, hit: Hit { source: "s".into(), page: None, text: text.into(), score, vector_score: None, keyword_score: None } }
+        Candidate { key, hit: Hit { source: "s".into(), page: None, text: text.into(), score, vector_score: None, keyword_score: None, prov: None } }
     }
 
     #[test]

@@ -8,6 +8,7 @@ import { APP_NAME, DESCRIPTION } from './config.js';
 import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
 import Dictate from './Dictate.jsx';
+import { provenance } from './provenance.js';
 
 function describe(info, status) {
   if (!info) return '';
@@ -201,7 +202,7 @@ function Search({ features }) {
           {hits.length === 0 && <li className="meta">Nothing found.</li>}
           {hits.map((h, i) => (
             <li key={i}>
-              <div className="meta">
+              <div className="meta" title={provenance(h.prov)}>
                 {h.source}
                 {h.page ? `, page ${h.page}` : ''} · {h.score.toFixed(3)}
                 {h.vector_score != null && ` · vector ${h.vector_score.toFixed(3)}`}

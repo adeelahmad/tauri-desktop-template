@@ -27,7 +27,8 @@ fn bag(text: &str) -> Vec<f32> {
     v
 }
 
-const DOCS: &str = "The heart pumps blood through the arteries.\n\nRust programs compile to native code.\n\nTauri apps use the system web view.";
+const DOCS: &str =
+    "The heart pumps blood through the arteries.\n\nRust programs compile to native code.\n\nTauri apps use the system web view.";
 
 #[test]
 fn keyword_and_vector_search_and_model_change() {
@@ -82,6 +83,8 @@ fn hybrid_checks(e: &Engine) {
     let hits = e.search_with("upper trunk C5 palsy", &hybrid).unwrap();
     assert_eq!(hits[0].source, "erb", "{hits:?}");
     assert!(hits[0].vector_score.is_some() && hits[0].keyword_score.is_some(), "{hits:?}");
+    // Provenance survives the store and the fusion.
+    assert_eq!(hits[0].prov.as_ref().map(|p| p.extractor.as_str()), Some("direct"), "{hits:?}");
     // Keyword only, and a threshold that nothing meets.
     let kw = SearchConfig { mode: SearchMode::Keyword, ..hybrid.clone() };
     assert_eq!(e.search_with("quadriceps", &kw).unwrap()[0].source, "femoral");
@@ -161,6 +164,46 @@ fn a_cancelled_ingest_resumes_where_it_stopped() {
     assert_eq!((rest.files, rest.cancelled), (15, false));
     assert!(e.interrupted().is_empty());
     assert_eq!(e.status().unwrap().chunks, 20);
+}
+
+#[test]
+fn hits_carry_provenance_and_newer_stores_are_refused() {
+    use sha2::Digest;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("heart.md");
+    std::fs::write(
+        &file,
+        format!(
+            "The heart pumps blood. {}\n\nThe lungs exchange gas. {}",
+            "Cardiac output rises. ".repeat(4),
+            "Alveoli are thin. ".repeat(4)
+        ),
+    )
+    .unwrap();
+    let store = FileStore::open(&dir.path().join("store")).unwrap();
+    let e = Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir.path(), &mut |_| {}).unwrap();
+    let mut cfg = e.config();
+    cfg.ingest.chunk_chars = 100;
+    e.configure(cfg).unwrap();
+    e.ingest_file(&file).unwrap();
+    e.ingest_text("note", "Typed heart facts.").unwrap();
+    let hits = e.search("lungs gas", 5).unwrap();
+    let p = hits[0].prov.clone().expect("provenance");
+    assert_eq!(p.sha256, format!("{:x}", sha2::Sha256::digest(std::fs::read(&file).unwrap())));
+    assert_eq!((p.extractor.as_str(), p.model.as_str()), ("text", "bag"));
+    assert!(p.index > 0, "the lungs passage is not the first chunk");
+    assert_eq!(p.size, std::fs::metadata(&file).unwrap().len());
+    assert!(p.ingested.ends_with('Z') && !p.indexer.is_empty());
+    let typed = e.search("typed", 5).unwrap().into_iter().find(|h| h.source == "note").unwrap().prov.unwrap();
+    assert_eq!((typed.extractor.as_str(), typed.sha256.as_str()), ("direct", ""));
+    drop(e);
+    // A store written by a newer app is refused rather than overwritten.
+    let f = dir.path().join("store/chunks.json");
+    let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
+    assert_eq!(v["version"], 1);
+    v["version"] = 99.into();
+    std::fs::write(&f, v.to_string()).unwrap();
+    assert!(FileStore::open(&dir.path().join("store")).is_err());
 }
 
 /// Needs a Postgres with pgvector (and, for BM25, vchord_bm25 + pg_tokenizer):

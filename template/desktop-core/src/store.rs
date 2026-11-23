@@ -23,6 +23,9 @@ pub struct Hit {
     pub vector_score: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_score: Option<f32>,
+    /// File hash, extraction method, model and time of indexing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prov: Option<crate::chunk::Provenance>,
 }
 
 /// What a search runs once the mode meets what is available (no vector: keywords).
@@ -100,8 +103,14 @@ pub fn bm25_scores<'a>(query: &str, texts: impl Iterator<Item = &'a str>) -> Vec
         .collect()
 }
 
+/// The file store's format: 1 added chunk provenance.
+const FILE_FORMAT: u32 = 1;
+
 #[derive(Default, Serialize, Deserialize)]
 struct FileData {
+    /// Format version (see `FILE_FORMAT`); files from a newer app are refused, not damaged.
+    #[serde(default)]
+    version: u32,
     embedder: Option<String>,
     records: Vec<Record>,
 }
@@ -124,11 +133,16 @@ impl FileStore {
     pub fn open(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join("chunks.json");
-        let data = match std::fs::read(&path) {
+        let mut data: FileData = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => FileData::default(),
             Err(e) => return Err(e.into()),
         };
+        if data.version > FILE_FORMAT {
+            return Err(crate::Error::Store(format!("{} was written by a newer version of this app (format {}, this one reads up to {FILE_FORMAT}); update the app", path.display(), data.version)));
+        }
+        // Older formats only lack fields that have defaults, so they upgrade on the next write.
+        data.version = FILE_FORMAT;
         Ok(Self { path, data: Mutex::new(data) })
     }
 
@@ -167,6 +181,7 @@ impl Store for FileStore {
             score,
             vector_score: None,
             keyword_score: None,
+            prov: r.chunk.prov.clone(),
         };
         let ranked = |mut list: Vec<(usize, f32)>, n: usize| {
             list.sort_by(|a, b| b.1.total_cmp(&a.1));

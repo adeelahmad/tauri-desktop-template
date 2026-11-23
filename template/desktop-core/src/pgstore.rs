@@ -253,17 +253,7 @@ fn bm25_installable(db: &mut postgres::Client) -> Result<bool> {
 impl PostgresStore {
     pub fn open(data_dir: &Path) -> Result<Self> {
         let mut client = postgres::Client::connect(&server_url(data_dir)?, postgres::NoTls).map_err(pg_err)?;
-        client
-            .batch_execute(
-                "create extension if not exists vector;
-                 create table if not exists chunks (id bigserial primary key, source text not null, page integer,
-                    text text not null, tsv tsvector generated always as (to_tsvector('english', text)) stored,
-                    embedding vector);
-                 create index if not exists chunks_source on chunks (source);
-                 create index if not exists chunks_tsv on chunks using gin (tsv);
-                 create table if not exists meta (key text primary key, value text);",
-            )
-            .map_err(pg_err)?;
+        migrate(&mut client)?;
         Ok(Self { client: Mutex::new(client), bm25: Mutex::new(None) })
     }
 
@@ -307,7 +297,7 @@ impl PostgresStore {
         let rows = db
             .query(
                 &format!(
-                    "select id, source, page, text, (1 - (embedding::{cast} <=> $1::text::{cast}))::float8 from chunks
+                    "select id, source, page, text, (1 - (embedding::{cast} <=> $1::text::{cast}))::float8, prov from chunks
                      where embedding is not null order by embedding::{cast} <=> $1::text::{cast} limit $2"
                 ),
                 &[&vector_literal(v), &n],
@@ -320,7 +310,7 @@ impl PostgresStore {
         let rows = match (cfg.keyword_engine, self.bm25_tokenizer()) {
             (KeywordEngine::Auto | KeywordEngine::Bm25, Some(tok)) => db.query(
                 &format!(
-                    "select id, source, page, text, (-(bm25 <&> to_bm25query('chunks_bm25', tokenize($1, '{tok}'))))::float8 as score
+                    "select id, source, page, text, (-(bm25 <&> to_bm25query('chunks_bm25', tokenize($1, '{tok}'))))::float8 as score, prov
                      from chunks where bm25 is not null
                      order by bm25 <&> to_bm25query('chunks_bm25', tokenize($1, '{tok}')) limit $2"
                 ),
@@ -332,7 +322,7 @@ impl PostgresStore {
                 let doc = if lang == "english" { "tsv".to_string() } else { format!("to_tsvector('{lang}', text)") };
                 db.query(
                     &format!(
-                        "select id, source, page, text, ts_rank_cd({doc}, q)::float8 as score
+                        "select id, source, page, text, ts_rank_cd({doc}, q)::float8 as score, prov
                          from chunks, websearch_to_tsquery('{lang}', $1) q where {doc} @@ q order by score desc limit $2"
                     ),
                     &[&query, &n],
@@ -342,6 +332,42 @@ impl PostgresStore {
         .map_err(pg_err)?;
         Ok(rows.iter().map(candidate).filter(|c| c.hit.score > 0.0).collect())
     }
+}
+
+/// Schema changes in order; `meta.schema` records how many have run. Each runs in one
+/// transaction with its version bump, so a crash never leaves half a migration.
+const MIGRATIONS: [&str; 2] = [
+    "create extension if not exists vector;
+     create table if not exists chunks (id bigserial primary key, source text not null, page integer,
+        text text not null, tsv tsvector generated always as (to_tsvector('english', text)) stored,
+        embedding vector);
+     create index if not exists chunks_source on chunks (source);
+     create index if not exists chunks_tsv on chunks using gin (tsv);
+     create table if not exists meta (key text primary key, value text);",
+    // 2: provenance (JSON) for every chunk.
+    "alter table chunks add column if not exists prov text;",
+];
+
+/// Bring the schema up to date, or refuse a database from a newer app version.
+fn migrate(db: &mut postgres::Client) -> Result<u32> {
+    db.batch_execute("create table if not exists meta (key text primary key, value text)").map_err(pg_err)?;
+    let have: u32 = meta(db, "schema")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+    let want = MIGRATIONS.len() as u32;
+    if have > want {
+        return Err(Error::Store(format!("the database was set up by a newer version of this app (schema {have}, this one knows {want}); update the app")));
+    }
+    for (n, sql) in MIGRATIONS.iter().enumerate().skip(have as usize) {
+        let mut tx = db.transaction().map_err(pg_err)?;
+        tx.batch_execute(sql).map_err(pg_err)?;
+        tx.execute("insert into meta values ('schema', $1) on conflict (key) do update set value = excluded.value", &[&(n + 1).to_string()]).map_err(pg_err)?;
+        tx.commit().map_err(pg_err)?;
+        log::info!("database schema {} applied", n + 1);
+    }
+    Ok(want)
+}
+
+fn prov(r: &postgres::Row, i: usize) -> Option<crate::chunk::Provenance> {
+    r.get::<_, Option<String>>(i).and_then(|s| serde_json::from_str(&s).ok())
 }
 
 fn candidate(r: &postgres::Row) -> Candidate {
@@ -354,6 +380,7 @@ fn candidate(r: &postgres::Row) -> Candidate {
             score: r.get::<_, f64>(4) as f32,
             vector_score: None,
             keyword_score: None,
+            prov: prov(r, 5),
         },
     }
 }
@@ -368,14 +395,15 @@ impl Store for PostgresStore {
         let mut db = self.db()?;
         let mut tx = db.transaction().map_err(pg_err)?;
         let sql = match &tokenizer {
-            Some(t) => format!("insert into chunks (source, page, text, embedding, bm25) values ($1, $2, $3, $4::text::vector, tokenize($3, '{t}'))"),
-            None => "insert into chunks (source, page, text, embedding) values ($1, $2, $3, $4::text::vector)".to_string(),
+            Some(t) => format!("insert into chunks (source, page, text, embedding, prov, bm25) values ($1, $2, $3, $4::text::vector, $5, tokenize($3, '{t}'))"),
+            None => "insert into chunks (source, page, text, embedding, prov) values ($1, $2, $3, $4::text::vector, $5)".to_string(),
         };
         let stmt = tx.prepare(&sql).map_err(pg_err)?;
         for (i, c) in chunks.iter().enumerate() {
             let page = c.page.map(|p| p as i32);
             let vec = vectors.map(|v| vector_literal(&v[i]));
-            tx.execute(&stmt, &[&c.source, &page, &c.text, &vec]).map_err(pg_err)?;
+            let prov = c.prov.as_ref().and_then(|p| serde_json::to_string(p).ok());
+            tx.execute(&stmt, &[&c.source, &page, &c.text, &vec, &prov]).map_err(pg_err)?;
         }
         if let Some(d) = vectors.and_then(|v| v.first()).map(Vec::len) {
             // The column takes any dimension; the index is on a typed cast, built once per model.
@@ -429,8 +457,8 @@ impl Store for PostgresStore {
     }
 
     fn all(&self) -> Result<Vec<Chunk>> {
-        let rows = self.db()?.query("select source, page, text from chunks order by id", &[]).map_err(pg_err)?;
-        Ok(rows.iter().map(|r| Chunk { source: r.get(0), page: r.get::<_, Option<i32>>(1).map(|p| p as u32), text: r.get(2) }).collect())
+        let rows = self.db()?.query("select source, page, text, prov from chunks order by id", &[]).map_err(pg_err)?;
+        Ok(rows.iter().map(|r| Chunk { source: r.get(0), page: r.get::<_, Option<i32>>(1).map(|p| p as u32), text: r.get(2), prov: prov(r, 3) }).collect())
     }
 
     fn remove_source(&self, source: &str) -> Result<usize> {

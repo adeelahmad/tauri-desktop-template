@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import Speak from './Speak.jsx';
 import Dictate from './Dictate.jsx';
+import { provenance } from './provenance.js';
 
 export default function Ask({ features }) {
   const [question, setQuestion] = useState('');
@@ -58,7 +59,7 @@ export default function Ask({ features }) {
           <ol className="sources">
             {result.sources.map((h, i) => (
               <li key={i}>
-                <span className="meta">
+                <span className="meta" title={provenance(h.prov)}>
                   [{i + 1}] {h.source}
                   {h.page ? `, page ${h.page}` : ''}
                 </span>

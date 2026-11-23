@@ -72,9 +72,22 @@ pub fn chunks_from_pdf(path: &Path) -> Result<Vec<Chunk>> {
 }
 
 pub fn chunks_from_pdf_with(path: &Path, chunking: crate::chunk::Chunking) -> Result<Vec<Chunk>> {
+    let mut ocr = std::collections::HashSet::new();
     let pages: Vec<(u32, String)> = pdf_pages(path)?
         .into_iter()
-        .map(|(n, text)| if looks_garbled(&text) { (n, ocr_page(path, n)) } else { (n, text) })
+        .map(|(n, text)| {
+            if looks_garbled(&text) {
+                ocr.insert(n);
+                (n, ocr_page(path, n))
+            } else {
+                (n, text)
+            }
+        })
         .collect();
-    Ok(crate::chunk::chunks_from_pages_with(&path.to_string_lossy(), &pages, chunking))
+    let mut chunks = crate::chunk::chunks_from_pages_with(&path.to_string_lossy(), &pages, chunking);
+    for c in &mut chunks {
+        let method = if c.page.is_some_and(|p| ocr.contains(&p)) { "pdf-ocr" } else { "pdf-text" };
+        c.prov = Some(crate::chunk::Provenance { extractor: method.into(), ..Default::default() });
+    }
+    Ok(chunks)
 }
