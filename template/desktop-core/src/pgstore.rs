@@ -88,7 +88,7 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
         ));
     }
     std::fs::create_dir_all(data_dir)?;
-    let key = std::fs::canonicalize(data_dir)?;
+    let key = plain_path(std::fs::canonicalize(data_dir)?);
     let mut servers = SERVERS.get_or_init(|| Mutex::new(HashMap::new())).lock().map_err(pg_err)?;
     if let Some((_, url)) = servers.get(&key) {
         return Ok(url.clone());
@@ -257,4 +257,18 @@ impl Store for PostgresStore {
         db.batch_execute("drop index if exists chunks_hnsw; delete from meta where key = 'dim';").map_err(pg_err)?;
         Ok(())
     }
+}
+
+/// `canonicalize` on Windows returns a verbatim `\\?\C:\...` path. postgresql_embedded turns it
+/// into `//?/C:/...`, which Windows can't resolve, so initdb can't find postgres.exe. Strip the
+/// prefix for ordinary drive paths.
+fn plain_path(path: std::path::PathBuf) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\").filter(|r| !r.starts_with("UNC\\")) {
+            return std::path::PathBuf::from(rest.to_string());
+        }
+    }
+    path
 }
