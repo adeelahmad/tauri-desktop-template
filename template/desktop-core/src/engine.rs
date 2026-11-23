@@ -9,7 +9,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+{% if ai %}/// What `Engine::ask` returns: the model's reply and the passages it was given.
+#[cfg(feature = "ai")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Answer {
+    pub reply: crate::llm::Reply,
+    pub sources: Vec<Hit>,
+}
+
+{% endif %}#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
     #[default]
@@ -284,7 +292,19 @@ impl Engine {
         self.store.search(query, qv.as_deref(), &cfg)
     }
 
-    pub fn remove_source(&self, source: &str) -> Result<usize> {
+{% if ai %}    /// Answer `question` from the indexed documents with the configured LLM (RAG).
+    /// `on_token` gets the answer as it streams; the sources come back with it.
+    #[cfg(feature = "ai")]
+    pub fn ask(&self, question: &str, keys: crate::llm::KeyLookup<'_>, on_token: &mut dyn FnMut(&str)) -> Result<Answer> {
+        let cfg = self.config();
+        let sources = self.search_with(question, &cfg.search)?;
+        let messages = crate::llm::rag_messages(cfg.llm.system_prompt.as_deref(), question, &sources);
+        let usage = self.data_dir.join("llm-usage.json");
+        let reply = crate::llm::Client::new(cfg.llm, keys, Some(&usage)).chat(&messages, on_token)?;
+        Ok(Answer { reply, sources })
+    }
+
+{% endif %}    pub fn remove_source(&self, source: &str) -> Result<usize> {
         self.store.remove_source(source)
     }
 

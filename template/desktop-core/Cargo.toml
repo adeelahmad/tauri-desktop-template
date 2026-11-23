@@ -27,6 +27,10 @@ bm25 = ["postgres"]
 # Watch a drop folder and other folders, and ingest what lands there.
 watch = ["dep:notify", "dep:notify-debouncer-full"]
 {% endif -%}
+{% if ai -%}
+# Chat with an LLM (cloud or local) and ask questions over the indexed documents.
+ai = []
+{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile"]

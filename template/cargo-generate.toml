@@ -40,6 +40,11 @@ type = "bool"
 prompt = "Drop folder + watch folders that ingest new files automatically?"
 default = false
 
+[placeholders.ai]
+type = "bool"
+prompt = "AI chat over your documents (Claude, OpenAI, Gemini, Ollama or any OpenAI-compatible server; off until switched on in Settings)?"
+default = false
+
 [placeholders.pdf]
 type = "bool"
 prompt = "PDF text extraction (docling.rs, tesseract OCR fallback)?"
@@ -127,6 +132,9 @@ ignore = ["desktop-core/src/embed.rs"]
 
 [conditional.'!postgres']
 ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256"]
+
+[conditional.'!ai']
+ignore = ["desktop-core/src/llm.rs"]
 
 [conditional.'!watch_folders']
 ignore = ["desktop-core/src/watch.rs"]

@@ -18,7 +18,7 @@ serde_json = "1"
 
 [workspace.lints.rust]
 # Optional parts are cargo features; the ones you left out at generation are simply absent.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("embed", "postgres", "bm25", "watch", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "python-example", "claude-mcp"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("embed", "postgres", "bm25", "watch", "ai", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "python-example", "claude-mcp"))'] }
 
 [profile.release]
 lto = "thin"

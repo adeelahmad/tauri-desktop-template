@@ -20,10 +20,15 @@ pub mod pdf;
 pub mod pgstore;
 {% endif %}{% if watch_folders %}#[cfg(feature = "watch")]
 pub mod watch;
+{% endif %}{% if ai %}#[cfg(feature = "ai")]
+pub mod llm;
 {% endif %}
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};
 pub use engine::{Backend, Engine, EngineOptions, IngestReport, Status};
+{% if ai %}#[cfg(feature = "ai")]
+pub use engine::Answer;
+{% endif %}
 pub use store::{FileStore, Hit, Store};
 
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +43,8 @@ pub enum Error {
     Store(String),
     #[error("{0}")]
     Source(String),
+    #[error("AI: {0}")]
+    Llm(String),
     #[error("{0} is not in this build")]
     NotBuilt(&'static str),
 }
