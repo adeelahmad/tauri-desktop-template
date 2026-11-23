@@ -83,4 +83,7 @@ jobs:
           cargo fmt --all --check
           cargo test --workspace
           cargo clippy --workspace --all-targets -- -D warnings
-          cargo run -p test-app -- --self-test
+          # The first run downloads the embedding model from Hugging Face, which sometimes fails
+          # mid-download; retry so a network blip doesn't fail the build.
+          for i in 1 2 3; do cargo run -p test-app -- --self-test && exit 0; echo "self-test attempt $i failed"; sleep 15; done
+          exit 1
