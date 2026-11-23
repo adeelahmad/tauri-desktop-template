@@ -1,3 +1,6 @@
-# SHA-256 of each extension zip, as in the release's SHA256SUMS ("<hash>  <file>" per line).
-# Paste them here after the "Postgres extensions" workflow publishes your release; a listed
-# zip must match exactly. Unlisted zips are checked against the release's SHA256SUMS instead.
+# SHA-256 of each extension zip ("<hash>  <file>", as in the release's SHA256SUMS). A listed
+# zip must match exactly; an unlisted one is checked against the release's SHA256SUMS.
+# These are adeelahmad/pg-extensions pg-ext-16.16.0-r1; replace them if you host your own.
+8a3c6a8dc27de37cc0a0bec9999503db7776f03dbc063320ba22b49dd0cfe21e  pg16-extensions-aarch64-apple-darwin.zip
+866b62890d701ee6761a4f11702356222f87f4f46e3ad42ad7c956da5e3d843c  pg16-extensions-x86_64-pc-windows-msvc.zip
+b536668b4a12a2d9f5d15fb556cd8e0d724466cf0f65807bcf64c8286440ee9c  pg16-extensions-x86_64-unknown-linux-gnu.zip

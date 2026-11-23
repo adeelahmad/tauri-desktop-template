@@ -10,11 +10,11 @@ APP_MCP_PACKAGE = "{{mcp_package}}"
 {% endif -%}
 {% if postgres -%}
 # Postgres extension bundle (pgvector, pg_tokenizer, VectorChord-BM25) for embedded
-# Postgres 16.16.0, one zip per target. Run the "Postgres extensions" workflow once with
-# publish on (Actions tab) to attach it to this repo's pg-ext-16.16.0-r1 release, then pin the
-# release's SHA256SUMS in desktop-core/pg-ext.sha256. The release must be downloadable
-# without a login (a public repo, or point this at any public host).
-APP_PG_EXT_URL = "https://github.com/{{github_repo}}/releases/download/pg-ext-16.16.0-r1/pg16-extensions-{target}.zip"
+# Postgres 16.16.0, one zip per target, from the public adeelahmad/pg-extensions release
+# (hashes pinned in desktop-core/pg-ext.sha256). To build your own, run the bundled
+# "Postgres extensions" workflow with publish on, point this at your public release and
+# replace the pinned hashes with its SHA256SUMS.
+APP_PG_EXT_URL = "https://github.com/adeelahmad/pg-extensions/releases/download/pg-ext-16.16.0-r1/pg16-extensions-{target}.zip"
 {% endif -%}
 APP_REPOSITORY = "{{github_repo}}"
 APP_IDENTIFIER = "{{identifier}}"
