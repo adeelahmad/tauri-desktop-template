@@ -138,9 +138,8 @@ impl FileStore {
 
     /// Write to a temporary file, then rename, so a crash never leaves half a file.
     fn persist(&self, data: &FileData) -> Result<()> {
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec(data)?)?;
-        std::fs::rename(&tmp, &self.path)?;
+        // Synced before the rename, so even a power cut leaves the old or the new file.
+        crate::jobs::write_atomic(&self.path, &serde_json::to_vec(data)?)?;
         Ok(())
     }
 }

@@ -37,6 +37,9 @@ Security defaults are always on: navigation limited to the app's own pages, a st
 frozen JS prototypes, no global Tauri object with React, and dev tools only in debug builds
 (`APP_DEVTOOLS=1` opens them). Each process writes JSON-lines logs, rotated by size, to the
 app data `logs/` folder (`APP_LOG=warn,desktop_core=debug`). Rust 1.89 or newer.
+Ingest is crash-safe: each multi-file import is journaled, and one cut short by a crash or
+quit resumes at the next start. Indexing threads run at background priority and use a
+configurable share of the CPU (macOS QoS, Windows background mode, Linux nice, with no crates).
 
 ## Use
 
