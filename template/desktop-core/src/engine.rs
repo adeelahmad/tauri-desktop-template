@@ -6,7 +6,7 @@ use crate::store::{FileStore, Hit, Store};
 use crate::{Chunk, Embedder, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
 
 {% if ai %}/// What `Engine::ask` returns: the model's reply and the passages it was given.
@@ -59,6 +59,9 @@ pub struct Engine {
     embedder: Option<Box<dyn Embedder>>,
     data_dir: PathBuf,
     config: RwLock<Config>,
+    journal: crate::jobs::Journal,
+    /// Set by `cancel_ingest`: workers stop after their current file.
+    cancel: AtomicBool,
 }
 
 /// What `ingest_paths` did.
@@ -68,6 +71,9 @@ pub struct IngestReport {
     pub chunks: usize,
     pub skipped: Vec<String>,
     pub errors: Vec<String>,
+    /// Stopped by `cancel_ingest` (the rest stays in the journal for the next start).
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 impl Engine {
@@ -90,7 +96,14 @@ impl Engine {
         data_dir: &Path,
         progress: &mut dyn FnMut(&str),
     ) -> Result<Self> {
-        let engine = Self { store, embedder, data_dir: data_dir.to_path_buf(), config: RwLock::new(Config::default()) };
+        let engine = Self {
+            store,
+            embedder,
+            data_dir: data_dir.to_path_buf(),
+            config: RwLock::new(Config::default()),
+            journal: crate::jobs::Journal::new(data_dir),
+            cancel: AtomicBool::new(false),
+        };
         let want = engine.embedder.as_ref().map(|e| e.name());
         if engine.store.embedder()? != want {
             let chunks = engine.store.all()?;
@@ -214,16 +227,71 @@ impl Engine {
         out
     }
 
-    /// Ingest files with `ingest.workers` threads: reading, chunking and embedding run in
-    /// parallel, store writes one file at a time. `progress` gets `(done, total, path)`.
+    /// Ingest files with `ingest.workers` threads (capped by `resources.cpuPercent`, at
+    /// background priority when `resources.backgroundPriority`): reading, chunking and
+    /// embedding run in parallel, store writes one file at a time. The list is journaled
+    /// first, so an interrupted run can be resumed (`resume_interrupted`). `progress` gets
+    /// `(done, total, path)`.
     pub fn ingest_paths(&self, paths: &[PathBuf], progress: &(dyn Fn(usize, usize, &Path) + Sync)) -> IngestReport {
-        let workers = self.config_workers().min(paths.len()).max(1);
+        let job = match self.journal.begin(paths) {
+            Ok(j) => Some(j),
+            Err(e) => {
+                log::warn!("ingest journal unavailable, continuing without it: {e}");
+                None
+            }
+        };
+        let all: Vec<usize> = (0..paths.len()).collect();
+        self.run_ingest(paths, &all, job, progress)
+    }
+
+    /// Ingests that a crash or quit cut short.
+    pub fn interrupted(&self) -> Vec<crate::jobs::Pending> {
+        self.journal.pending()
+    }
+
+    /// Continue every interrupted ingest (oldest first).
+    pub fn resume_interrupted(&self, progress: &(dyn Fn(usize, usize, &Path) + Sync)) -> IngestReport {
+        let mut total = IngestReport::default();
+        for p in self.journal.pending() {
+            let Some(paths) = self.journal.paths(&p.id) else { continue };
+            let left: Vec<usize> = paths.iter().enumerate().filter(|(_, x)| p.remaining.contains(x)).map(|(i, _)| i).collect();
+            log::info!("resuming an interrupted ingest: {} of {} files left", left.len(), paths.len());
+            let job = self.journal.reopen(&p.id).ok();
+            let r = self.run_ingest(&paths, &left, job, progress);
+            total.files += r.files;
+            total.chunks += r.chunks;
+            total.skipped.extend(r.skipped);
+            total.errors.extend(r.errors);
+            if r.cancelled {
+                total.cancelled = true;
+                break;
+            }
+        }
+        total
+    }
+
+    /// Stop the running ingest after the files in progress (what is left is kept for later).
+    pub fn cancel_ingest(&self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+
+    fn run_ingest(&self, paths: &[PathBuf], todo: &[usize], job: Option<crate::jobs::Job>, progress: &(dyn Fn(usize, usize, &Path) + Sync)) -> IngestReport {
+        self.cancel.store(false, Ordering::SeqCst);
+        let resources = self.config().resources;
+        let workers = resources.workers(self.config_workers()).min(todo.len()).max(1);
         let next = AtomicUsize::new(0);
         let done = AtomicUsize::new(0);
         let report = Mutex::new(IngestReport::default());
         let write = Mutex::new(());
         let run = || loop {
-            let i = next.fetch_add(1, Ordering::SeqCst);
+            if self.cancel.load(Ordering::SeqCst) {
+                if let Ok(mut r) = report.lock() {
+                    r.cancelled = true;
+                }
+                break;
+            }
+            let n = next.fetch_add(1, Ordering::SeqCst);
+            let Some(&i) = todo.get(n) else { break };
             let Some(path) = paths.get(i) else { break };
             let result = (|| -> Result<Option<usize>> {
                 if let Some(reason) = self.skip_reason(path) {
@@ -252,14 +320,28 @@ impl Engine {
                     Err(e) => r.errors.push(format!("{}: {e}", path.display())),
                 }
             }
-            progress(done.fetch_add(1, Ordering::SeqCst) + 1, paths.len(), path);
+            if let Some(j) = &job {
+                j.done(i);
+            }
+            progress(done.fetch_add(1, Ordering::SeqCst) + 1, todo.len(), path);
         };
         std::thread::scope(|s| {
             for _ in 0..workers {
-                s.spawn(run);
+                s.spawn(|| {
+                    if resources.background_priority {
+                        crate::governor::background_thread();
+                    }
+                    run()
+                });
             }
         });
-        report.into_inner().unwrap_or_default()
+        let report = report.into_inner().unwrap_or_default();
+        if let Some(j) = job {
+            if !report.cancelled {
+                j.finish();
+            }
+        }
+        report
     }
 
     fn config_workers(&self) -> usize {

@@ -3,7 +3,8 @@
 //!
 //! Methods: `ping`, `setup` (EngineOptions), `status`, `ingest_text` {source, text},
 //! `ingest_file` {path}, `ingest_folder` {path, recursive}, `search` {query, k, search?},
-//! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`, and with
+//! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`, `interrupted`
+//! (ingests a crash or quit cut short), `resume_interrupted`, `cancel_ingest`, and with
 //! feature `ai`: `ask` {question} (the answer streams as progress lines), `ai_keys`,
 //! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}; with feature `tts`: `speak` {text}
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
@@ -135,6 +136,14 @@ impl Local {
                 if let Err(e) = self.rewatch() {
                     progress(&format!("Folder watching is off: {e}"));
                 }
+                // Finish what a crash or quit interrupted, in the background.
+                let e = self.engine()?;
+                if e.config().resources.resume_interrupted && !e.interrupted().is_empty() {
+                    std::thread::spawn(move || {
+                        let r = e.resume_interrupted(&|_, _, _| {});
+                        log::info!("resumed ingest: {} files, {} chunks, {} errors", r.files, r.chunks, r.errors.len());
+                    });
+                }
                 serde_json::to_value(status).map_err(err)
             }
             "status" => match self.engine.lock().map_err(err)?.as_ref() {
@@ -170,6 +179,14 @@ impl Local {
             }
             "config" => to(Ok(self.engine()?.config())),
             "watch_status" => self.watch_status(),
+            "interrupted" => to(Ok(self.engine()?.interrupted())),
+            "resume_interrupted" => to(Ok(self.engine()?.resume_interrupted(&|_, _, _| {}))),
+            "cancel_ingest" => {
+                if let Some(e) = self.engine.lock().map_err(err)?.as_ref() {
+                    e.cancel_ingest();
+                }
+                Ok(Value::Null)
+            }
             "remove_source" => to(self.engine()?.remove_source(&arg::<String>(&params, "source")?)),
             "clear" => {
                 let e = self.engine()?;

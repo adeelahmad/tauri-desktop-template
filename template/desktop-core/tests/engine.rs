@@ -130,6 +130,39 @@ fn parallel_folder_ingest_respects_types_and_size() {
     assert_eq!(e.status().unwrap().chunks, 13);
 }
 
+#[test]
+fn a_cancelled_ingest_resumes_where_it_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let docs = dir.path().join("docs");
+    std::fs::create_dir_all(&docs).unwrap();
+    for i in 0..20 {
+        std::fs::write(docs.join(format!("n{i:02}.md")), format!("Note {i} about the heart.")).unwrap();
+    }
+    let open = || {
+        let store = FileStore::open(&dir.path().join("store")).unwrap();
+        Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir.path(), &mut |_| {}).unwrap()
+    };
+    let e = open();
+    let files = e.files_in(&docs, true);
+    // Quit after 5 files (one worker, so the count is exact).
+    let first = e.ingest_paths(&files, &|done, _, _| {
+        if done == 5 {
+            e.cancel_ingest();
+        }
+    });
+    assert!(first.cancelled);
+    assert_eq!(first.files, 5);
+    drop(e);
+    // The next start sees the rest and finishes it.
+    let e = open();
+    let left = e.interrupted();
+    assert_eq!((left.len(), left[0].total, left[0].remaining.len()), (1, 20, 15));
+    let rest = e.resume_interrupted(&|_, _, _| {});
+    assert_eq!((rest.files, rest.cancelled), (15, false));
+    assert!(e.interrupted().is_empty());
+    assert_eq!(e.status().unwrap().chunks, 20);
+}
+
 /// Needs a Postgres with pgvector (and, for BM25, vchord_bm25 + pg_tokenizer):
 /// `APP_TEST_PG_URL=postgres://... cargo test --features postgres,bm25`.
 #[cfg(feature = "postgres")]

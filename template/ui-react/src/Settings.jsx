@@ -75,6 +75,9 @@ const FIELDS = [
   ['stt', 'translate', 'Translate into English', 'bool', { needs: 'stt' }],
   ['stt', 'maxSeconds', 'Longest recording (seconds)', 'number', { needs: 'stt', min: 5, max: 7200 }],
   ['stt', 'threads', 'CPU threads (0 = automatic)', 'number', { needs: 'stt', min: 0 }],
+  ['resources', 'cpuPercent', 'CPU share for indexing (%)', 'number', { min: 10, max: 100 }],
+  ['resources', 'backgroundPriority', 'Index at background priority (keeps the computer responsive)', 'bool', {}],
+  ['resources', 'resumeInterrupted', 'Finish an interrupted import at the next start', 'bool', {}],
   ['log', 'level', 'Log level', 'select', { options: ['error', 'warn', 'info', 'debug', 'trace'] }],
   ['log', 'file', 'Write a log file (logs folder in the app data)', 'bool', {}],
   ['log', 'maxMb', 'Start a new file at (MB)', 'number', { min: 1, max: 1024 }],
@@ -115,6 +118,7 @@ const TITLES = {
   stt: 'Dictation',
   telemetry: 'Privacy',
   log: 'Logs',
+  resources: 'Performance',
   watch: 'Watch folders',
 };
 
@@ -407,7 +411,7 @@ export default function Settings({ features }) {
     setCfg(await invoke('set_config', { config: {} }));
   };
   const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', telemetry: 'telemetry' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'telemetry', 'log', 'watch'].filter(
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'resources', 'telemetry', 'log', 'watch'].filter(
     (s) => !needs[s] || features[needs[s]],
   );
   return (

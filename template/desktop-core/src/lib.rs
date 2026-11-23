@@ -10,6 +10,8 @@ pub mod chunk;
 pub mod config;
 pub mod engine;
 pub mod fuse;
+pub mod governor;
+pub mod jobs;
 pub mod logging;
 pub mod net;
 pub mod store;

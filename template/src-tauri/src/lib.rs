@@ -552,15 +552,20 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")
-        .run(|_app, event| {
+        .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                on_exit();
+                on_exit(app);
             }
         });
 }
 
-/// Stop what this window started. A worker kept by the background agent keeps running.
-fn on_exit() {
+/// Stop what this window started, in order: a running ingest stops after its current
+/// files (the rest is journaled and resumes next time), telemetry is flushed, then the
+/// worker and the database stop. A worker kept by the background agent keeps running.
+fn on_exit(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        let _ = state.service.call("cancel_ingest", Value::Null, &mut |_| {});
+    }
     #[cfg(feature = "telemetry")]
     desktop_core::telemetry::flush(std::time::Duration::from_secs(2));
     #[cfg(feature = "ipc-worker")]
