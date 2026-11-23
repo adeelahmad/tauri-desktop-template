@@ -21,6 +21,8 @@ pub struct Config {
     pub log: crate::logging::LogConfig,
     /// Offline mode, host allow and deny lists, proxy, CA certificates and pins.
     pub net: crate::net::NetConfig,
+    /// Scheduled backups: how often, how many to keep, and where.
+    pub backup: crate::backup::BackupConfig,
 {% if ai %}    #[cfg(feature = "ai")]
     pub llm: crate::llm::LlmConfig,
 {% endif %}{% if mcp_server %}    #[cfg(feature = "mcp")]
@@ -174,6 +176,7 @@ impl Config {
         self.log = self.log.validated();
         self.resources = self.resources.validated();
         self.net = self.net.validated();
+        self.backup = self.backup.validated();
         let s = &mut self.search;
         s.top_k = s.top_k.clamp(1, 1000);
         s.candidates = s.candidates.clamp(s.top_k, 5000);

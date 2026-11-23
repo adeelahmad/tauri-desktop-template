@@ -233,6 +233,24 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     Ok(applied)
 }
 
+/// Back up the index now.
+#[tauri::command(async)]
+fn backup_now(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "backup", Value::Null)
+}
+
+/// Backups in the backup folder, newest first.
+#[tauri::command(async)]
+fn list_backups(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "backups", Value::Null)
+}
+
+/// Replace the index with a backup (the current one is backed up first).
+#[tauri::command(async)]
+fn restore_backup(state: tauri::State<AppState>, path: String) -> Result<Status, String> {
+    typed(call(&state, "restore", json!({ "path": path })))
+}
+
 #[tauri::command(async)]
 fn watch_status(state: tauri::State<AppState>) -> Result<Value, String> {
     call(&state, "watch_status", Value::Null)
@@ -517,6 +535,9 @@ pub fn run() {
             get_config,
             set_config,
             watch_status,
+            backup_now,
+            list_backups,
+            restore_backup,
             #[cfg(feature = "ai")]
             ask,
             #[cfg(feature = "ai")]

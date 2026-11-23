@@ -84,7 +84,11 @@ pub fn embedded_supported() -> bool {
 
 /// The pinned SHA-256 for `file`, if `pg-ext.sha256` lists it.
 fn pinned_sha256(file: &str) -> Option<&'static str> {
-    EXT_SHA256.lines().filter_map(|l| l.split_once(char::is_whitespace)).find(|(_, f)| f.trim().trim_start_matches('*') == file).map(|(h, _)| h)
+    EXT_SHA256
+        .lines()
+        .filter_map(|l| l.split_once(char::is_whitespace))
+        .find(|(_, f)| f.trim().trim_start_matches('*') == file)
+        .map(|(h, _)| h)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -289,8 +293,11 @@ impl PostgresStore {
         .map_err(pg_err)?;
         if meta(&mut db, "bm25_tokenizer")?.as_deref() != Some(tokenizer.as_str()) {
             db.execute("update chunks set bm25 = null", &[]).map_err(pg_err)?;
-            db.execute("insert into meta values ('bm25_tokenizer', $1) on conflict (key) do update set value = excluded.value", &[&tokenizer])
-                .map_err(pg_err)?;
+            db.execute(
+                "insert into meta values ('bm25_tokenizer', $1) on conflict (key) do update set value = excluded.value",
+                &[&tokenizer],
+            )
+            .map_err(pg_err)?;
         }
         db.execute(&format!("update chunks set bm25 = tokenize(text, '{tokenizer}') where bm25 is null"), &[]).map_err(pg_err)?;
         Ok(tokenizer)
@@ -358,12 +365,25 @@ fn migrate(db: &mut postgres::Client) -> Result<u32> {
     let have: u32 = meta(db, "schema")?.and_then(|v| v.parse().ok()).unwrap_or(0);
     let want = MIGRATIONS.len() as u32;
     if have > want {
-        return Err(Error::Store(format!("the database was set up by a newer version of this app (schema {have}, this one knows {want}); update the app")));
+        return Err(Error::Store(format!(
+            "the database was set up by a newer version of this app (schema {have}, this one knows {want}); update the app"
+        )));
+    }
+    let existing: bool = db.query_one("select to_regclass('chunks') is not null", &[]).map_err(pg_err)?.get(0);
+    if existing && have < want {
+        // Keep the rows as they were, in the same database, until the next migration.
+        db.batch_execute("drop table if exists chunks_before_migration; create table chunks_before_migration as table chunks")
+            .map_err(pg_err)?;
+        log::info!("kept a copy of the chunks table (schema {have}) as chunks_before_migration");
     }
     for (n, sql) in MIGRATIONS.iter().enumerate().skip(have as usize) {
         let mut tx = db.transaction().map_err(pg_err)?;
         tx.batch_execute(sql).map_err(pg_err)?;
-        tx.execute("insert into meta values ('schema', $1) on conflict (key) do update set value = excluded.value", &[&(n + 1).to_string()]).map_err(pg_err)?;
+        tx.execute(
+            "insert into meta values ('schema', $1) on conflict (key) do update set value = excluded.value",
+            &[&(n + 1).to_string()],
+        )
+        .map_err(pg_err)?;
         tx.commit().map_err(pg_err)?;
         log::info!("database schema {} applied", n + 1);
     }
@@ -462,7 +482,10 @@ impl Store for PostgresStore {
 
     fn all(&self) -> Result<Vec<Chunk>> {
         let rows = self.db()?.query("select source, page, text, prov from chunks order by id", &[]).map_err(pg_err)?;
-        Ok(rows.iter().map(|r| Chunk { source: r.get(0), page: r.get::<_, Option<i32>>(1).map(|p| p as u32), text: r.get(2), prov: prov(r, 3) }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| Chunk { source: r.get(0), page: r.get::<_, Option<i32>>(1).map(|p| p as u32), text: r.get(2), prov: prov(r, 3) })
+            .collect())
     }
 
     fn remove_source(&self, source: &str) -> Result<usize> {

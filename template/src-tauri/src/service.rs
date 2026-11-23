@@ -131,19 +131,36 @@ impl Local {
                 *self.app_name.lock().map_err(err)? = opts.app_name.clone();
                 #[cfg(feature = "telemetry")]
                 if let Some(e) = self.engine.lock().map_err(err)?.as_ref() {
-                    desktop_core::telemetry::init(e.data_dir(), opts.app_name.as_deref().unwrap_or("app"), env!("CARGO_PKG_VERSION"), e.config().telemetry);
+                    desktop_core::telemetry::init(
+                        e.data_dir(),
+                        opts.app_name.as_deref().unwrap_or("app"),
+                        env!("CARGO_PKG_VERSION"),
+                        e.config().telemetry,
+                    );
                 }
                 if let Err(e) = self.rewatch() {
                     progress(&format!("Folder watching is off: {e}"));
                 }
                 // Finish what a crash or quit interrupted, in the background.
                 let e = self.engine()?;
+                let weak = Arc::downgrade(&e);
                 if e.config().resources.resume_interrupted && !e.interrupted().is_empty() {
                     std::thread::spawn(move || {
                         let r = e.resume_interrupted(&|_, _, _| {});
                         log::info!("resumed ingest: {} files, {} chunks, {} errors", r.files, r.chunks, r.errors.len());
                     });
                 }
+                // Scheduled backups: checked every few minutes while this engine is open.
+                std::thread::Builder::new()
+                    .name("backups".into())
+                    .spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_secs(300));
+                        let Some(e) = weak.upgrade() else { break };
+                        if let Some(Err(err)) = e.backup_if_due() {
+                            log::warn!("scheduled backup failed: {err}");
+                        }
+                    })
+                    .map_err(err)?;
                 serde_json::to_value(status).map_err(err)
             }
             "status" => match self.engine.lock().map_err(err)?.as_ref() {
@@ -186,6 +203,13 @@ impl Local {
                     e.cancel_ingest();
                 }
                 Ok(Value::Null)
+            }
+            "backup" => to(self.engine()?.backup()),
+            "backups" => to(Ok(self.engine()?.backups())),
+            "restore" => {
+                let e = self.engine()?;
+                e.restore(Path::new(&arg::<String>(&params, "path")?)).map_err(err)?;
+                to(e.status())
             }
             "remove_source" => to(self.engine()?.remove_source(&arg::<String>(&params, "source")?)),
             "clear" => {
@@ -239,7 +263,9 @@ impl Local {
                     v.clone().ok_or("no voice")?
                 };
                 let audio = voice.speak(&arg::<String>(&params, "text")?, &cfg).map_err(err)?;
-                Ok(json!({"wav": desktop_core::audio::base64(&desktop_core::audio::wav(&audio, tts::SAMPLE_RATE)), "seconds": audio.len() as f32 / tts::SAMPLE_RATE as f32}))
+                Ok(
+                    json!({"wav": desktop_core::audio::base64(&desktop_core::audio::wav(&audio, tts::SAMPLE_RATE)), "seconds": audio.len() as f32 / tts::SAMPLE_RATE as f32}),
+                )
             }
             #[cfg(feature = "tts")]
             "download_voice" => {

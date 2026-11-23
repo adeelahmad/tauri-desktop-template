@@ -78,6 +78,9 @@ const FIELDS = [
   ['resources', 'cpuPercent', 'CPU share for indexing (%)', 'number', { min: 10, max: 100 }],
   ['resources', 'backgroundPriority', 'Index at background priority (keeps the computer responsive)', 'bool', {}],
   ['resources', 'resumeInterrupted', 'Finish an interrupted import at the next start', 'bool', {}],
+  ['backup', 'intervalHours', 'Back up every (hours; 0 = only when asked)', 'number', { min: 0 }],
+  ['backup', 'keep', 'Backups to keep (0 = all)', 'number', { min: 0 }],
+  ['backup', 'folder', 'Backup folder (empty = app data; a synced folder keeps a copy off this computer)', 'text', { nullable: true }],
   ['net', 'offline', 'Offline mode (nothing leaves this computer)', 'bool', {}],
   ['net', 'allow', 'Only these hosts (*.example.com for subdomains; empty = any)', 'list', {}],
   ['net', 'deny', 'Never these hosts', 'list', {}],
@@ -127,6 +130,7 @@ const TITLES = {
   log: 'Logs',
   resources: 'Performance',
   net: 'Network',
+  backup: 'Backups',
   watch: 'Watch folders',
 };
 
@@ -261,6 +265,56 @@ function SttDownload() {
         Download the chosen model (save settings first)
       </button>
       <span className="hint">{msg}</span>
+    </div>
+  );
+}
+
+function Backups() {
+  const [list, setList] = useState([]);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () =>
+    invoke('list_backups')
+      .then(setList)
+      .catch((e) => setMsg(String(e)));
+  useEffect(() => {
+    load();
+  }, []);
+  const run = async (what, fn) => {
+    setBusy(true);
+    setMsg(what);
+    try {
+      setMsg(await fn());
+    } catch (e) {
+      setMsg(String(e));
+    }
+    setBusy(false);
+    load();
+  };
+  const now = () => run('Backing up…', async () => `Backed up ${(await invoke('backup_now')).chunks} chunks.`);
+  const restore = (b) =>
+    run('Restoring…', async () => {
+      const s = await invoke('restore_backup', { path: b.path });
+      return `Restored ${s.chunks} chunks. The index it replaced was backed up first.`;
+    });
+  return (
+    <div>
+      <div className="row">
+        <button onClick={now} disabled={busy}>
+          Back up now
+        </button>
+        <span className="hint">{msg}</span>
+      </div>
+      <ul className="backups">
+        {list.map((b) => (
+          <li key={b.path}>
+            {new Date(b.created).toLocaleString()}: {b.chunks} chunks from {b.sources} sources ({Math.ceil(b.bytes / 1024)} KB){' '}
+            <button className="link" disabled={busy} onClick={() => restore(b)}>
+              Restore
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -419,7 +473,7 @@ export default function Settings({ features }) {
     setCfg(await invoke('set_config', { config: {} }));
   };
   const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', telemetry: 'telemetry' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'resources', 'net', 'telemetry', 'log', 'watch'].filter(
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'resources', 'backup', 'net', 'telemetry', 'log', 'watch'].filter(
     (s) => !needs[s] || features[needs[s]],
   );
   return (
@@ -447,6 +501,7 @@ export default function Settings({ features }) {
           {s === 'tts' && <VoiceDownload />}
           {s === 'stt' && <SttDownload />}
           {s === 'telemetry' && <TelemetryStatus />}
+          {s === 'backup' && <Backups />}
         </details>
       ))}
       <div className="row">
