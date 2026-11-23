@@ -75,6 +75,22 @@ const FIELDS = [
   ['stt', 'translate', 'Translate into English', 'bool', { needs: 'stt' }],
   ['stt', 'maxSeconds', 'Longest recording (seconds)', 'number', { needs: 'stt', min: 5, max: 7200 }],
   ['stt', 'threads', 'CPU threads (0 = automatic)', 'number', { needs: 'stt', min: 0 }],
+  ['telemetry', 'crashReports', 'Send crash reports (Sentry)', 'bool', { needs: 'telemetry' }],
+  ['telemetry', 'sentryDsn', 'Sentry DSN', 'text', { needs: 'telemetry' }],
+  ['telemetry', 'analytics', 'Send anonymous usage statistics', 'bool', { needs: 'telemetry' }],
+  [
+    'telemetry',
+    'analyticsProvider',
+    'Analytics service',
+    'select',
+    { needs: 'telemetry', options: ['posthog', 'aptabase'], labels: ['PostHog', 'Aptabase'] },
+  ],
+  ['telemetry', 'analyticsKey', 'Analytics project key', 'text', { needs: 'telemetry' }],
+  ['telemetry', 'analyticsHost', 'Analytics host (empty = the service default)', 'text', { needs: 'telemetry' }],
+  ['telemetry', 'traces', 'Send traces (OpenTelemetry)', 'bool', { needs: 'telemetry' }],
+  ['telemetry', 'otlpEndpoint', 'OTLP endpoint, e.g. http://localhost:4318', 'text', { needs: 'telemetry' }],
+  ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
+  ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolder', 'Use the drop folder', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolderPath', 'Drop folder (empty = Documents/<app> Inbox)', 'text', { needs: 'watch', nullable: true }],
@@ -93,6 +109,7 @@ const TITLES = {
   mcp: 'MCP server',
   tts: 'Speech',
   stt: 'Dictation',
+  telemetry: 'Privacy',
   watch: 'Watch folders',
 };
 
@@ -231,6 +248,25 @@ function SttDownload() {
   );
 }
 
+function TelemetryStatus() {
+  const [s, setS] = useState(null);
+  useEffect(() => {
+    invoke('telemetry_status')
+      .then(setS)
+      .catch(() => {});
+  }, []);
+  if (!s?.running) return <p className="hint">Nothing is sent unless you switch it on above.</p>;
+  const on = [s.crashReports && 'crash reports', s.analytics && 'usage statistics', s.traces && 'traces'].filter(Boolean);
+  return (
+    <p className="hint">
+      Sending: {on.length ? on.join(', ') : 'nothing'}. Anonymous id {s.installId.slice(0, 8)}…, {s.sent} sent
+      {s.pendingCrashes ? `, ${s.pendingCrashes} crash reports kept on this computer` : ''}
+      {s.lastError ? `. Last problem: ${s.lastError}` : ''}. Only call names, timings and counts are sent, never your documents or
+      questions.
+    </p>
+  );
+}
+
 function McpConnect() {
   const [setup, setSetup] = useState(null);
   const [msg, setMsg] = useState('');
@@ -365,8 +401,8 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'watch'].filter((s) => !needs[s] || features[needs[s]]);
+  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', telemetry: 'telemetry' };
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'telemetry', 'watch'].filter((s) => !needs[s] || features[needs[s]]);
   return (
     <section>
       <h2>Settings</h2>
@@ -391,6 +427,7 @@ export default function Settings({ features }) {
           {s === 'mcp' && <McpConnect />}
           {s === 'tts' && <VoiceDownload />}
           {s === 'stt' && <SttDownload />}
+          {s === 'telemetry' && <TelemetryStatus />}
         </details>
       ))}
       <div className="row">

@@ -23,6 +23,8 @@ pub struct Config {
     pub tts: crate::tts::TtsConfig,
 {% endif %}{% if stt %}    #[cfg(feature = "stt")]
     pub stt: crate::stt::SttConfig,
+{% endif %}{% if telemetry %}    #[cfg(feature = "telemetry")]
+    pub telemetry: crate::telemetry::TelemetryConfig,
 {% endif %}}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,6 +205,10 @@ impl Config {
 {% endif %}{% if stt %}        #[cfg(feature = "stt")]
         {
             self.stt = self.stt.validated();
+        }
+{% endif %}{% if telemetry %}        #[cfg(feature = "telemetry")]
+        {
+            self.telemetry = self.telemetry.validated();
         }
 {% endif %}        self
     }

@@ -31,6 +31,8 @@ pub mod local;
 pub mod tts;
 {% endif %}{% if stt %}#[cfg(feature = "stt")]
 pub mod stt;
+{% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
+pub mod telemetry;
 {% endif %}
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};

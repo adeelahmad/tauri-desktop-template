@@ -72,3 +72,58 @@ pub fn download_to(url: &str, dest: &std::path::Path, progress: &mut dyn FnMut(u
     progress(done, total);
     std::fs::rename(&part, dest).map_err(|e| e.to_string())
 }
+
+/// Whether `url` may be posted to: HTTPS, or plain HTTP to this computer (a local collector).
+fn postable(url: &str) -> bool {
+    if url.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = url.strip_prefix("http://") else { return false };
+    let host = rest.split(['/', '?']).next().unwrap_or_default();
+    let host = host.rsplit_once(':').map_or(host, |(h, p)| if p.chars().all(|c| c.is_ascii_digit()) { h } else { host });
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+}
+
+/// POST `body` to `url` with extra `headers`; any 2xx is success.
+pub fn post(url: &str, headers: &[(String, String)], body: &[u8]) -> Result<(), String> {
+    if !postable(url) {
+        return Err(format!("refusing a non-HTTPS URL: {url}"));
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
+        .user_agent(concat!("desktop-core/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let mut req = agent.post(url);
+    for (k, v) in headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    let status = req.send(body).map_err(|e| e.to_string())?.status().as_u16();
+    if (200..300).contains(&status) {
+        Ok(())
+    } else {
+        Err(format!("HTTP {status} from {}", url.split('?').next().unwrap_or(url)))
+    }
+}
+
+/// POST JSON (see `post`).
+pub fn post_json(url: &str, headers: &[(String, String)], body: &serde_json::Value) -> Result<(), String> {
+    let mut h = headers.to_vec();
+    h.push(("Content-Type".into(), "application/json".into()));
+    post(url, &h, body.to_string().as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn only_https_or_this_computer() {
+        assert!(super::postable("https://x.example/a"));
+        assert!(super::postable("http://localhost:4318/v1/traces"));
+        assert!(super::postable("http://127.0.0.1/v1"));
+        assert!(!super::postable("http://example.com/v1"));
+        assert!(!super::postable("http://localhost.evil.com/v1"));
+        assert!(!super::postable("ftp://localhost/"));
+    }
+}
