@@ -11,6 +11,8 @@ name: Release
 # Secrets (optional): TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD sign
 # the update bundles (`cargo tauri signer generate`). Without them the installers still
 # build; there are just no update bundles.
+# Telemetry keys (optional; feature `telemetry` builds them in as defaults, users still opt in): SENTRY_DSN, POSTHOG_KEY,
+# POSTHOG_HOST, APTABASE_KEY, OTEL_EXPORTER_OTLP_ENDPOINT.
 # Settings > Actions > General > Workflow permissions must be "Read and write" for the
 # release step.
 
@@ -80,6 +82,11 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+      POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+      APTABASE_KEY: ${{ secrets.APTABASE_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
       APP_NAME: ${{ needs.plan.outputs.name }}
       VERSION: ${{ needs.plan.outputs.version }}
     steps:

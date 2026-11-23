@@ -7,7 +7,8 @@
 //! feature `ai`: `ask` {question} (the answer streams as progress lines), `ai_keys`,
 //! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}; with feature `tts`: `speak` {text}
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
-//! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}.
+//! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}; with feature
+//! `telemetry`: `telemetry_status` (every other call is timed for opt-in traces/analytics).
 //!
 //! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
@@ -102,6 +103,20 @@ impl Local {
 
 impl Service for Local {
     fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
+        #[cfg(feature = "telemetry")]
+        let start = std::time::Instant::now();
+        let reply = self.dispatch(method, params, progress);
+        // Only the method name, the time it took and ok/error are recorded (when allowed).
+        #[cfg(feature = "telemetry")]
+        if !matches!(method, "ping" | "status" | "config" | "watch_status" | "telemetry_status") {
+            desktop_core::telemetry::record(method, start, reply.is_ok());
+        }
+        reply
+    }
+}
+
+impl Local {
+    fn dispatch(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
         match method {
             "ping" => Ok(json!({"pid": std::process::id(), "version": env!("CARGO_PKG_VERSION")})),
             "setup" => {
@@ -110,6 +125,10 @@ impl Service for Local {
                 let status = engine.status().map_err(err)?;
                 *self.engine.lock().map_err(err)? = Some(Arc::new(engine));
                 *self.app_name.lock().map_err(err)? = opts.app_name.clone();
+                #[cfg(feature = "telemetry")]
+                if let Some(e) = self.engine.lock().map_err(err)?.as_ref() {
+                    desktop_core::telemetry::init(e.data_dir(), opts.app_name.as_deref().unwrap_or("app"), env!("CARGO_PKG_VERSION"), e.config().telemetry);
+                }
                 if let Err(e) = self.rewatch() {
                     progress(&format!("Folder watching is off: {e}"));
                 }
@@ -141,6 +160,8 @@ impl Service for Local {
                 let e = self.engine()?;
                 e.configure(arg::<Config>(&params, "config")?).map_err(err)?;
                 self.rewatch()?;
+                #[cfg(feature = "telemetry")]
+                desktop_core::telemetry::configure(e.config().telemetry);
                 to(Ok(e.config()))
             }
             "config" => to(Ok(self.engine()?.config())),
@@ -262,6 +283,8 @@ impl Service for Local {
                 .map_err(err)?;
                 Ok(json!(dir))
             }
+            #[cfg(feature = "telemetry")]
+            "telemetry_status" => Ok(desktop_core::telemetry::status()),
             other => Err(format!("unknown method {other:?}")),
         }
     }

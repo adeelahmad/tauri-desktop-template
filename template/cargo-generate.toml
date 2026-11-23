@@ -60,6 +60,11 @@ type = "bool"
 prompt = "Speech to text with Whisper (tiny/base/small, multilingual, MIT; ONNX Runtime, model downloads on first use): dictate questions or transcribe audio files?"
 default = false
 
+[placeholders.telemetry]
+type = "bool"
+prompt = "Opt-in telemetry: crash reports (Sentry), anonymous analytics (PostHog or Aptabase), traces (OpenTelemetry)? Nothing is sent until the user switches it on"
+default = false
+
 [placeholders.mcp_server]
 type = "bool"
 prompt = "Built-in MCP server (Rust, stdio) so Claude Desktop, Claude Code and other MCP clients can search this app's documents? Off until switched on in Settings"
@@ -167,6 +172,9 @@ ignore = ["desktop-core/src/tts.rs"]
 
 [conditional.'!stt']
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
+
+[conditional.'!telemetry']
+ignore = ["desktop-core/src/telemetry.rs"]
 
 [conditional.'!watch_folders']
 ignore = ["desktop-core/src/watch.rs"]

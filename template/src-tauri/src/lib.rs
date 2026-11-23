@@ -98,6 +98,7 @@ fn features() -> Value {
         "llama": cfg!(feature = "llama"),
         "tts": cfg!(feature = "tts"),
         "stt": cfg!(feature = "stt"),
+        "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
@@ -284,6 +285,13 @@ fn download_stt(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<
     })
 }
 
+/// What telemetry is on, the anonymous install id and the last send problem.
+#[cfg(feature = "telemetry")]
+#[tauri::command(async)]
+fn telemetry_status(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "telemetry_status", Value::Null)
+}
+
 /// Providers that have a key (the keys never leave the backend).
 #[cfg(feature = "ai")]
 #[tauri::command(async)]
@@ -447,6 +455,14 @@ pub fn run() {
     let builder = builder.manage(python::PythonWorker::default());
     #[cfg(feature = "updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // Panics in the window process are written to <data>/crashes too (sent only if allowed).
+    #[cfg(feature = "telemetry")]
+    let builder = builder.setup(|app| {
+        if let Ok(dir) = app.path().app_data_dir() {
+            desktop_core::telemetry::install_panic_hook(&dir, &app.package_info().name, &app.package_info().version.to_string());
+        }
+        Ok(())
+    });
     builder
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -474,6 +490,8 @@ pub fn run() {
             transcribe,
             #[cfg(feature = "stt")]
             download_stt,
+            #[cfg(feature = "telemetry")]
+            telemetry_status,
             #[cfg(feature = "mcp")]
             mcp_setup,
             #[cfg(feature = "mcp")]
@@ -504,6 +522,8 @@ pub fn run() {
 
 /// Stop what this window started. A worker kept by the background agent keeps running.
 fn on_exit() {
+    #[cfg(feature = "telemetry")]
+    desktop_core::telemetry::flush(std::time::Duration::from_secs(2));
     #[cfg(feature = "ipc-worker")]
     {
         #[cfg(feature = "background-agent")]

@@ -56,6 +56,9 @@ Everything runs on the user's machine.
 {% if stt -%}
 | Speech to text with Whisper (tiny/base/small, multilingual, language detection, translate to English) over ONNX Runtime; mel spectrogram and decoding in Rust. Dictate into search and Ask, or transcribe an audio file. Turn on under Settings → Dictation | `desktop-core/src/stt.rs`, `desktop-core/src/audio.rs` | `stt` |
 {% endif -%}
+{% if telemetry -%}
+| Opt-in telemetry with no SDKs: crash reports to Sentry (always kept locally in `crashes/`), anonymous usage events to PostHog or Aptabase, OpenTelemetry traces over OTLP/HTTP. Off until the user switches it on under Settings → Privacy; keys come from build-time secrets | `desktop-core/src/telemetry.rs` | `telemetry` |
+{% endif -%}
 {% if mcp_server -%}
 | MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
 {% endif -%}

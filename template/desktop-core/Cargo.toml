@@ -43,6 +43,10 @@ tts = ["dep:ort", "dep:sha2"]
 # Speech to text with Whisper through ONNX Runtime (the same runtime, no whisper.cpp).
 stt = ["dep:ort", "dep:sha2"]
 {% endif -%}
+{% if telemetry -%}
+# Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
+telemetry = []
+{% endif -%}
 {% if mcp_server -%}
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
