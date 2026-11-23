@@ -19,6 +19,8 @@ pub struct Config {
     pub llm: crate::llm::LlmConfig,
 {% endif %}{% if mcp_server %}    #[cfg(feature = "mcp")]
     pub mcp: crate::mcp::McpConfig,
+{% endif %}{% if tts %}    #[cfg(feature = "tts")]
+    pub tts: crate::tts::TtsConfig,
 {% endif %}}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,6 +193,10 @@ impl Config {
 {% endif %}{% if mcp_server %}        #[cfg(feature = "mcp")]
         {
             self.mcp = self.mcp.validated();
+        }
+{% endif %}{% if tts %}        #[cfg(feature = "tts")]
+        {
+            self.tts = self.tts.validated();
         }
 {% endif %}        self
     }

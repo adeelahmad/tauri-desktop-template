@@ -57,7 +57,7 @@ impl LocalEmbedder {
     pub fn new(cache: &Path) -> Result<Self> {
         let name = model_name();
         let spec = spec(&name)?;
-        let opts = TextInitOptions::new(spec.model.clone()).with_cache_dir(cache.to_path_buf()).with_show_download_progress(false);
+        let opts = TextInitOptions::new(spec.model.clone()).with_cache_dir(cache.to_path_buf()).with_show_download_progress(false).with_environment(crate::onnx_env()?);
         let model = TextEmbedding::try_new(opts).map_err(|e| Error::Embed(e.to_string()))?;
         Ok(Self { name, spec, model: Mutex::new(model) })
     }

@@ -26,6 +26,8 @@ pub mod llm;
 pub mod mcp;
 {% endif %}{% if local_llm %}#[cfg(feature = "llama")]
 pub mod local;
+{% endif %}{% if tts %}#[cfg(feature = "tts")]
+pub mod tts;
 {% endif %}
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};
@@ -54,6 +56,21 @@ pub enum Error {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+{% if embeddings or tts %}
+/// The process's one ONNX Runtime environment, shared by the embedder and the voice
+/// (ONNX Runtime allows only one per process).
+#[cfg(any(feature = "embed", feature = "tts"))]
+pub fn onnx_env() -> Result<ort::environment::Environment> {
+    static ENV: std::sync::Mutex<Option<ort::environment::Environment>> = std::sync::Mutex::new(None);
+    let mut env = ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(e) = env.as_ref() {
+        return Ok(e.clone());
+    }
+    let e = ort::init().build().map_err(|e| Error::Source(format!("ONNX Runtime: {e}")))?;
+    *env = Some(e.clone());
+    Ok(e)
+}
+{% endif %}
 
 /// Turns text into unit-length vectors. `LocalEmbedder` (feature `embed`) is the real one;
 /// tests use a small deterministic stand-in.

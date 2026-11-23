@@ -361,7 +361,7 @@ export default function App() {
         <main>
           <AddDocuments onChange={refresh} />
           <Search />
-          {f.ai && <Ask />}
+          {f.ai && <Ask features={f} />}
           <Settings features={f} />
           {f.backgroundAgent && <BackgroundAgent />}
           {f.pythonExample && <PythonExample />}
