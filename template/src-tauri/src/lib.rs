@@ -92,6 +92,7 @@ fn features() -> Value {
         "postgres": cfg!(feature = "postgres"),
         "bm25": cfg!(feature = "bm25"),
         "watch": cfg!(feature = "watch"),
+        "ai": cfg!(feature = "ai"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
         "updater": cfg!(feature = "updater"),
@@ -219,6 +220,29 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
 #[tauri::command(async)]
 fn watch_status(state: tauri::State<AppState>) -> Result<Value, String> {
     call(&state, "watch_status", Value::Null)
+}
+
+/// Answer from the documents with the configured LLM; the text streams as `ask-token`.
+#[cfg(feature = "ai")]
+#[tauri::command(async)]
+fn ask(app: tauri::AppHandle, state: tauri::State<AppState>, question: String) -> Result<Value, String> {
+    state.service.call("ask", json!({"question": question}), &mut |t| {
+        let _ = app.emit("ask-token", t.to_string());
+    })
+}
+
+/// Providers that have a key (the keys never leave the backend).
+#[cfg(feature = "ai")]
+#[tauri::command(async)]
+fn ai_keys(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "ai_keys", Value::Null)
+}
+
+/// Store a provider's key (an empty key forgets it).
+#[cfg(feature = "ai")]
+#[tauri::command(async)]
+fn set_ai_key(state: tauri::State<AppState>, provider: String, key: Option<String>) -> Result<Value, String> {
+    call(&state, "set_ai_key", json!({"provider": provider, "key": key}))
 }
 
 #[tauri::command(async)]
@@ -350,6 +374,12 @@ pub fn run() {
             get_config,
             set_config,
             watch_status,
+            #[cfg(feature = "ai")]
+            ask,
+            #[cfg(feature = "ai")]
+            ai_keys,
+            #[cfg(feature = "ai")]
+            set_ai_key,
             remove_source,
             clear,
             #[cfg(feature = "updater")]

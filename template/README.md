@@ -44,6 +44,9 @@ Everything runs on the user's machine.
 {% if watch_folders -%}
 | Drop folder + watch folders (debounced auto-ingest, deletes forgotten) | `desktop-core/src/watch.rs` | `watch` |
 {% endif -%}
+{% if ai -%}
+| AI answers over your documents (Claude, OpenAI, Gemini, Ollama, any OpenAI-compatible server): streaming, citations, fallbacks, budgets. Turn on under Settings → AI | `desktop-core/src/llm.rs` | `ai` |
+{% endif -%}
 {% if pdf -%}
 | PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
 {% endif -%}

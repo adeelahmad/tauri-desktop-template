@@ -12,6 +12,7 @@ feature afterwards.
 | `postgres` | Embedded Postgres 16 + pgvector (downloads on first run, HNSW search, our own extension builds: no AVX-512 needed) |
 | `bm25` | BM25 keyword ranking in Postgres (VectorChord-BM25), for hybrid BM25 + vector search. Default off |
 | `watch_folders` | A drop folder plus watch folders that ingest new files automatically. Default off |
+| `ai` | Ask questions over your documents with Claude, OpenAI, Gemini, Ollama or any OpenAI-compatible server (llama.cpp, LM Studio, vLLM): streaming, citations, retries, fallback providers, token budgets, prompt caching. Keys stay in an owner-only file in the app data folder. No extra dependencies. Default off |
 | `pdf` | PDF text via docling.rs, tesseract OCR for pages without a text layer |
 | `ipc_worker` | Backend in its own process (`app --worker`) over a Unix socket / named pipe |
 | `background_agent` | Starts the worker at login: macOS launchd LaunchAgent, Windows Run entry, Linux systemd user unit |

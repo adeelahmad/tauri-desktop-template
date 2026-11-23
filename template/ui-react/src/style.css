@@ -146,3 +146,13 @@ select {
   border-radius: 6px;
   border: 1px solid var(--line);
 }
+
+.answer {
+  white-space: pre-wrap;
+  margin: 0.75rem 0;
+  line-height: 1.5;
+}
+.sources {
+  margin: 0;
+  padding-left: 1.25rem;
+}

@@ -15,6 +15,7 @@ async function start() {
   show('claude', f.claudeMcp);
   show('python', f.pythonExample);
   if (f.backgroundAgent) { show('agent'); refreshAgent(); }
+  if (f.ai) { show('ask'); invoke('ai_keys').then(keysText).catch(() => {}); }
   show('w-pg-option', f.postgres);
   if (f.postgres && !info.postgresAvailable) {
     $('w-pg-option').querySelector('input').disabled = true;
@@ -192,3 +193,29 @@ $('claude-go').onclick = async () => {
 };
 
 start().catch((e) => say('loading', String(e), true));
+
+// AI answers (feature `ai`): the reply streams in as `ask-token` events.
+async function ask() {
+  const question = $('question').value.trim();
+  if (!question) return;
+  $('answer').textContent = '';
+  $('sources').innerHTML = '';
+  const off = await listen('ask-token', (e) => { $('answer').textContent += e.payload; });
+  try {
+    const r = await invoke('ask', { question });
+    $('answer').textContent = r.reply.text;
+    r.sources.forEach((h, i) => {
+      const li = document.createElement('li');
+      li.className = 'meta';
+      li.textContent = `[${i + 1}] ${h.source}${h.page ? `, page ${h.page}` : ''}`;
+      $('sources').append(li);
+    });
+  } catch (e) { $('answer').textContent = String(e); } finally { off(); }
+}
+$('ask-go').onclick = ask;
+$('question').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
+const keysText = (have) => { $('key-status').textContent = have.length ? `Keys set: ${have.join(', ')}` : 'No keys set.'; };
+$('key-save').onclick = async () => {
+  try { keysText(await invoke('set_ai_key', { provider: $('key-provider').value, key: $('key').value })); $('key').value = ''; }
+  catch (e) { $('key-status').textContent = String(e); }
+};
