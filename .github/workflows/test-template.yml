@@ -4,8 +4,10 @@ name: Test the template
 # OS: core tests, the desktop app build, and the app's --self-test.
 
 on:
+  # Push runs only on main: a PR branch already gets the pull_request run, and this private
+  # repo pays for Actions minutes (macOS minutes cost 10x).
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
