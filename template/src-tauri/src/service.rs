@@ -103,9 +103,12 @@ impl Local {
 
 impl Service for Local {
     fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
-        #[cfg(feature = "telemetry")]
         let start = std::time::Instant::now();
         let reply = self.dispatch(method, params, progress);
+        match &reply {
+            Ok(_) => log::debug!("{method} took {} ms", start.elapsed().as_millis()),
+            Err(e) => log::warn!("{method} failed after {} ms: {e}", start.elapsed().as_millis()),
+        }
         // Only the method name, the time it took and ok/error are recorded (when allowed).
         #[cfg(feature = "telemetry")]
         if !matches!(method, "ping" | "status" | "config" | "watch_status" | "telemetry_status") {
@@ -160,6 +163,7 @@ impl Local {
                 let e = self.engine()?;
                 e.configure(arg::<Config>(&params, "config")?).map_err(err)?;
                 self.rewatch()?;
+                desktop_core::logging::configure(e.config().log);
                 #[cfg(feature = "telemetry")]
                 desktop_core::telemetry::configure(e.config().telemetry);
                 to(Ok(e.config()))

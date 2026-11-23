@@ -13,7 +13,7 @@
     "frontendDist": "../ui"{% endif %}
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": {% if frontend == "react" %}false{% else %}true{% endif %},
     "windows": [
       {
         "title": "{{app_name}}",
@@ -22,7 +22,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "freezePrototype": true
     }
   },
   "bundle": {

@@ -15,6 +15,8 @@ pub struct Config {
     pub search: SearchConfig,
     pub ingest: IngestConfig,
     pub watch: WatchConfig,
+    /// Log level and file rotation.
+    pub log: crate::logging::LogConfig,
 {% if ai %}    #[cfg(feature = "ai")]
     pub llm: crate::llm::LlmConfig,
 {% endif %}{% if mcp_server %}    #[cfg(feature = "mcp")]
@@ -165,6 +167,7 @@ impl Default for WatchConfig {
 impl Config {
     /// The same config with every number in a safe range.
     pub fn validated(mut self) -> Self {
+        self.log = self.log.validated();
         let s = &mut self.search;
         s.top_k = s.top_k.clamp(1, 1000);
         s.candidates = s.candidates.clamp(s.top_k, 5000);
