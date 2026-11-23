@@ -9,7 +9,9 @@ feature afterwards.
 |---|---|
 | `frontend` | React 19 + Vite (`ui-react/`) or plain HTML/JS (`ui/`) |
 | `embeddings` | Local ONNX text embeddings via fastembed-rs; pick Nomic v1.5, BGE small, MiniLM or multilingual E5 |
-| `postgres` | Embedded Postgres 16 + pgvector (downloads on first run, HNSW search, AVX-512 guard) |
+| `postgres` | Embedded Postgres 16 + pgvector (downloads on first run, HNSW search, our own extension builds: no AVX-512 needed) |
+| `bm25` | BM25 keyword ranking in Postgres (VectorChord-BM25), for hybrid BM25 + vector search. Default off |
+| `watch_folders` | A drop folder plus watch folders that ingest new files automatically. Default off |
 | `pdf` | PDF text via docling.rs, tesseract OCR for pages without a text layer |
 | `ipc_worker` | Backend in its own process (`app --worker`) over a Unix socket / named pipe |
 | `background_agent` | Starts the worker at login: macOS launchd LaunchAgent, Windows Run entry, Linux systemd user unit |
@@ -21,7 +23,8 @@ feature afterwards.
 | `install_scripts` | `curl … \| sh` (macOS, no Gatekeeper prompt) and PowerShell one-liners |
 | `claude_mcp` | Bundles uv and registers a Python MCP server in Claude Desktop (config backed up first) |
 
-Always included: a file store with keyword search (works with everything off),
+Always included: a file store with BM25, vector and hybrid (RRF) search, configurable
+chunking and parallel ingest workers (one settings file, everything optional off by default),
 `--self-test` for CI, CI for macOS/Windows/Linux, generic icons.
 
 ## Use

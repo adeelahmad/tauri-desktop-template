@@ -65,3 +65,86 @@ fn keyword_and_vector_search_and_model_change() {
     e.clear().unwrap();
     assert_eq!(e.status().unwrap().chunks, 0);
 }
+
+const CORPUS: &[(&str, &str)] = &[
+    ("erb", "Erb palsy is an upper trunk brachial plexus injury at C5 and C6 roots."),
+    ("klumpke", "Klumpke palsy is a lower trunk injury affecting C8 and T1."),
+    ("femoral", "The femoral nerve supplies the quadriceps and the skin of the anterior thigh."),
+    ("heart", "The heart pumps blood through the arteries to the body."),
+];
+
+fn hybrid_checks(e: &Engine) {
+    use desktop_core::{SearchConfig, SearchMode};
+    for (source, text) in CORPUS {
+        e.ingest_text(source, text).unwrap();
+    }
+    let hybrid = SearchConfig { mode: SearchMode::Hybrid, top_k: 3, ..SearchConfig::default() };
+    let hits = e.search_with("upper trunk C5 palsy", &hybrid).unwrap();
+    assert_eq!(hits[0].source, "erb", "{hits:?}");
+    assert!(hits[0].vector_score.is_some() && hits[0].keyword_score.is_some(), "{hits:?}");
+    // Keyword only, and a threshold that nothing meets.
+    let kw = SearchConfig { mode: SearchMode::Keyword, ..hybrid.clone() };
+    assert_eq!(e.search_with("quadriceps", &kw).unwrap()[0].source, "femoral");
+    let strict = SearchConfig { min_score: Some(10.0), ..hybrid.clone() };
+    assert!(e.search_with("upper trunk", &strict).unwrap().is_empty());
+    // Vector weight 0 leaves the keyword ranking.
+    let kw_only = SearchConfig { vector_weight: 0.0, ..hybrid };
+    assert_eq!(e.search_with("femoral nerve", &kw_only).unwrap()[0].source, "femoral");
+}
+
+#[test]
+fn hybrid_search_on_the_file_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = FileStore::open(&dir.path().join("store")).unwrap();
+    let e = Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir.path(), &mut |_| {}).unwrap();
+    hybrid_checks(&e);
+}
+
+#[test]
+fn parallel_folder_ingest_respects_types_and_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let docs = dir.path().join("docs");
+    std::fs::create_dir_all(docs.join("sub")).unwrap();
+    for i in 0..12 {
+        std::fs::write(docs.join(format!("n{i}.md")), format!("Note {i} about the heart and blood.")).unwrap();
+    }
+    std::fs::write(docs.join("sub/deep.txt"), "Rust compiles to native code.").unwrap();
+    std::fs::write(docs.join("skip.exe"), "binary").unwrap();
+    std::fs::write(docs.join(".hidden.md"), "hidden").unwrap();
+    let store = FileStore::open(&dir.path().join("store")).unwrap();
+    let e = Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir.path(), &mut |_| {}).unwrap();
+    let mut cfg = e.config();
+    cfg.ingest.workers = 4;
+    e.configure(cfg).unwrap();
+    let files = e.files_in(&docs, true);
+    assert_eq!(files.len(), 13);
+    let seen = std::sync::atomic::AtomicUsize::new(0);
+    let report = e.ingest_paths(&files, &|_, total, _| {
+        assert_eq!(total, 13);
+        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert_eq!((report.files, report.chunks, report.errors.len()), (13, 13, 0));
+    assert_eq!(seen.into_inner(), 13);
+    // Ingesting again replaces, it does not duplicate.
+    e.ingest_paths(&files, &|_, _, _| {});
+    assert_eq!(e.status().unwrap().chunks, 13);
+}
+
+/// Needs a Postgres with pgvector (and, for BM25, vchord_bm25 + pg_tokenizer):
+/// `APP_TEST_PG_URL=postgres://... cargo test --features postgres,bm25`.
+#[cfg(feature = "postgres")]
+#[test]
+fn hybrid_search_on_postgres() {
+    let Ok(url) = std::env::var("APP_TEST_PG_URL") else {
+        eprintln!("skipped: set APP_TEST_PG_URL");
+        return;
+    };
+    std::env::set_var("APP_PG_URL", url);
+    let dir = tempfile::tempdir().unwrap();
+    let store = desktop_core::pgstore::PostgresStore::open(dir.path()).unwrap();
+    let e = Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag-pg"))), dir.path(), &mut |_| {}).unwrap();
+    e.clear().unwrap();
+    e.configure(desktop_core::Config::default()).unwrap();
+    hybrid_checks(&e);
+    e.clear().unwrap();
+}

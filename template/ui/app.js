@@ -42,7 +42,7 @@ function setup(backend, embeddings, statusArea) {
     show('w-progress', false);
     $('w-go').disabled = false;
     if (!e.payload.ok) return line(`Setup failed: ${e.payload.error}`, true);
-    show('wizard', false); show('loading', false); show('main'); show('clear');
+    show('wizard', false); show('loading', false); show('main'); show('clear'); loadConfig().catch(() => {});
     const s = e.payload.status;
     $('about').textContent = `${info.name} ${info.version} · ${s.chunks} chunks · ${s.backend} store` +
       (s.embedder ? ` · ${s.embedder}` : ' · keyword search');
@@ -73,6 +73,31 @@ async function addFile(path) {
 }
 
 $('add-file').onclick = () => { const p = $('file-path').value.trim(); if (p) addFile(p); };
+$('add-folder').onclick = async () => {
+  const path = $('file-path').value.trim();
+  if (!path) return;
+  say('add-status', `Reading every document in ${path}…`);
+  try {
+    const r = await invoke('ingest_folder', { path, recursive: true });
+    say('add-status', `Added ${r.files} files (${r.chunks} chunks)${r.errors.length ? `, ${r.errors.length} failed: ${r.errors[0]}` : ''}.`, r.errors.length > 0);
+    refreshAbout();
+  } catch (e) { say('add-status', String(e), true); }
+};
+
+// ---- settings (desktop-core Config) ----
+async function loadConfig() { $('config').value = JSON.stringify(await invoke('get_config'), null, 2); }
+async function saveConfig(config) {
+  try {
+    $('config').value = JSON.stringify(await invoke('set_config', { config }), null, 2);
+    say('config-status', 'Saved.');
+  } catch (e) { say('config-status', `Not saved: ${e}`, true); }
+}
+$('config-save').onclick = () => {
+  let config;
+  try { config = JSON.parse($('config').value); } catch (e) { return say('config-status', `Not valid JSON: ${e.message}`, true); }
+  saveConfig(config);
+};
+$('config-reset').onclick = () => saveConfig({});
 $('add-text').onclick = async () => {
   const text = $('paste').value;
   if (!text.trim()) return;
@@ -91,13 +116,14 @@ async function runSearch() {
   const list = $('results');
   list.innerHTML = '';
   try {
-    const hits = await invoke('search', { query, k: 10 });
+    const hits = await invoke('search', { query });
     if (!hits.length) list.innerHTML = '<li class="meta">Nothing found.</li>';
     for (const h of hits) {
       const li = document.createElement('li');
       const meta = document.createElement('div');
       meta.className = 'meta';
-      meta.textContent = `${h.source}${h.page ? `, page ${h.page}` : ''} · ${h.score.toFixed(3)}`;
+      meta.textContent = `${h.source}${h.page ? `, page ${h.page}` : ''} · ${h.score.toFixed(3)}` +
+        (h.vector_score != null ? ` · vector ${h.vector_score.toFixed(3)}` : '') + (h.keyword_score != null ? ` · keyword ${h.keyword_score.toFixed(2)}` : '');
       const body = document.createElement('div');
       body.textContent = h.text;
       li.append(meta, body);

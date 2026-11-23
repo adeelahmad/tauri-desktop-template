@@ -8,5 +8,12 @@ APP_EMBED_MODEL = "{{embedding_model}}"
 APP_MCP_NAME = "{{mcp_server_name}}"
 APP_MCP_PACKAGE = "{{mcp_package}}"
 {% endif -%}
+{% if postgres -%}
+# Postgres extension bundle (pgvector, pg_tokenizer, VectorChord-BM25) for embedded
+# Postgres 16.16.0, one zip per target, built by the pg-extensions workflow. Pin its hashes
+# in desktop-core/pg-ext.sha256 (the release's SHA256SUMS). Host your own by running that
+# workflow in your repo and pointing this at your release.
+APP_PG_EXT_URL = "https://github.com/adeelahmad/ankiplusMCP/releases/download/pg-ext-16.16.0-r1/pg16-extensions-{target}.zip"
+{% endif -%}
 APP_REPOSITORY = "{{github_repo}}"
 APP_IDENTIFIER = "{{identifier}}"

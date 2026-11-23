@@ -31,12 +31,18 @@ Everything runs on the user's machine.
 
 | Part | Where | Cargo feature |
 |---|---|---|
-| Chunking, file store, keyword search | `desktop-core/src/{chunk,store,engine}.rs` | always |
+| Chunking (size, overlap), file store, BM25 + vector + hybrid (RRF) search, parallel ingest | `desktop-core/src/{chunk,store,engine,fuse,config}.rs` | always |
 {% if embeddings -%}
 | Local ONNX embeddings (fastembed-rs, `{{embedding_model}}`) | `desktop-core/src/embed.rs` | `embed` |
 {% endif -%}
 {% if postgres -%}
-| Embedded Postgres 16 + pgvector (HNSW cosine, full-text fallback) | `desktop-core/src/pgstore.rs` | `postgres` |
+| Embedded Postgres 16 + pgvector (HNSW cosine, full-text keywords) | `desktop-core/src/pgstore.rs` | `postgres` |
+{% if bm25 -%}
+| BM25 in Postgres (VectorChord-BM25 + pg_tokenizer) for hybrid search | `desktop-core/src/pgstore.rs` | `bm25` |
+{% endif -%}
+{% endif -%}
+{% if watch_folders -%}
+| Drop folder + watch folders (debounced auto-ingest, deletes forgotten) | `desktop-core/src/watch.rs` | `watch` |
 {% endif -%}
 {% if pdf -%}
 | PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
@@ -130,6 +136,25 @@ the script as a bundle resource. Tests: `python3 python/test_worker.py`.
 
 App data (store, database, model cache) lives in the OS app-data folder for
 `{{identifier}}`; settings in its config folder.
+
+### Settings
+
+Search, ingest and watch settings live under `config` in `settings.json` (the Settings
+screen edits them; `desktop-core/src/config.rs` documents every key). Everything optional
+is off by default; values are clamped to safe ranges.
+
+| Key | Default | |
+|---|---|---|
+| `search.mode` | `auto` | `vector`, `keyword`, or `hybrid` (weighted reciprocal rank fusion) |
+| `search.topK`, `search.candidates` | 10, 50 | results, and candidates per list before fusing |
+| `search.vectorWeight`, `search.keywordWeight`, `search.rrfK` | 1, 1, 60 | fusion |
+| `search.minVectorScore`, `search.minKeywordScore`, `search.minScore` | none | thresholds per list and on the final score |
+| `search.keywordEngine` | `auto` | Postgres: `bm25` (when built in), `fulltext` |
+| `search.bm25Tokenizer` | `bert_base_uncased` | pg_tokenizer model |
+| `ingest.workers` | 1 | parallel read/chunk/embed; 0 = one per core |
+| `ingest.chunkChars`, `ingest.chunkOverlap` | 800, 0 | chunking |
+| `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
+| `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
 {% if embeddings %}
 `APP_EMBED_MODEL` (in `.cargo/config.toml`, or at run time) picks the model: one of
 `nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `all-MiniLM-L6-v2`, `multilingual-e5-small`.
@@ -137,10 +162,18 @@ Changing it re-embeds stored chunks on the next start.
 {% endif -%}
 {% if postgres %}
 `APP_PG_URL` uses an existing Postgres with pgvector instead of the embedded one. The
-embedded server (Postgres 16, the newest with prebuilt pgvector) runs on Apple Silicon Macs,
-and on x86-64 Windows and Linux with AVX-512; elsewhere the wizard offers only the file store
-unless `APP_PG_URL` is set.
-The first download calls the GitHub API; set `GITHUB_TOKEN` if you hit its rate limit.
+embedded server (Postgres 16.16) runs on Apple Silicon Macs and x86-64 Windows and Linux.
+On first use it installs one extension bundle (pgvector, pg_tokenizer, VectorChord-BM25)
+built by the `pg-extensions` workflow for that platform, from `APP_PG_EXT_URL` in
+`.cargo/config.toml`, after checking its SHA-256 (pin the hashes in
+`desktop-core/pg-ext.sha256`). `APP_PG_EXT_DIR` installs it from a local folder instead.
+pgvector there is built without `-march=native`, so no AVX-512 is needed.
+The first server download calls the GitHub API; set `GITHUB_TOKEN` if you hit its rate limit.
+{% if bm25 %}
+VectorChord-BM25 is dual-licensed AGPLv3 / Elastic License 2.0 (pg_tokenizer is Apache-2.0).
+If you ship it, follow one of them: ELv2 forbids offering it as a managed service; AGPLv3
+needs a source offer for it. Not legal advice.
+{% endif %}
 {% endif %}
 ## Versions and changelog
 

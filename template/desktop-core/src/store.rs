@@ -1,8 +1,11 @@
-//! Where chunks live. `FileStore` is one JSON file and searches in memory, which is fast
-//! up to tens of thousands of chunks; `pgstore::PostgresStore` (feature `postgres`)
-//! keeps them in embedded Postgres with pgvector.
+//! Where chunks live. `FileStore` is one JSON file and searches in memory (cosine and
+//! BM25), which is fast up to tens of thousands of chunks; `pgstore::PostgresStore`
+//! (feature `postgres`) keeps them in embedded Postgres with pgvector.
 
+use crate::config::{SearchConfig, SearchMode};
+use crate::fuse::{self, Candidate};
 use crate::{cosine, Chunk, Result};
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,15 +16,37 @@ pub struct Hit {
     pub source: String,
     pub page: Option<u32>,
     pub text: String,
+    /// The final score: cosine, keyword score, or the fused RRF score in hybrid mode.
     pub score: f32,
+    /// Hybrid mode: the raw scores from each list, when the chunk was in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector_score: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyword_score: Option<f32>,
+}
+
+/// What a search runs once the mode meets what is available (no vector: keywords).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Plan {
+    Vector,
+    Keyword,
+    Hybrid,
+}
+
+pub fn plan(mode: SearchMode, has_vector: bool) -> Plan {
+    match (mode, has_vector) {
+        (_, false) | (SearchMode::Keyword, _) => Plan::Keyword,
+        (SearchMode::Hybrid, true) => Plan::Hybrid,
+        _ => Plan::Vector,
+    }
 }
 
 pub trait Store: Send + Sync {
     fn kind(&self) -> &'static str;
     /// Add chunks, with one vector each when embeddings are on.
     fn add(&self, chunks: &[Chunk], vectors: Option<&[Vec<f32>]>) -> Result<usize>;
-    /// Best `k` chunks: by vector when `query_vector` is given, else by keywords.
-    fn search(&self, query: &str, query_vector: Option<&[f32]>, k: usize) -> Result<Vec<Hit>>;
+    /// Best chunks for `cfg` (mode, top k, thresholds, fusion weights).
+    fn search(&self, query: &str, query_vector: Option<&[f32]>, cfg: &SearchConfig) -> Result<Vec<Hit>>;
     fn count(&self) -> Result<usize>;
     /// Every stored chunk, for re-embedding with a new model.
     fn all(&self) -> Result<Vec<Chunk>>;
@@ -30,6 +55,10 @@ pub trait Store: Send + Sync {
     /// Name of the embedder the stored vectors came from (`None`: no vectors).
     fn embedder(&self) -> Result<Option<String>>;
     fn set_embedder(&self, name: Option<&str>) -> Result<()>;
+    /// New settings (the Postgres store sets up BM25 here when it is turned on).
+    fn configure(&self, _config: &crate::config::Config) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Lower-cased words of 2+ letters or digits.
@@ -37,13 +66,38 @@ pub fn terms(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() > 1).map(str::to_lowercase).collect()
 }
 
-/// Share of the query's distinct terms found in `text`, in 0..=1.
-pub fn keyword_score(query_terms: &HashSet<String>, text: &str) -> f32 {
-    if query_terms.is_empty() {
-        return 0.0;
+/// Okapi BM25 over the given texts (k1 = 1.2, b = 0.75), scored for `query`.
+pub fn bm25_scores<'a>(query: &str, texts: impl Iterator<Item = &'a str>) -> Vec<f32> {
+    let docs: Vec<Vec<String>> = texts.map(terms).collect();
+    let n = docs.len() as f32;
+    if n == 0.0 {
+        return Vec::new();
     }
-    let words: HashSet<String> = terms(text).into_iter().collect();
-    query_terms.iter().filter(|t| words.contains(*t)).count() as f32 / query_terms.len() as f32
+    let avg = docs.iter().map(Vec::len).sum::<usize>() as f32 / n;
+    let q: HashSet<String> = terms(query).into_iter().collect();
+    let mut df: HashMap<&str, f32> = HashMap::new();
+    for d in &docs {
+        let seen: HashSet<&str> = d.iter().map(String::as_str).filter(|t| q.contains(*t)).collect();
+        for t in seen {
+            *df.entry(t).or_default() += 1.0;
+        }
+    }
+    docs.iter()
+        .map(|d| {
+            let len = d.len() as f32;
+            q.iter()
+                .map(|t| {
+                    let f = d.iter().filter(|w| *w == t).count() as f32;
+                    if f == 0.0 {
+                        return 0.0;
+                    }
+                    let df = df.get(t.as_str()).copied().unwrap_or(0.0);
+                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+                    idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * len / avg.max(1.0)))
+                })
+                .sum()
+        })
+        .collect()
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -105,24 +159,40 @@ impl Store for FileStore {
         Ok(chunks.len())
     }
 
-    fn search(&self, query: &str, query_vector: Option<&[f32]>, k: usize) -> Result<Vec<Hit>> {
+    fn search(&self, query: &str, query_vector: Option<&[f32]>, cfg: &SearchConfig) -> Result<Vec<Hit>> {
         let data = self.lock()?;
-        let q: HashSet<String> = terms(query).into_iter().collect();
-        let mut hits: Vec<Hit> = data
-            .records
-            .iter()
-            .map(|r| {
-                let score = match (query_vector, &r.vector) {
-                    (Some(qv), Some(v)) => cosine(qv, v),
-                    _ => keyword_score(&q, &r.chunk.text),
-                };
-                Hit { source: r.chunk.source.clone(), page: r.chunk.page, text: r.chunk.text.clone(), score }
-            })
-            .filter(|h| query_vector.is_some() || h.score > 0.0)
-            .collect();
-        hits.sort_by(|a, b| b.score.total_cmp(&a.score));
-        hits.truncate(k);
-        Ok(hits)
+        let hit = |r: &Record, score: f32| Hit {
+            source: r.chunk.source.clone(),
+            page: r.chunk.page,
+            text: r.chunk.text.clone(),
+            score,
+            vector_score: None,
+            keyword_score: None,
+        };
+        let ranked = |mut list: Vec<(usize, f32)>, n: usize| {
+            list.sort_by(|a, b| b.1.total_cmp(&a.1));
+            list.truncate(n);
+            list
+        };
+        let plan = plan(cfg.mode, query_vector.is_some());
+        let n = if plan == Plan::Hybrid { cfg.candidates } else { cfg.top_k };
+        let vector = || {
+            let qv = query_vector.unwrap_or_default();
+            let scores = data.records.iter().enumerate().filter_map(|(i, r)| r.vector.as_ref().map(|v| (i, cosine(qv, v)))).collect();
+            ranked(scores, n)
+        };
+        let keyword = || {
+            let scores = bm25_scores(query, data.records.iter().map(|r| r.chunk.text.as_str()));
+            ranked(scores.into_iter().enumerate().filter(|(_, s)| *s > 0.0).collect(), n)
+        };
+        Ok(match plan {
+            Plan::Vector => fuse::single(vector().into_iter().map(|(i, s)| hit(&data.records[i], s)).collect(), cfg.min_vector_score, cfg),
+            Plan::Keyword => fuse::single(keyword().into_iter().map(|(i, s)| hit(&data.records[i], s)).collect(), cfg.min_keyword_score, cfg),
+            Plan::Hybrid => {
+                let cands = |list: Vec<(usize, f32)>| list.into_iter().map(|(i, s)| Candidate { key: i as u64, hit: hit(&data.records[i], s) }).collect();
+                fuse::rrf(cands(vector()), cands(keyword()), cfg)
+            }
+        })
     }
 
     fn count(&self) -> Result<usize> {
