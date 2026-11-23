@@ -15,6 +15,7 @@ async function start() {
   show('claude', f.claudeMcp);
   show('python', f.pythonExample);
   if (f.backgroundAgent) { show('agent'); refreshAgent(); }
+  if (f.mcp) { show('mcp'); invoke('mcp_setup').then((s) => { $('mcp-cmd').textContent = s.claude_code; }).catch(() => {}); }
   if (f.ai) { show('ask'); invoke('ai_keys').then(keysText).catch(() => {}); }
   show('w-pg-option', f.postgres);
   if (f.postgres && !info.postgresAvailable) {
@@ -218,4 +219,9 @@ const keysText = (have) => { $('key-status').textContent = have.length ? `Keys s
 $('key-save').onclick = async () => {
   try { keysText(await invoke('set_ai_key', { provider: $('key-provider').value, key: $('key').value })); $('key').value = ''; }
   catch (e) { $('key-status').textContent = String(e); }
+};
+
+$('mcp-claude').onclick = async () => {
+  try { $('mcp-status').textContent = `Claude Desktop: ${await invoke('mcp_register_claude')}. Restart it to load the server.`; }
+  catch (e) { $('mcp-status').textContent = String(e); }
 };

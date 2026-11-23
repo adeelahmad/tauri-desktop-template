@@ -31,6 +31,10 @@ watch = ["dep:notify", "dep:notify-debouncer-full"]
 # Chat with an LLM (cloud or local) and ask questions over the indexed documents.
 ai = []
 {% endif -%}
+{% if mcp_server -%}
+# A Model Context Protocol server over stdio (no extra dependencies).
+mcp = []
+{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile"]

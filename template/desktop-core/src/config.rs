@@ -17,6 +17,8 @@ pub struct Config {
     pub watch: WatchConfig,
 {% if ai %}    #[cfg(feature = "ai")]
     pub llm: crate::llm::LlmConfig,
+{% endif %}{% if mcp_server %}    #[cfg(feature = "mcp")]
+    pub mcp: crate::mcp::McpConfig,
 {% endif %}}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +187,10 @@ impl Config {
 {% if ai %}        #[cfg(feature = "ai")]
         {
             self.llm = self.llm.validated();
+        }
+{% endif %}{% if mcp_server %}        #[cfg(feature = "mcp")]
+        {
+            self.mcp = self.mcp.validated();
         }
 {% endif %}        self
     }

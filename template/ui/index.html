@@ -86,6 +86,14 @@
       <p id="key-status" class="hint"></p>
     </section>
 
+    <section id="mcp" hidden>
+      <h2>MCP server</h2>
+      <p class="hint">Turn on <code>"mcp": {"enabled": true}</code> in Settings and save, then connect a client.</p>
+      <button id="mcp-claude">Add to Claude Desktop</button>
+      <p class="hint">Claude Code: <code id="mcp-cmd"></code></p>
+      <p id="mcp-status" class="status"></p>
+    </section>
+
     <section>
       <h2>Settings</h2>
       <p class="hint">Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).</p>

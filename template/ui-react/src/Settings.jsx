@@ -39,6 +39,12 @@ const FIELDS = [
   ['llm', 'promptCache', 'Prompt caching (Anthropic)', 'bool', { needs: 'ai' }],
   ['llm', 'systemPrompt', 'System prompt (empty = built in)', 'text', { needs: 'ai', nullable: true }],
   ['llm', 'httpHosts', 'Hosts allowed over plain HTTP', 'list', { needs: 'ai' }],
+  ['mcp', 'enabled', 'Let MCP clients (Claude Desktop, Claude Code, ...) search these documents', 'bool', { needs: 'mcp' }],
+  ['mcp', 'allowWrite', 'Also allow tools that change data (add, remove)', 'bool', { needs: 'mcp' }],
+  ['mcp', 'tools', 'Only these tools (empty = all allowed)', 'list', { needs: 'mcp' }],
+  ['mcp', 'auditLog', 'Keep an audit log of tool calls', 'bool', { needs: 'mcp' }],
+  ['mcp', 'auditArguments', 'Log the call arguments too', 'bool', { needs: 'mcp' }],
+  ['mcp', 'maxResultChars', 'Longest reply (characters)', 'number', { needs: 'mcp', min: 1000 }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolder', 'Use the drop folder', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolderPath', 'Drop folder (empty = Documents/<app> Inbox)', 'text', { needs: 'watch', nullable: true }],
@@ -50,7 +56,7 @@ const FIELDS = [
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
 ];
 
-const TITLES = { search: 'Search', ingest: 'Ingest', llm: 'AI', watch: 'Watch folders' };
+const TITLES = { search: 'Search', ingest: 'Ingest', llm: 'AI', mcp: 'MCP server', watch: 'Watch folders' };
 
 function Field({ kind, label, value, extra, onChange }) {
   if (kind === 'bool')
@@ -133,6 +139,37 @@ function WatchStatus() {
   );
 }
 
+function McpConnect() {
+  const [setup, setSetup] = useState(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    invoke('mcp_setup')
+      .then(setSetup)
+      .catch(() => {});
+  }, []);
+  const register = async () => {
+    try {
+      const r = await invoke('mcp_register_claude');
+      setMsg(`Claude Desktop: ${r}. Restart Claude Desktop to load it.`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  if (!setup) return null;
+  return (
+    <div className="hint">
+      <div className="row">
+        <button onClick={register}>Add to Claude Desktop</button>
+        <span>{msg}</span>
+      </div>
+      <div>
+        Claude Code: <code>{setup.claude_code}</code>
+      </div>
+      <div>Save settings with the server turned on first.</div>
+    </div>
+  );
+}
+
 function AiKeys() {
   const [have, setHave] = useState([]);
   const [provider, setProvider] = useState('anthropic');
@@ -204,7 +241,9 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const sections = ['search', 'ingest', 'llm', 'watch'].filter((s) => (s !== 'watch' || features.watch) && (s !== 'llm' || features.ai));
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'watch'].filter(
+    (s) => (s !== 'watch' || features.watch) && (s !== 'llm' || features.ai) && (s !== 'mcp' || features.mcp),
+  );
   return (
     <section>
       <h2>Settings</h2>
@@ -218,6 +257,7 @@ export default function Settings({ features }) {
           </div>
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
+          {s === 'mcp' && <McpConnect />}
         </details>
       ))}
       <div className="row">

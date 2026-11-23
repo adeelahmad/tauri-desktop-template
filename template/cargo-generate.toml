@@ -45,6 +45,11 @@ type = "bool"
 prompt = "AI chat over your documents (Claude, OpenAI, Gemini, Ollama or any OpenAI-compatible server; off until switched on in Settings)?"
 default = false
 
+[placeholders.mcp_server]
+type = "bool"
+prompt = "Built-in MCP server (Rust, stdio) so Claude Desktop, Claude Code and other MCP clients can search this app's documents? Off until switched on in Settings"
+default = false
+
 [placeholders.pdf]
 type = "bool"
 prompt = "PDF text extraction (docling.rs, tesseract OCR fallback)?"
@@ -132,6 +137,9 @@ ignore = ["desktop-core/src/embed.rs"]
 
 [conditional.'!postgres']
 ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256"]
+
+[conditional.'!mcp_server']
+ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]
 
 [conditional.'!ai']
 ignore = ["desktop-core/src/llm.rs"]

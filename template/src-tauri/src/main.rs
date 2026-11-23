@@ -8,6 +8,10 @@ fn main() {
         // no console on Windows, so the report can also go to a file.
         std::process::exit(app_lib::self_test(args.get(2).map(std::path::Path::new)));
     }
+    if args.get(1).map(String::as_str) == Some("--mcp") {
+        // An MCP client (Claude Desktop, Claude Code, ...) started us: JSON-RPC on stdio.
+        std::process::exit(app_lib::mcp_main());
+    }
     if args.get(1).map(String::as_str) == Some("--worker") {
         // The backend process (feature `ipc-worker`); the window and the background agent start it.
         std::process::exit(app_lib::worker_main());

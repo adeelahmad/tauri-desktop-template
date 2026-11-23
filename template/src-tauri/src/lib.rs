@@ -29,6 +29,8 @@ mod claude;
 mod ipc;
 {% endif %}{% if python_example %}#[cfg(feature = "python-example")]
 mod python;
+{% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
+mod mcp;
 {% endif %}mod service;
 {% if updater %}#[cfg(feature = "updater")]
 mod update;
@@ -93,6 +95,7 @@ fn features() -> Value {
         "bm25": cfg!(feature = "bm25"),
         "watch": cfg!(feature = "watch"),
         "ai": cfg!(feature = "ai"),
+        "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
         "updater": cfg!(feature = "updater"),
@@ -256,6 +259,37 @@ fn clear(state: tauri::State<AppState>) -> Result<Status, String> {
 }
 
 /// `<app> --worker`: serve the backend over the local socket until told to stop.
+/// `--mcp`: serve MCP over stdio (feature `mcp`), sharing the worker when there is one.
+#[cfg(feature = "mcp")]
+pub fn mcp_main() -> i32 {
+    #[cfg(feature = "ipc-worker")]
+    let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
+    #[cfg(not(feature = "ipc-worker"))]
+    let service: Arc<dyn Service> = Arc::new(service::Local::default());
+    let load = |f: &Path| std::fs::read(f).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    mcp::main(load, service)
+}
+
+#[cfg(not(feature = "mcp"))]
+pub fn mcp_main() -> i32 {
+    eprintln!("this build has no MCP server (feature mcp)");
+    2
+}
+
+/// How to connect an MCP client to this app (the entry, and the Claude Code command).
+#[cfg(feature = "mcp")]
+#[tauri::command(async)]
+fn mcp_setup() -> Result<mcp::Setup, String> {
+    mcp::setup()
+}
+
+/// Add this app to Claude Desktop's MCP servers (the old config is kept as `.bak`).
+#[cfg(feature = "mcp")]
+#[tauri::command(async)]
+fn mcp_register_claude() -> Result<&'static str, String> {
+    mcp::register(&mcp::claude_desktop_config(), mcp::entry()?)
+}
+
 #[cfg(feature = "ipc-worker")]
 pub fn worker_main() -> i32 {
     ipc::serve()
@@ -380,6 +414,10 @@ pub fn run() {
             ai_keys,
             #[cfg(feature = "ai")]
             set_ai_key,
+            #[cfg(feature = "mcp")]
+            mcp_setup,
+            #[cfg(feature = "mcp")]
+            mcp_register_claude,
             remove_source,
             clear,
             #[cfg(feature = "updater")]
