@@ -23,7 +23,11 @@ const ID: &str = env!("APP_IDENTIFIER");
 /// file in the user's temporary folder (private to the user on macOS).
 pub fn socket_name() -> std::io::Result<Name<'static>> {
     let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
-    let base = format!("{ID}.{user}.worker.sock");
+    // One worker per profile.
+    let base = match crate::paths::profile() {
+        crate::paths::DEFAULT => format!("{ID}.{user}.worker.sock"),
+        p => format!("{ID}.{user}.{p}.worker.sock"),
+    };
     if GenericNamespaced::is_supported() {
         base.to_ns_name::<GenericNamespaced>()
     } else {
@@ -112,6 +116,7 @@ fn spawn_worker() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     std::process::Command::new(exe)
         .arg("--worker")
+        .env("APP_PROFILE", crate::paths::profile())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
