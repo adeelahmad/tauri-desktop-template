@@ -196,6 +196,10 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
         configuration,
         ..Settings::default()
     };
+    if !key.join("install").is_dir() {
+        // Postgres downloads through its own client, so ask the network policy first.
+        crate::net::check("https://github.com/").map_err(|e| pg_err(format!("Postgres is not installed yet: {e}")))?;
+    }
     let mut pg = PostgreSQL::new(settings);
     pg.setup().map_err(pg_err)?;
     let root = pg.settings().binary_dir().parent().map(Path::to_path_buf).ok_or_else(|| pg_err("no install folder"))?;

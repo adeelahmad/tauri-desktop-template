@@ -57,6 +57,11 @@ impl LocalEmbedder {
     pub fn new(cache: &Path) -> Result<Self> {
         let name = model_name();
         let spec = spec(&name)?;
+        // fastembed downloads through its own client, so ask the network policy first.
+        let code = TextEmbedding::get_model_info(&spec.model).map(|i| i.model_code.replace('/', "--")).unwrap_or_default();
+        if !cache.join(format!("models--{code}")).is_dir() {
+            crate::net::check("https://huggingface.co/").map_err(|e| Error::Embed(format!("the embedding model is not downloaded yet: {e}")))?;
+        }
         let opts = TextInitOptions::new(spec.model.clone()).with_cache_dir(cache.to_path_buf()).with_show_download_progress(false).with_environment(crate::onnx_env()?);
         let model = TextEmbedding::try_new(opts).map_err(|e| Error::Embed(e.to_string()))?;
         Ok(Self { name, spec, model: Mutex::new(model) })

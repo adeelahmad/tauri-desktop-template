@@ -19,6 +19,8 @@ pub struct Config {
     pub resources: crate::governor::ResourceConfig,
     /// Log level and file rotation.
     pub log: crate::logging::LogConfig,
+    /// Offline mode, host allow and deny lists, proxy, CA certificates and pins.
+    pub net: crate::net::NetConfig,
 {% if ai %}    #[cfg(feature = "ai")]
     pub llm: crate::llm::LlmConfig,
 {% endif %}{% if mcp_server %}    #[cfg(feature = "mcp")]
@@ -171,6 +173,7 @@ impl Config {
     pub fn validated(mut self) -> Self {
         self.log = self.log.validated();
         self.resources = self.resources.validated();
+        self.net = self.net.validated();
         let s = &mut self.search;
         s.top_k = s.top_k.clamp(1, 1000);
         s.candidates = s.candidates.clamp(s.top_k, 5000);

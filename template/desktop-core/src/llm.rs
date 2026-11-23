@@ -290,13 +290,9 @@ impl<'a> Client<'a> {
         Err(Failure::Fatal("local models (llama.cpp) are not in this build".into()))
     }
 
-    fn agent(&self) -> ureq::Agent {
-        ureq::Agent::config_builder()
-            .timeout_connect(Some(Duration::from_secs(15)))
-            .timeout_global(Some(Duration::from_secs(self.cfg.timeout_secs.max(5))))
-            .http_status_as_error(false)
-            .build()
-            .into()
+    /// An agent under the network policy (its proxy, pins, allow and deny lists).
+    fn agent(&self, url: &str) -> std::result::Result<ureq::Agent, Failure> {
+        crate::net::agent_http(url, crate::net::Limits::total(15, self.cfg.timeout_secs.max(5))).map_err(Failure::Fatal)
     }
 
     fn check_url(&self, url: &str) -> std::result::Result<(), Failure> {
@@ -327,7 +323,7 @@ impl<'a> Client<'a> {
             _ => (format!("{base}/chat/completions"), self.openai_body(t, messages)),
         };
         self.check_url(&url)?;
-        let mut req = self.agent().post(&url).header("content-type", "application/json");
+        let mut req = self.agent(&url)?.post(&url).header("content-type", "application/json");
         if let Some(k) = key.filter(|k| !k.is_empty()) {
             req = match t.provider {
                 Provider::Anthropic => req.header("x-api-key", &k).header("anthropic-version", "2023-06-01"),
