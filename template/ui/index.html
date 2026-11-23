@@ -70,6 +70,22 @@
       <ol id="results"></ol>
     </section>
 
+    <section id="ask" hidden>
+      <h2>Ask</h2>
+      <div class="row">
+        <input id="question" placeholder="Ask about your documents" aria-label="Question">
+        <button id="ask-go">Ask</button>
+      </div>
+      <div id="answer" class="answer"></div>
+      <ol id="sources" class="sources"></ol>
+      <div class="row">
+        <select id="key-provider" aria-label="Key for provider"><option>anthropic</option><option>openai</option><option>gemini</option><option>ollama</option><option>compatible</option></select>
+        <input id="key" type="password" autocomplete="off" placeholder="API key" aria-label="API key">
+        <button id="key-save">Save key</button>
+      </div>
+      <p id="key-status" class="hint"></p>
+    </section>
+
     <section>
       <h2>Settings</h2>
       <p class="hint">Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).</p>

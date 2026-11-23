@@ -3,7 +3,9 @@
 //!
 //! Methods: `ping`, `setup` (EngineOptions), `status`, `ingest_text` {source, text},
 //! `ingest_file` {path}, `ingest_folder` {path, recursive}, `search` {query, k, search?},
-//! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`.
+//! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`, and with
+//! feature `ai`: `ask` {question} (the answer streams as progress lines), `ai_keys`,
+//! `set_ai_key` {provider, key}.
 //!
 //! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
@@ -140,6 +142,21 @@ impl Service for Local {
                 let e = self.engine()?;
                 e.clear().map_err(err)?;
                 to(e.status())
+            }
+            #[cfg(feature = "ai")]
+            "ask" => {
+                let e = self.engine()?;
+                let keys = desktop_core::llm::KeyFile::new(e.data_dir().join("keys.json"));
+                let lookup = |p| keys.get(p);
+                to(e.ask(&arg::<String>(&params, "question")?, &lookup, &mut |t| progress(t)))
+            }
+            #[cfg(feature = "ai")]
+            "ai_keys" => to(Ok(desktop_core::llm::KeyFile::new(self.engine()?.data_dir().join("keys.json")).present())),
+            #[cfg(feature = "ai")]
+            "set_ai_key" => {
+                let keys = desktop_core::llm::KeyFile::new(self.engine()?.data_dir().join("keys.json"));
+                keys.set(arg(&params, "provider")?, arg::<Option<String>>(&params, "key")?.as_deref()).map_err(err)?;
+                to(Ok(keys.present()))
             }
             other => Err(format!("unknown method {other:?}")),
         }

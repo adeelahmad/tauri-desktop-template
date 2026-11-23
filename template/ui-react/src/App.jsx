@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, DESCRIPTION } from './config.js';
 import Settings from './Settings.jsx';
+import Ask from './Ask.jsx';
 
 function describe(info, status) {
   if (!info) return '';
@@ -360,6 +361,7 @@ export default function App() {
         <main>
           <AddDocuments onChange={refresh} />
           <Search />
+          {f.ai && <Ask />}
           <Settings features={f} />
           {f.backgroundAgent && <BackgroundAgent />}
           {f.pythonExample && <PythonExample />}

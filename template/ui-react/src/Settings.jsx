@@ -26,6 +26,19 @@ const FIELDS = [
   ['ingest', 'embedBatch', 'Chunks per embedding call', 'number', { min: 1, max: 1024 }],
   ['ingest', 'maxFileMb', 'Largest file (MB)', 'number', { min: 1 }],
   ['ingest', 'extensions', 'File types', 'list', {}],
+  ['llm', 'enabled', 'Turn on AI answers', 'bool', { needs: 'ai' }],
+  ['llm', 'provider', 'Provider', 'select', { needs: 'ai', options: ['anthropic', 'openai', 'gemini', 'ollama', 'compatible'] }],
+  ['llm', 'model', 'Model (empty = provider default)', 'text', { needs: 'ai' }],
+  ['llm', 'baseUrl', 'Server URL (empty = provider default)', 'text', { needs: 'ai' }],
+  ['llm', 'temperature', 'Temperature', 'number', { needs: 'ai', step: 0.1, min: 0, max: 2 }],
+  ['llm', 'maxTokens', 'Longest answer (tokens)', 'number', { needs: 'ai', min: 1 }],
+  ['llm', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'ai', min: 5 }],
+  ['llm', 'retries', 'Retries before the next provider', 'number', { needs: 'ai', min: 0, max: 10 }],
+  ['llm', 'dailyTokenBudget', 'Daily token budget', 'optional', { needs: 'ai', min: 0 }],
+  ['llm', 'monthlyTokenBudget', 'Monthly token budget', 'optional', { needs: 'ai', min: 0 }],
+  ['llm', 'promptCache', 'Prompt caching (Anthropic)', 'bool', { needs: 'ai' }],
+  ['llm', 'systemPrompt', 'System prompt (empty = built in)', 'text', { needs: 'ai', nullable: true }],
+  ['llm', 'httpHosts', 'Hosts allowed over plain HTTP', 'list', { needs: 'ai' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolder', 'Use the drop folder', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolderPath', 'Drop folder (empty = Documents/<app> Inbox)', 'text', { needs: 'watch', nullable: true }],
@@ -37,7 +50,7 @@ const FIELDS = [
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
 ];
 
-const TITLES = { search: 'Search', ingest: 'Ingest', watch: 'Watch folders' };
+const TITLES = { search: 'Search', ingest: 'Ingest', llm: 'AI', watch: 'Watch folders' };
 
 function Field({ kind, label, value, extra, onChange }) {
   if (kind === 'bool')
@@ -120,6 +133,55 @@ function WatchStatus() {
   );
 }
 
+function AiKeys() {
+  const [have, setHave] = useState([]);
+  const [provider, setProvider] = useState('anthropic');
+  const [key, setKey] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    invoke('ai_keys')
+      .then(setHave)
+      .catch(() => {});
+  }, []);
+  const save = async (value) => {
+    try {
+      setHave(await invoke('set_ai_key', { provider, key: value }));
+      setKey('');
+      setMsg(value ? 'Key saved.' : 'Key removed.');
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  return (
+    <div className="row">
+      <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Key for provider">
+        {['anthropic', 'openai', 'gemini', 'ollama', 'compatible'].map((p) => (
+          <option key={p}>{p}</option>
+        ))}
+      </select>
+      <input
+        type="password"
+        autoComplete="off"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        placeholder="API key"
+        aria-label="API key"
+      />
+      <button onClick={() => save(key)} disabled={!key}>
+        Save key
+      </button>
+      {have.includes(provider) && (
+        <button className="link" onClick={() => save(null)}>
+          Remove
+        </button>
+      )}
+      <span className="hint">
+        {have.length ? `Keys set: ${have.join(', ')}` : 'No keys set.'} {msg}
+      </span>
+    </div>
+  );
+}
+
 export default function Settings({ features }) {
   const [cfg, setCfg] = useState(null);
   const [msg, setMsg] = useState('');
@@ -142,7 +204,7 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const sections = ['search', 'ingest', 'watch'].filter((s) => s !== 'watch' || features.watch);
+  const sections = ['search', 'ingest', 'llm', 'watch'].filter((s) => (s !== 'watch' || features.watch) && (s !== 'llm' || features.ai));
   return (
     <section>
       <h2>Settings</h2>
@@ -155,6 +217,7 @@ export default function Settings({ features }) {
             ))}
           </div>
           {s === 'watch' && <WatchStatus />}
+          {s === 'llm' && <AiKeys />}
         </details>
       ))}
       <div className="row">

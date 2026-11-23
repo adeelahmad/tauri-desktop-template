@@ -15,7 +15,9 @@ pub struct Config {
     pub search: SearchConfig,
     pub ingest: IngestConfig,
     pub watch: WatchConfig,
-}
+{% if ai %}    #[cfg(feature = "ai")]
+    pub llm: crate::llm::LlmConfig,
+{% endif %}}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -180,7 +182,11 @@ impl Config {
         i.extensions = i.extensions.iter().map(|e| e.trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()).collect();
         let w = &mut self.watch;
         w.debounce_ms = w.debounce_ms.clamp(100, 600_000);
-        self
+{% if ai %}        #[cfg(feature = "ai")]
+        {
+            self.llm = self.llm.validated();
+        }
+{% endif %}        self
     }
 
     /// Ingest workers to run: `workers`, or one per core when it is 0.
