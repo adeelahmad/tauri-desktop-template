@@ -178,6 +178,15 @@ is off by default; values are clamped to safe ranges.
 | `ingest.chunkChars`, `ingest.chunkOverlap` | 800, 0 | chunking |
 | `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
 | `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
+| `net.offline` | false | block every request that leaves the computer (a local model server still works) |
+| `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |
+| `net.proxy`, `net.noProxy` | system | empty = `HTTPS_PROXY`/`ALL_PROXY`, `direct`, or an `http://`/`socks5://` URL |
+| `net.caFiles` | empty | PEM files trusted instead of the bundled Mozilla roots (company TLS inspection) |
+| `net.pins`, `net.pinsOff` | none | `{"updates.example.com": ["<PEM or file>"]}`: only those CAs may vouch for the host |
+
+Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through
+`desktop-core/src/net.rs` and obeys `net`. Child processes (the Python worker, uv) get the
+proxy, the CA file and offline switches (`HF_HUB_OFFLINE`, `UV_OFFLINE`) in their environment.
 {% if embeddings %}
 `APP_EMBED_MODEL` (in `.cargo/config.toml`, or at run time) picks the model: one of
 `nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `all-MiniLM-L6-v2`, `multilingual-e5-small`.

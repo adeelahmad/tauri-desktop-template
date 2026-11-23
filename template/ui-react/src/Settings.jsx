@@ -78,6 +78,13 @@ const FIELDS = [
   ['resources', 'cpuPercent', 'CPU share for indexing (%)', 'number', { min: 10, max: 100 }],
   ['resources', 'backgroundPriority', 'Index at background priority (keeps the computer responsive)', 'bool', {}],
   ['resources', 'resumeInterrupted', 'Finish an interrupted import at the next start', 'bool', {}],
+  ['net', 'offline', 'Offline mode (nothing leaves this computer)', 'bool', {}],
+  ['net', 'allow', 'Only these hosts (*.example.com for subdomains; empty = any)', 'list', {}],
+  ['net', 'deny', 'Never these hosts', 'list', {}],
+  ['net', 'proxy', 'Proxy (empty = system, direct = none, or http:// / socks5:// URL)', 'text', {}],
+  ['net', 'noProxy', 'Hosts that skip the proxy', 'list', {}],
+  ['net', 'caFiles', 'Trust only these CA certificate files (PEM), e.g. a company proxy', 'list', { lines: true }],
+  ['net', 'pinsOff', 'Ignore certificate pins (behind a TLS-inspecting proxy)', 'bool', {}],
   ['log', 'level', 'Log level', 'select', { options: ['error', 'warn', 'info', 'debug', 'trace'] }],
   ['log', 'file', 'Write a log file (logs folder in the app data)', 'bool', {}],
   ['log', 'maxMb', 'Start a new file at (MB)', 'number', { min: 1, max: 1024 }],
@@ -119,6 +126,7 @@ const TITLES = {
   telemetry: 'Privacy',
   log: 'Logs',
   resources: 'Performance',
+  net: 'Network',
   watch: 'Watch folders',
 };
 
@@ -411,7 +419,7 @@ export default function Settings({ features }) {
     setCfg(await invoke('set_config', { config: {} }));
   };
   const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', telemetry: 'telemetry' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'resources', 'telemetry', 'log', 'watch'].filter(
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'resources', 'net', 'telemetry', 'log', 'watch'].filter(
     (s) => !needs[s] || features[needs[s]],
   );
   return (

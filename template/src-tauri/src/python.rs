@@ -43,6 +43,7 @@ fn interpreters(script: &Path) -> Vec<Command> {
     let with = |prog: &str, pre: &[&str]| {
         let mut c = Command::new(prog);
         c.args(pre).arg(script);
+        desktop_core::net::apply_env(&mut c);
         c
     };
     if let Ok(p) = std::env::var("APP_PYTHON") {

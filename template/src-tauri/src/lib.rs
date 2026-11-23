@@ -360,7 +360,9 @@ fn mcp_register_claude() -> Result<&'static str, String> {
 #[cfg(feature = "ipc-worker")]
 pub fn worker_main() -> i32 {
     let (config, data) = paths::app_dirs();
-    desktop_core::logging::init(&data.join("logs"), "worker", settings_at(&config.join("settings.json")).config.log);
+    let settings = settings_at(&config.join("settings.json"));
+    desktop_core::logging::init(&data.join("logs"), "worker", settings.config.log);
+    desktop_core::net::configure(settings.config.net);
     ipc::serve()
 }
 
@@ -459,7 +461,9 @@ pub fn self_test(out: Option<&Path>) -> i32 {
 pub fn run() {
     let (config_dir, data_dir) = paths::app_dirs();
     let process = if cfg!(feature = "ipc-worker") { "window" } else { "app" };
-    desktop_core::logging::init(&data_dir.join("logs"), process, settings_at(&config_dir.join("settings.json")).config.log);
+    let settings = settings_at(&config_dir.join("settings.json"));
+    desktop_core::logging::init(&data_dir.join("logs"), process, settings.config.log);
+    desktop_core::net::configure(settings.config.net);
     #[cfg(feature = "single-instance")]
     let instance = match single::claim(&data_dir) {
         Ok(single::Instance::Second) => {

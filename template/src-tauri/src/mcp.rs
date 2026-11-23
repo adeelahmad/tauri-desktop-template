@@ -82,6 +82,7 @@ pub fn main(load: impl Fn(&Path) -> Settings, service: Arc<dyn Service>) -> i32 
     let settings = load(&config_dir.join("settings.json"));
     // Logs go to <data>/logs/mcp.log (stdout carries only JSON-RPC).
     desktop_core::logging::init(&data_dir.join("logs"), "mcp", settings.config.log.clone());
+    desktop_core::net::configure(settings.config.net.clone());
     if !settings.config.mcp.enabled {
         eprintln!("The MCP server is off. Turn it on in the app under Settings → MCP server.");
         return 2;

@@ -149,7 +149,7 @@ pub fn register_claude(app: tauri::AppHandle) -> Result<Registration, String> {
     let uv = install_uv(&app.path().app_data_dir().map_err(|e| e.to_string())?)?;
     let reg = register(&config_file(), entry(&uv))?;
     std::thread::spawn(move || {
-        let ok = std::process::Command::new(&uv)
+        let ok = desktop_core::net::apply_env(&mut std::process::Command::new(&uv))
             .args(server_args(&["--help"]))
             .stdin(std::process::Stdio::null())
             .output()

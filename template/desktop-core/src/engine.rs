@@ -80,6 +80,7 @@ impl Engine {
     /// Open the store and load the model. The first call downloads what is missing (the
     /// model, and Postgres with pgvector), so run it off the UI thread.
     pub fn open(opts: &EngineOptions, progress: &mut dyn FnMut(&str)) -> Result<Self> {
+        crate::net::configure(opts.config.net.clone());
         progress("Opening the store");
         let store = open_store(opts)?;
         let embedder = if opts.embeddings { load_embedder(&opts.data_dir.join("models"), progress)? } else { None };
@@ -134,6 +135,7 @@ impl Engine {
     pub fn configure(&self, config: Config) -> Result<()> {
         let config = config.validated();
         self.store.configure(&config)?;
+        crate::net::configure(config.net.clone());
         *self.config.write().map_err(|_| Error::Store("lock poisoned".into()))? = config;
         Ok(())
     }
