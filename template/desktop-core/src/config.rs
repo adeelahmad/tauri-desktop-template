@@ -21,6 +21,8 @@ pub struct Config {
     pub mcp: crate::mcp::McpConfig,
 {% endif %}{% if tts %}    #[cfg(feature = "tts")]
     pub tts: crate::tts::TtsConfig,
+{% endif %}{% if stt %}    #[cfg(feature = "stt")]
+    pub stt: crate::stt::SttConfig,
 {% endif %}}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,6 +199,10 @@ impl Config {
 {% endif %}{% if tts %}        #[cfg(feature = "tts")]
         {
             self.tts = self.tts.validated();
+        }
+{% endif %}{% if stt %}        #[cfg(feature = "stt")]
+        {
+            self.stt = self.stt.validated();
         }
 {% endif %}        self
     }

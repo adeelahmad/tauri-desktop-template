@@ -5,6 +5,7 @@
 //! part is a cargo feature: `embed`, `postgres`, `pdf`. Without `embed`, search falls
 //! back to keywords, so the app works (and tests run) with no model download.
 
+pub mod audio;
 pub mod chunk;
 pub mod config;
 pub mod engine;
@@ -28,6 +29,8 @@ pub mod mcp;
 pub mod local;
 {% endif %}{% if tts %}#[cfg(feature = "tts")]
 pub mod tts;
+{% endif %}{% if stt %}#[cfg(feature = "stt")]
+pub mod stt;
 {% endif %}
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};
@@ -56,10 +59,10 @@ pub enum Error {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
-{% if embeddings or tts %}
-/// The process's one ONNX Runtime environment, shared by the embedder and the voice
+{% if embeddings or tts or stt %}
+/// The process's one ONNX Runtime environment, shared by the embedder, the voice and Whisper
 /// (ONNX Runtime allows only one per process).
-#[cfg(any(feature = "embed", feature = "tts"))]
+#[cfg(any(feature = "embed", feature = "tts", feature = "stt"))]
 pub fn onnx_env() -> Result<ort::environment::Environment> {
     static ENV: std::sync::Mutex<Option<ort::environment::Environment>> = std::sync::Mutex::new(None);
     let mut env = ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

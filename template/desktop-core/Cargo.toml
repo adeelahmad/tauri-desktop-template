@@ -39,6 +39,10 @@ llama = ["ai", "dep:llama-cpp-2"]
 # Text to speech with tiny-voca through ONNX Runtime (linked statically).
 tts = ["dep:ort", "dep:sha2"]
 {% endif -%}
+{% if stt -%}
+# Speech to text with Whisper through ONNX Runtime (the same runtime, no whisper.cpp).
+stt = ["dep:ort", "dep:sha2"]
+{% endif -%}
 {% if mcp_server -%}
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
@@ -61,10 +65,10 @@ postgres = { version = "0.19", optional = true }
 zip = { version = "2", optional = true, default-features = false, features = ["deflate"] }
 getrandom = { version = "0.3", optional = true }
 {% endif -%}
-{% if postgres or tts -%}
+{% if postgres or tts or stt -%}
 sha2 = { version = "0.10", optional = true }
 {% endif -%}
-{% if embeddings or tts -%}
+{% if embeddings or tts or stt -%}
 # The same ONNX Runtime build fastembed uses, so the two share one copy (and one environment).
 ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }
 {% endif -%}
