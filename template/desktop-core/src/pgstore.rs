@@ -62,9 +62,15 @@ pub fn cpu_supports_bundled_pgvector() -> bool {
     }
 }
 
+/// Prebuilt pgvector packages exist for macOS and Windows; on Linux use `APP_PG_URL`
+/// (for example the compose.yaml database) or the file store.
+pub fn embedded_supported() -> bool {
+    !cfg!(target_os = "linux") && cpu_supports_bundled_pgvector()
+}
+
 /// Whether the embedded server can run here (or `APP_PG_URL` is set).
 pub fn available() -> bool {
-    std::env::var("APP_PG_URL").is_ok_and(|u| !u.is_empty()) || cpu_supports_bundled_pgvector()
+    std::env::var("APP_PG_URL").is_ok_and(|u| !u.is_empty()) || embedded_supported()
 }
 
 /// One embedded server per data folder, started on first use; returns its URL.
@@ -74,9 +80,10 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
             return Ok(url);
         }
     }
-    if !cpu_supports_bundled_pgvector() {
+    if !embedded_supported() {
         return Err(Error::Store(
-            "embedded Postgres is off on this CPU (the bundled pgvector needs AVX-512); use the file store or set APP_PG_URL".into(),
+            "embedded Postgres + pgvector is not available here (Linux, or an x86 CPU without AVX-512); use the file store or set APP_PG_URL"
+                .into(),
         ));
     }
     std::fs::create_dir_all(data_dir)?;

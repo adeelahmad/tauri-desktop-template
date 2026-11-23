@@ -137,7 +137,9 @@ Changing it re-embeds stored chunks on the next start.
 {% endif -%}
 {% if postgres %}
 `APP_PG_URL` uses an existing Postgres with pgvector instead of the embedded one. The
-bundled x86-64 pgvector needs AVX-512; on other x86 CPUs the wizard offers only the file store.
+embedded server with prebuilt pgvector runs on macOS and Windows (x86-64 needs AVX-512);
+elsewhere, including Linux, the wizard offers only the file store unless `APP_PG_URL` is set.
+The first download calls the GitHub API; set `GITHUB_TOKEN` if you hit its rate limit.
 {% endif %}
 ## Versions and changelog
 
