@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, DESCRIPTION } from './config.js';
+import Settings from './Settings.jsx';
 
 function describe(info, status) {
   if (!info) return '';
@@ -125,6 +126,17 @@ function AddDocuments({ onChange }) {
       un.then((f) => f());
     };
   }, []);
+  const addFolder = async (p) => {
+    setMsg({ text: `Reading every document in ${p}…` });
+    try {
+      const r = await invoke('ingest_folder', { path: p, recursive: true });
+      const failed = r.errors.length ? `, ${r.errors.length} failed: ${r.errors[0]}` : '';
+      setMsg({ text: `Added ${r.files} files (${r.chunks} chunks)${failed}.`, error: r.errors.length > 0 });
+      onChange();
+    } catch (e) {
+      setMsg({ text: String(e), error: true });
+    }
+  };
   const addText = async () => {
     if (!text.trim()) return;
     try {
@@ -142,6 +154,7 @@ function AddDocuments({ onChange }) {
       <div className="row">
         <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/file.pdf" />
         <button onClick={() => path.trim() && addFile(path.trim())}>Add file</button>
+        <button onClick={() => path.trim() && addFolder(path.trim())}>Add folder</button>
       </div>
       <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text here" />
       <div className="row">
@@ -161,7 +174,7 @@ function Search() {
     if (!query.trim()) return;
     setError('');
     try {
-      setHits(await invoke('search', { query, k: 10 }));
+      setHits(await invoke('search', { query }));
     } catch (e) {
       setHits(null);
       setError(String(e));
@@ -188,6 +201,8 @@ function Search() {
               <div className="meta">
                 {h.source}
                 {h.page ? `, page ${h.page}` : ''} · {h.score.toFixed(3)}
+                {h.vector_score != null && ` · vector ${h.vector_score.toFixed(3)}`}
+                {h.keyword_score != null && ` · keyword ${h.keyword_score.toFixed(2)}`}
               </div>
               <div>{h.text}</div>
             </li>
@@ -345,6 +360,7 @@ export default function App() {
         <main>
           <AddDocuments onChange={refresh} />
           <Search />
+          <Settings features={f} />
           {f.backgroundAgent && <BackgroundAgent />}
           {f.pythonExample && <PythonExample />}
           {f.claudeMcp && <ClaudeDesktop />}

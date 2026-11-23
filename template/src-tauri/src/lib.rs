@@ -14,7 +14,7 @@
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
 
-use desktop_core::{Backend, Engine, EngineOptions, Hit, Status};
+use desktop_core::{Backend, Config, Engine, EngineOptions, Hit, IngestReport, SearchConfig, Status};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -49,6 +49,9 @@ struct Settings {
     backend: Backend,
     #[serde(default = "yes")]
     embeddings: bool,
+    /// Search, ingest and watch settings (all optional behaviour off by default).
+    #[serde(default)]
+    config: Config,
 }
 
 fn yes() -> bool {
@@ -57,7 +60,7 @@ fn yes() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { setup_done: false, backend: Backend::File, embeddings: true }
+        Self { setup_done: false, backend: Backend::File, embeddings: true, config: Config::default() }
     }
 }
 
@@ -73,10 +76,13 @@ fn load_settings(app: &tauri::AppHandle) -> Settings {
     settings_file(app).ok().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
+/// Written to a temporary file and renamed, so a crash never leaves half a settings file.
 fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
     let file = settings_file(app)?;
-    std::fs::create_dir_all(file.parent().unwrap()).map_err(err)?;
-    std::fs::write(file, serde_json::to_vec_pretty(s).map_err(err)?).map_err(err)
+    std::fs::create_dir_all(file.parent().ok_or("no config folder")?).map_err(err)?;
+    let tmp = file.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(s).map_err(err)?).map_err(err)?;
+    std::fs::rename(&tmp, &file).map_err(err)
 }
 
 /// Which optional parts this build has.
@@ -84,6 +90,8 @@ fn features() -> Value {
     json!({
         "embed": cfg!(feature = "embed"),
         "postgres": cfg!(feature = "postgres"),
+        "bm25": cfg!(feature = "bm25"),
+        "watch": cfg!(feature = "watch"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
         "updater": cfg!(feature = "updater"),
@@ -136,8 +144,15 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         setup_done: true,
         backend: backend.unwrap_or(saved.backend),
         embeddings: embeddings.unwrap_or(saved.embeddings) && cfg!(feature = "embed"),
+        config: saved.config,
     };
-    let opts = EngineOptions { data_dir: app.path().app_data_dir().map_err(err)?, backend: settings.backend, embeddings: settings.embeddings };
+    let opts = EngineOptions {
+        data_dir: app.path().app_data_dir().map_err(err)?,
+        backend: settings.backend,
+        embeddings: settings.embeddings,
+        config: settings.config.clone(),
+        app_name: Some(app.package_info().name.clone()),
+    };
     let service = state.service.clone();
     std::thread::spawn(move || {
         let mut progress = |msg: &str| {
@@ -169,9 +184,41 @@ fn ingest_file(state: tauri::State<AppState>, path: String) -> Result<usize, Str
     typed(call(&state, "ingest_file", json!({"path": path})))
 }
 
+/// `search` overrides the saved search settings for this query (the UI's tuning panel).
 #[tauri::command(async)]
-fn search(state: tauri::State<AppState>, query: String, k: Option<usize>) -> Result<Vec<Hit>, String> {
-    typed(call(&state, "search", json!({"query": query, "k": k})))
+fn search(state: tauri::State<AppState>, query: String, k: Option<usize>, search: Option<SearchConfig>) -> Result<Vec<Hit>, String> {
+    typed(call(&state, "search", json!({"query": query, "k": k, "search": search})))
+}
+
+#[tauri::command(async)]
+fn ingest_folder(state: tauri::State<AppState>, path: String, recursive: Option<bool>) -> Result<IngestReport, String> {
+    typed(call(&state, "ingest_folder", json!({"path": path, "recursive": recursive})))
+}
+
+#[tauri::command(async)]
+fn get_config(app: tauri::AppHandle) -> Config {
+    load_settings(&app).config
+}
+
+/// Validate, apply to the running engine (restarting the watcher if needed), and save.
+#[tauri::command(async)]
+fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Config) -> Result<Config, String> {
+    let config = config.validated();
+    let applied: Config = match call(&state, "configure", json!({"config": config})) {
+        Ok(v) => serde_json::from_value(v).map_err(err)?,
+        // Not set up yet: the saved config applies at the next setup.
+        Err(e) if e.starts_with("Still starting") => config,
+        Err(e) => return Err(e),
+    };
+    let mut s = load_settings(&app);
+    s.config = applied.clone();
+    save_settings(&app, &s)?;
+    Ok(applied)
+}
+
+#[tauri::command(async)]
+fn watch_status(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "watch_status", Value::Null)
 }
 
 #[tauri::command(async)]
@@ -213,11 +260,15 @@ pub fn self_test(out: Option<&Path>) -> i32 {
         backends.push(Backend::Postgres);
     }
     for backend in backends {
-        let opts = EngineOptions { data_dir: tmp.clone(), backend, embeddings: true };
+        let opts = EngineOptions { data_dir: tmp.clone(), backend, embeddings: true, config: Config::default(), app_name: None };
         let result = Engine::open(&opts, &mut |_| {}).and_then(|e| {
             e.ingest_text("sample", SAMPLE)?;
             let top = e.search("which organ pumps blood", 1)?;
-            Ok((e.status()?, top.first().is_some_and(|h| h.text.contains("heart"))))
+            // Hybrid mode too (BM25 in Postgres when built in, else full text; BM25 in the file store).
+            let hybrid = SearchConfig { mode: desktop_core::SearchMode::Hybrid, top_k: 1, ..SearchConfig::default() };
+            let fused = e.search_with("heart pumps blood", &hybrid)?;
+            let found = top.first().is_some_and(|h| h.text.contains("heart")) && fused.first().is_some_and(|h| h.text.contains("heart"));
+            Ok((e.status()?, found))
         });
         let name = format!("{backend:?}").to_lowercase();
         match result {
@@ -295,6 +346,10 @@ pub fn run() {
             ingest_text,
             ingest_file,
             search,
+            ingest_folder,
+            get_config,
+            set_config,
+            watch_status,
             remove_source,
             clear,
             #[cfg(feature = "updater")]

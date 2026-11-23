@@ -18,12 +18,18 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 # What you chose when generating; `cargo build --no-default-features --features ...` picks others.
-default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% endif %}{% if pdf %}"pdf", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}]
+default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}]
 {% if embeddings -%}
 embed = ["desktop-core/embed"]
 {% endif -%}
 {% if postgres -%}
 postgres = ["desktop-core/postgres"]
+{% if bm25 -%}
+bm25 = ["desktop-core/bm25"]
+{% endif -%}
+{% endif -%}
+{% if watch_folders -%}
+watch = ["desktop-core/watch"]
 {% endif -%}
 {% if pdf -%}
 pdf = ["desktop-core/pdf"]

@@ -4,7 +4,7 @@
 //! broken font encoding) are OCR'd with the system `tesseract`, rendered by poppler's
 //! `pdftoppm`; without those programs such a page stays empty.
 
-use crate::{chunks_from_pages, Chunk, Error, Result};
+use crate::{Chunk, Error, Result};
 use docling::{DocumentConverter, SourceDocument};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -68,9 +68,13 @@ pub fn ocr_page(path: &Path, page: u32) -> String {
 }
 
 pub fn chunks_from_pdf(path: &Path) -> Result<Vec<Chunk>> {
+    chunks_from_pdf_with(path, crate::chunk::Chunking::default())
+}
+
+pub fn chunks_from_pdf_with(path: &Path, chunking: crate::chunk::Chunking) -> Result<Vec<Chunk>> {
     let pages: Vec<(u32, String)> = pdf_pages(path)?
         .into_iter()
         .map(|(n, text)| if looks_garbled(&text) { (n, ocr_page(path, n)) } else { (n, text) })
         .collect();
-    Ok(chunks_from_pages(&path.to_string_lossy(), &pages))
+    Ok(crate::chunk::chunks_from_pages_with(&path.to_string_lossy(), &pages, chunking))
 }
