@@ -5,7 +5,8 @@
 //! `ingest_file` {path}, `ingest_folder` {path, recursive}, `search` {query, k, search?},
 //! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`, and with
 //! feature `ai`: `ask` {question} (the answer streams as progress lines), `ai_keys`,
-//! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}.
+//! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}; with feature `tts`: `speak` {text}
+//! (a WAV as base64), `download_voice`.
 //!
 //! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
@@ -29,6 +30,9 @@ pub struct Local {
     app_name: Mutex<Option<String>>,
     #[cfg(feature = "watch")]
     watcher: Mutex<Option<desktop_core::watch::Watcher>>,
+    /// The voice model, loaded on first use.
+    #[cfg(feature = "tts")]
+    voice: Mutex<Option<Arc<desktop_core::tts::Tts>>>,
     /// Recent watch events, newest last (at most 100).
     events: Arc<Mutex<std::collections::VecDeque<Value>>>,
 }
@@ -168,6 +172,40 @@ impl Service for Local {
                     })
                 });
                 to(path)
+            }
+            #[cfg(feature = "tts")]
+            "speak" => {
+                use desktop_core::tts;
+                let e = self.engine()?;
+                let cfg = e.config().tts;
+                if !cfg.enabled {
+                    return Err("Speech is turned off in Settings".into());
+                }
+                let voice = {
+                    let mut v = self.voice.lock().map_err(err)?;
+                    if v.is_none() {
+                        let dir = tts::model_dir(e.data_dir());
+                        if !dir.join("model.onnx").is_file() {
+                            return Err("Download the voice first (Settings → Speech)".into());
+                        }
+                        *v = Some(Arc::new(tts::Tts::load(&dir, cfg.threads).map_err(err)?));
+                    }
+                    v.clone().ok_or("no voice")?
+                };
+                let audio = voice.speak(&arg::<String>(&params, "text")?, &cfg).map_err(err)?;
+                Ok(json!({"wav": tts::base64(&tts::wav(&audio, tts::SAMPLE_RATE)), "seconds": audio.len() as f32 / tts::SAMPLE_RATE as f32}))
+            }
+            #[cfg(feature = "tts")]
+            "download_voice" => {
+                let dir = desktop_core::tts::model_dir(self.engine()?.data_dir());
+                desktop_core::tts::download(&dir, &mut |name, done, total| {
+                    progress(&match total {
+                        Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
+                        None => format!("{name}: {} MB", done >> 20),
+                    })
+                })
+                .map_err(err)?;
+                Ok(json!(dir))
             }
             other => Err(format!("unknown method {other:?}")),
         }

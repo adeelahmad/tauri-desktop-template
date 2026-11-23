@@ -96,6 +96,7 @@ fn features() -> Value {
         "watch": cfg!(feature = "watch"),
         "ai": cfg!(feature = "ai"),
         "llama": cfg!(feature = "llama"),
+        "tts": cfg!(feature = "tts"),
         "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
@@ -247,6 +248,22 @@ fn download_model(app: tauri::AppHandle, state: tauri::State<AppState>, url: Opt
     s.config.llm.local.model_path = serde_json::from_value(path.clone()).ok();
     save_settings(&app, &s)?;
     Ok(path)
+}
+
+/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
+#[cfg(feature = "tts")]
+#[tauri::command(async)]
+fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
+    call(&state, "speak", json!({"text": text}))
+}
+
+/// Fetch the voice model (about 25 MB, checksummed) with `voice-progress` events.
+#[cfg(feature = "tts")]
+#[tauri::command(async)]
+fn download_voice(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+    state.service.call("download_voice", Value::Null, &mut |p| {
+        let _ = app.emit("voice-progress", p.to_string());
+    })
 }
 
 /// Providers that have a key (the keys never leave the backend).
@@ -431,6 +448,10 @@ pub fn run() {
             set_ai_key,
             #[cfg(feature = "llama")]
             download_model,
+            #[cfg(feature = "tts")]
+            speak,
+            #[cfg(feature = "tts")]
+            download_voice,
             #[cfg(feature = "mcp")]
             mcp_setup,
             #[cfg(feature = "mcp")]

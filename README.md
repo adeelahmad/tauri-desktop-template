@@ -14,6 +14,7 @@ feature afterwards.
 | `watch_folders` | A drop folder plus watch folders that ingest new files automatically. Default off |
 | `ai` | Ask questions over your documents with Claude, OpenAI, Gemini, Ollama or any OpenAI-compatible server (llama.cpp, LM Studio, vLLM): streaming, citations, retries, fallback providers, token budgets, prompt caching. Keys stay in an owner-only file in the app data folder. No extra dependencies. Default off |
 | `local_llm` (with `ai`) | llama.cpp compiled in and linked statically (Metal on Apple Silicon): GGUF models run inside the app with no server. Provider `local`, a one-click model download (resumable), context, GPU layers and thread settings. Default off |
+| `tts` | Text to speech in pure Rust over ONNX Runtime with tiny-voca (about 25 MB, two voices, speed and pitch, own lexicon-based phonemizer, no espeak). One-click voice download with SHA-256 check; "Read aloud" on answers. Default off |
 | `mcp_server` | A Model Context Protocol server written in Rust (stdio, `app --mcp`), so Claude Desktop, Claude Code and other MCP clients can search the documents. Read-only tools by default; write tools, a tool allowlist and an audit log are settings. One click adds it to Claude Desktop. No extra dependencies. Default off |
 | `pdf` | PDF text via docling.rs, tesseract OCR for pages without a text layer |
 | `ipc_worker` | Backend in its own process (`app --worker`) over a Unix socket / named pipe |

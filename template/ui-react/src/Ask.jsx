@@ -4,8 +4,9 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import Speak from './Speak.jsx';
 
-export default function Ask() {
+export default function Ask({ features }) {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [result, setResult] = useState(null);
@@ -49,7 +50,9 @@ export default function Ask() {
       {answer && <div className="answer">{answer}</div>}
       {result && (
         <>
-          <p className="hint">{usage}</p>
+          <p className="hint">
+            {usage} {features?.tts && <Speak text={answer} />}
+          </p>
           <ol className="sources">
             {result.sources.map((h, i) => (
               <li key={i}>

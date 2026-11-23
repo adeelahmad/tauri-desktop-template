@@ -50,6 +50,11 @@ type = "bool"
 prompt = "Built-in llama.cpp (statically linked) so GGUF models run inside the app with no server? Adds a few minutes to the first build"
 default = false
 
+[placeholders.tts]
+type = "bool"
+prompt = "Text to speech with tiny-voca (4.5M params, Apache-2.0, two English voices; ONNX Runtime, model downloads on first use)?"
+default = false
+
 [placeholders.mcp_server]
 type = "bool"
 prompt = "Built-in MCP server (Rust, stdio) so Claude Desktop, Claude Code and other MCP clients can search this app's documents? Off until switched on in Settings"
@@ -151,6 +156,9 @@ ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs"]
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]
+
+[conditional.'!tts']
+ignore = ["desktop-core/src/tts.rs"]
 
 [conditional.'!watch_folders']
 ignore = ["desktop-core/src/watch.rs"]

@@ -50,8 +50,8 @@ Everything runs on the user's machine.
 | llama.cpp built in (static; Metal on Apple Silicon): provider `local` runs a GGUF model in the app | `desktop-core/src/local.rs` | `llama` |
 {% endif -%}
 {% endif -%}
-{% if mcp_server -%}
-| MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
+{% if tts -%}
+| Text to speech in Rust (tiny-voca, 24 kHz, ONNX Runtime; two voices, speed and pitch): "Read aloud" on answers. Turn on under Settings → Speech | `desktop-core/src/tts.rs` | `tts` |
 {% endif -%}
 {% if mcp_server -%}
 | MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |

@@ -17,6 +17,7 @@ async function start() {
   if (f.backgroundAgent) { show('agent'); refreshAgent(); }
   if (f.mcp) { show('mcp'); invoke('mcp_setup').then((s) => { $('mcp-cmd').textContent = s.claude_code; }).catch(() => {}); }
   show('llama', f.llama);
+  show('tts', f.tts);
   if (f.ai) { show('ask'); invoke('ai_keys').then(keysText).catch(() => {}); }
   show('w-pg-option', f.postgres);
   if (f.postgres && !info.postgresAvailable) {
@@ -231,4 +232,17 @@ $('model-go').onclick = async () => {
   const off = await listen('model-progress', (e) => { $('model-status').textContent = `Downloading: ${e.payload}`; });
   try { $('model-status').textContent = `Ready: ${await invoke('download_model', {})}`; }
   catch (e) { $('model-status').textContent = String(e); } finally { off(); }
+};
+
+// Speech (feature `tts`): reads the last answer aloud.
+let playing = null;
+$('speak-go').onclick = async () => {
+  if (playing) playing.pause();
+  try { const r = await invoke('speak', { text: $('answer').textContent }); playing = new Audio(`data:audio/wav;base64,${r.wav}`); await playing.play(); }
+  catch (e) { $('voice-status').textContent = String(e); }
+};
+$('voice-go').onclick = async () => {
+  const off = await listen('voice-progress', (e) => { $('voice-status').textContent = `Downloading ${e.payload}`; });
+  try { await invoke('download_voice'); $('voice-status').textContent = 'Voice ready.'; }
+  catch (e) { $('voice-status').textContent = String(e); } finally { off(); }
 };

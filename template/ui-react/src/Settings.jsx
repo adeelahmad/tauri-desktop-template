@@ -52,6 +52,13 @@ const FIELDS = [
   ['mcp', 'auditLog', 'Keep an audit log of tool calls', 'bool', { needs: 'mcp' }],
   ['mcp', 'auditArguments', 'Log the call arguments too', 'bool', { needs: 'mcp' }],
   ['mcp', 'maxResultChars', 'Longest reply (characters)', 'number', { needs: 'mcp', min: 1000 }],
+  ['tts', 'enabled', 'Read answers aloud (tiny-voca, on this computer)', 'bool', { needs: 'tts' }],
+  ['tts', 'voice', 'Voice', 'select', { needs: 'tts', options: [0, 1], labels: ['F2 (female)', 'M2 (male)'], numeric: true }],
+  ['tts', 'speed', 'Speed', 'number', { needs: 'tts', step: 0.1, min: 0.25, max: 4 }],
+  ['tts', 'pitchShift', 'Pitch shift', 'number', { needs: 'tts', step: 0.05, min: -1, max: 1 }],
+  ['tts', 'pitchRange', 'Pitch range', 'number', { needs: 'tts', step: 0.1, min: 0, max: 3 }],
+  ['tts', 'pauseMs', 'Pause between sentences (ms)', 'number', { needs: 'tts', min: 0, max: 5000 }],
+  ['tts', 'threads', 'CPU threads (0 = automatic)', 'number', { needs: 'tts', min: 0 }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolder', 'Use the drop folder', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolderPath', 'Drop folder (empty = Documents/<app> Inbox)', 'text', { needs: 'watch', nullable: true }],
@@ -63,7 +70,7 @@ const FIELDS = [
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
 ];
 
-const TITLES = { search: 'Search', ingest: 'Ingest', llm: 'AI', mcp: 'MCP server', watch: 'Watch folders' };
+const TITLES = { search: 'Search', ingest: 'Ingest', llm: 'AI', mcp: 'MCP server', tts: 'Speech', watch: 'Watch folders' };
 
 function Field({ kind, label, value, extra, onChange }) {
   if (kind === 'bool')
@@ -76,9 +83,11 @@ function Field({ kind, label, value, extra, onChange }) {
     return (
       <label className="field">
         {label}
-        <select value={value} onChange={(e) => onChange(e.target.value)}>
-          {extra.options.map((o) => (
-            <option key={o}>{o}</option>
+        <select value={value} onChange={(e) => onChange(extra.numeric ? Number(e.target.value) : e.target.value)}>
+          {extra.options.map((o, i) => (
+            <option key={o} value={o}>
+              {extra.labels ? extra.labels[i] : o}
+            </option>
           ))}
         </select>
       </label>
@@ -142,6 +151,32 @@ function WatchStatus() {
           {e.kind === 'started' && `Started on ${e.folders.length} folders`}
         </div>
       ))}
+    </div>
+  );
+}
+
+function VoiceDownload() {
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    const unlisten = await listen('voice-progress', (e) => setMsg(`Downloading ${e.payload}`));
+    try {
+      await invoke('download_voice');
+      setMsg('Voice ready.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      unlisten();
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="row">
+      <button onClick={go} disabled={busy}>
+        Download the voice (25 MB)
+      </button>
+      <span className="hint">{msg}</span>
     </div>
   );
 }
@@ -280,9 +315,8 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'watch'].filter(
-    (s) => (s !== 'watch' || features.watch) && (s !== 'llm' || features.ai) && (s !== 'mcp' || features.mcp),
-  );
+  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts' };
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'watch'].filter((s) => !needs[s] || features[needs[s]]);
   return (
     <section>
       <h2>Settings</h2>
@@ -305,6 +339,7 @@ export default function Settings({ features }) {
           {s === 'llm' && <AiKeys />}
           {s === 'llm' && features.llama && <ModelDownload onDone={(p) => set('llm', 'local.modelPath', p)} />}
           {s === 'mcp' && <McpConnect />}
+          {s === 'tts' && <VoiceDownload />}
         </details>
       ))}
       <div className="row">
