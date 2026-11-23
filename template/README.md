@@ -46,6 +46,9 @@ Everything runs on the user's machine.
 {% endif -%}
 {% if ai -%}
 | AI answers over your documents (Claude, OpenAI, Gemini, Ollama, any OpenAI-compatible server): streaming, citations, fallbacks, budgets. Turn on under Settings → AI | `desktop-core/src/llm.rs` | `ai` |
+{% if local_llm -%}
+| llama.cpp built in (static; Metal on Apple Silicon): provider `local` runs a GGUF model in the app | `desktop-core/src/local.rs` | `llama` |
+{% endif -%}
 {% endif -%}
 {% if mcp_server -%}
 | MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |

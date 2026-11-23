@@ -5,7 +5,7 @@
 //! `ingest_file` {path}, `ingest_folder` {path, recursive}, `search` {query, k, search?},
 //! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`, and with
 //! feature `ai`: `ask` {question} (the answer streams as progress lines), `ai_keys`,
-//! `set_ai_key` {provider, key}.
+//! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}.
 //!
 //! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
@@ -157,6 +157,17 @@ impl Service for Local {
                 let keys = desktop_core::llm::KeyFile::new(self.engine()?.data_dir().join("keys.json"));
                 keys.set(arg(&params, "provider")?, arg::<Option<String>>(&params, "key")?.as_deref()).map_err(err)?;
                 to(Ok(keys.present()))
+            }
+            #[cfg(feature = "llama")]
+            "download_model" => {
+                let url = arg::<Option<String>>(&params, "url")?;
+                let path = self.engine()?.download_model(url.as_deref(), &mut |done, total| {
+                    progress(&match total {
+                        Some(t) => format!("{} of {} MB", done >> 20, t >> 20),
+                        None => format!("{} MB", done >> 20),
+                    })
+                });
+                to(path)
             }
             other => Err(format!("unknown method {other:?}")),
         }

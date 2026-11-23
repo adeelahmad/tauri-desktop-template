@@ -24,10 +24,12 @@ pub enum Provider {
     Ollama,
     /// Any server that speaks OpenAI's `/v1/chat/completions` (needs `base_url`).
     Compatible,
+    /// llama.cpp inside the app (feature `llama`): a GGUF file from `LlmConfig::local`.
+    Local,
 }
 
 impl Provider {
-    pub const ALL: [Provider; 5] = [Provider::Anthropic, Provider::Openai, Provider::Gemini, Provider::Ollama, Provider::Compatible];
+    pub const ALL: [Provider; 6] = [Provider::Anthropic, Provider::Openai, Provider::Gemini, Provider::Ollama, Provider::Compatible, Provider::Local];
 
     /// The name used in settings and the key file.
     pub fn id(self) -> &'static str {
@@ -37,6 +39,7 @@ impl Provider {
             Provider::Gemini => "gemini",
             Provider::Ollama => "ollama",
             Provider::Compatible => "compatible",
+            Provider::Local => "local",
         }
     }
 
@@ -47,6 +50,7 @@ impl Provider {
             Provider::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
             Provider::Ollama => "http://127.0.0.1:11434",
             Provider::Compatible => "http://127.0.0.1:8080/v1",
+            Provider::Local => "",
         }
     }
 
@@ -56,7 +60,7 @@ impl Provider {
             Provider::Openai => "gpt-5-mini",
             Provider::Gemini => "gemini-2.5-flash",
             Provider::Ollama => "llama3.2",
-            Provider::Compatible => "local",
+            Provider::Compatible | Provider::Local => "local",
         }
     }
 
@@ -66,7 +70,7 @@ impl Provider {
             Provider::Anthropic => Some("ANTHROPIC_API_KEY"),
             Provider::Openai => Some("OPENAI_API_KEY"),
             Provider::Gemini => Some("GEMINI_API_KEY"),
-            Provider::Ollama | Provider::Compatible => None,
+            Provider::Ollama | Provider::Compatible | Provider::Local => None,
         }
     }
 
@@ -129,6 +133,41 @@ pub struct LlmConfig {
     pub http_hosts: Vec<String>,
     /// Anthropic prompt caching on the system prompt and sources.
     pub prompt_cache: bool,
+    /// The built-in llama.cpp model (provider `local`).
+    pub local: LocalConfig,
+}
+
+/// Settings for provider `local` (llama.cpp in the app, feature `llama`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LocalConfig {
+    /// The .gguf file to run.
+    pub model_path: Option<PathBuf>,
+    /// Where `download_model` fetches a model from when none is picked (HTTPS).
+    pub model_url: Option<String>,
+    /// Context window in tokens (prompt + sources + answer).
+    pub context: u32,
+    /// Layers to offload to the GPU (Metal on Apple Silicon); 0 = CPU only.
+    pub gpu_layers: u32,
+    /// CPU threads; 0 = one per core.
+    pub threads: u32,
+    pub seed: u32,
+    /// Keep the model in memory between questions (faster, uses RAM).
+    pub keep_loaded: bool,
+}
+
+impl Default for LocalConfig {
+    fn default() -> Self {
+        Self {
+            model_path: None,
+            model_url: Some("https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf".into()),
+            context: 8192,
+            gpu_layers: 99,
+            threads: 0,
+            seed: 42,
+            keep_loaded: true,
+        }
+    }
 }
 
 impl Default for LlmConfig {
@@ -146,6 +185,7 @@ impl Default for LlmConfig {
             monthly_token_budget: None,
             http_hosts: vec!["127.0.0.1".into(), "localhost".into(), "[::1]".into()],
             prompt_cache: true,
+            local: LocalConfig::default(),
         }
     }
 }
@@ -158,6 +198,8 @@ impl LlmConfig {
         self.timeout_secs = self.timeout_secs.clamp(5, 3600);
         self.retries = self.retries.min(10);
         self.fallbacks.truncate(8);
+        self.local.context = self.local.context.clamp(512, 131_072);
+        self.local.threads = self.local.threads.min(256);
         self
     }
 }
@@ -236,6 +278,18 @@ impl<'a> Client<'a> {
         Err(Error::Llm(last))
     }
 
+    #[cfg(feature = "llama")]
+    fn call_local(&self, messages: &[Message], on_token: &mut dyn FnMut(&str)) -> std::result::Result<Reply, Failure> {
+        let mut r = crate::local::chat(&self.cfg.local, messages, self.cfg.max_tokens, self.cfg.temperature, on_token).map_err(|e| Failure::Fatal(e.to_string()))?;
+        r.provider = Some(Provider::Local);
+        Ok(r)
+    }
+
+    #[cfg(not(feature = "llama"))]
+    fn call_local(&self, _: &[Message], _: &mut dyn FnMut(&str)) -> std::result::Result<Reply, Failure> {
+        Err(Failure::Fatal("local models (llama.cpp) are not in this build".into()))
+    }
+
     fn agent(&self) -> ureq::Agent {
         ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(15)))
@@ -259,6 +313,9 @@ impl<'a> Client<'a> {
     }
 
     fn call(&self, t: &Target, messages: &[Message], on_token: &mut dyn FnMut(&str)) -> std::result::Result<Reply, Failure> {
+        if t.provider == Provider::Local {
+            return self.call_local(messages, on_token);
+        }
         let key = (self.keys)(t.provider);
         if t.provider.needs_key() && key.as_deref().is_none_or(str::is_empty) {
             return Err(Failure::Fatal(format!("no API key for {:?}", t.provider)));

@@ -3,6 +3,7 @@
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
 
@@ -27,9 +28,15 @@ const FIELDS = [
   ['ingest', 'maxFileMb', 'Largest file (MB)', 'number', { min: 1 }],
   ['ingest', 'extensions', 'File types', 'list', {}],
   ['llm', 'enabled', 'Turn on AI answers', 'bool', { needs: 'ai' }],
-  ['llm', 'provider', 'Provider', 'select', { needs: 'ai', options: ['anthropic', 'openai', 'gemini', 'ollama', 'compatible'] }],
+  ['llm', 'provider', 'Provider', 'select', { needs: 'ai', options: ['anthropic', 'openai', 'gemini', 'ollama', 'compatible', 'local'] }],
   ['llm', 'model', 'Model (empty = provider default)', 'text', { needs: 'ai' }],
   ['llm', 'baseUrl', 'Server URL (empty = provider default)', 'text', { needs: 'ai' }],
+  ['llm', 'local.modelPath', 'Local model file (.gguf)', 'text', { needs: 'llama', nullable: true }],
+  ['llm', 'local.modelUrl', 'Local model download URL', 'text', { needs: 'llama', nullable: true }],
+  ['llm', 'local.context', 'Local context (tokens)', 'number', { needs: 'llama', min: 512 }],
+  ['llm', 'local.gpuLayers', 'Layers on the GPU (0 = CPU only)', 'number', { needs: 'llama', min: 0 }],
+  ['llm', 'local.threads', 'CPU threads (0 = one per core)', 'number', { needs: 'llama', min: 0 }],
+  ['llm', 'local.keepLoaded', 'Keep the local model in memory', 'bool', { needs: 'llama' }],
   ['llm', 'temperature', 'Temperature', 'number', { needs: 'ai', step: 0.1, min: 0, max: 2 }],
   ['llm', 'maxTokens', 'Longest answer (tokens)', 'number', { needs: 'ai', min: 1 }],
   ['llm', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'ai', min: 5 }],
@@ -170,6 +177,33 @@ function McpConnect() {
   );
 }
 
+function ModelDownload({ onDone }) {
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    const unlisten = await listen('model-progress', (e) => setMsg(`Downloading: ${e.payload}`));
+    try {
+      const path = await invoke('download_model', {});
+      onDone(path);
+      setMsg(`Ready: ${path}`);
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      unlisten();
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="row">
+      <button onClick={go} disabled={busy}>
+        Download the local model
+      </button>
+      <span className="hint">{msg}</span>
+    </div>
+  );
+}
+
 function AiKeys() {
   const [have, setHave] = useState([]);
   const [provider, setProvider] = useState('anthropic');
@@ -228,7 +262,12 @@ export default function Settings({ features }) {
       .catch((e) => setMsg(String(e)));
   }, []);
   if (!cfg) return null;
-  const set = (section, key, v) => setCfg({ ...cfg, [section]: { ...cfg[section], [key]: v } });
+  // Keys like 'local.modelPath' reach one level down.
+  const set = (section, key, v) => {
+    const [k, sub] = key.split('.');
+    const value = sub ? { ...cfg[section][k], [sub]: v } : v;
+    setCfg({ ...cfg, [section]: { ...cfg[section], [k]: value } });
+  };
   const save = async () => {
     try {
       setCfg(await invoke('set_config', { config: cfg }));
@@ -252,11 +291,19 @@ export default function Settings({ features }) {
           <summary>{TITLES[s]}</summary>
           <div className="grid">
             {FIELDS.filter(([sec, , , , x]) => sec === s && (!x.needs || features[x.needs])).map(([sec, key, label, kind, extra]) => (
-              <Field key={key} kind={kind} label={label} extra={extra} value={cfg[sec][key]} onChange={(v) => set(sec, key, v)} />
+              <Field
+                key={key}
+                kind={kind}
+                label={label}
+                extra={extra}
+                value={key.split('.').reduce((o, k) => o?.[k], cfg[sec])}
+                onChange={(v) => set(sec, key, v)}
+              />
             ))}
           </div>
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
+          {s === 'llm' && features.llama && <ModelDownload onDone={(p) => set('llm', 'local.modelPath', p)} />}
           {s === 'mcp' && <McpConnect />}
         </details>
       ))}

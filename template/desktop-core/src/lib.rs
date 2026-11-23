@@ -24,6 +24,8 @@ pub mod watch;
 pub mod llm;
 {% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
 pub mod mcp;
+{% endif %}{% if local_llm %}#[cfg(feature = "llama")]
+pub mod local;
 {% endif %}
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};
