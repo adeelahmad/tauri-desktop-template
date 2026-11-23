@@ -236,8 +236,9 @@ pub fn self_test(out: Option<&Path>) -> i32 {
     let _ = std::fs::remove_dir_all(&tmp);
     #[cfg(feature = "claude-mcp")]
     {
+        // Release builds bundle uv; a dev build only finds one on PATH.
         let uv = claude::uv_version();
-        ok &= uv.is_some();
+        ok &= uv.is_some() || cfg!(debug_assertions);
         report.insert("uv".into(), serde_json::json!(uv));
     }
     #[cfg(feature = "ipc-worker")]

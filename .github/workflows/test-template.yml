@@ -4,8 +4,10 @@ name: Test the template
 # OS: core tests, the desktop app build, and the app's --self-test.
 
 on:
+  # Push runs only on main: a PR branch already gets the pull_request run, and this private
+  # repo pays for Actions minutes (macOS minutes cost 10x).
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -24,6 +26,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         variant: [all-on, all-off]
     runs-on: ${{ matrix.os }}
+    env:
+      # The embedded Postgres download lists GitHub releases; unauthenticated calls get rate-limited.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     defaults:
       run:
         shell: bash
@@ -42,6 +47,12 @@ jobs:
       - name: WebKitGTK
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev
+      - name: Postgres + pgvector for Linux (runner CPUs may lack the AVX-512 the prebuilt pgvector needs)
+        if: runner.os == 'Linux' && matrix.variant == 'all-on'
+        run: |
+          docker run -d --name pg -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app -p 5433:5432 pgvector/pgvector:pg17
+          for i in $(seq 30); do docker exec pg pg_isready -U app && break; sleep 2; done
+          echo "APP_PG_URL=postgres://app:app@localhost:5433/app" >> "$GITHUB_ENV"
       - name: Generate
         run: |
           common=(-d "app_name=Test App" -d identifier=com.example.testapp -d "description=Template test" -d github_repo=example/test-app)
@@ -74,4 +85,7 @@ jobs:
           cargo fmt --all --check
           cargo test --workspace
           cargo clippy --workspace --all-targets -- -D warnings
-          cargo run -p test-app -- --self-test
+          # The first run downloads the embedding model from Hugging Face, which sometimes fails
+          # mid-download; retry so a network blip doesn't fail the build.
+          for i in 1 2 3; do cargo run -p test-app -- --self-test && exit 0; echo "self-test attempt $i failed"; sleep 15; done
+          exit 1

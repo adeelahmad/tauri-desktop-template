@@ -23,6 +23,7 @@ pub struct AgentStatus {
     pub location: String,
 }
 
+#[cfg(not(windows))]
 fn home() -> PathBuf {
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_default()
 }

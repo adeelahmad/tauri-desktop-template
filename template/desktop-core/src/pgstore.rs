@@ -1,4 +1,4 @@
-//! Embedded Postgres 17 + pgvector.
+//! Embedded Postgres 16 + pgvector (the newest major with prebuilt pgvector packages).
 //!
 //! The server runs from a private data folder (`postgresql_embedded`), listens on
 //! localhost with a random password, and installs prebuilt pgvector on first use. Vector
@@ -62,9 +62,16 @@ pub fn cpu_supports_bundled_pgvector() -> bool {
     }
 }
 
+/// Prebuilt pgvector (portalcorp/pgvector_compiled) exists for Postgres 16 on macOS arm64,
+/// Windows x86-64 and Linux x86-64; the x86-64 builds need AVX-512.
+pub fn embedded_supported() -> bool {
+    let target = cfg!(any(all(target_os = "macos", target_arch = "aarch64"), all(any(windows, target_os = "linux"), target_arch = "x86_64")));
+    target && cpu_supports_bundled_pgvector()
+}
+
 /// Whether the embedded server can run here (or `APP_PG_URL` is set).
 pub fn available() -> bool {
-    std::env::var("APP_PG_URL").is_ok_and(|u| !u.is_empty()) || cpu_supports_bundled_pgvector()
+    std::env::var("APP_PG_URL").is_ok_and(|u| !u.is_empty()) || embedded_supported()
 }
 
 /// One embedded server per data folder, started on first use; returns its URL.
@@ -74,19 +81,20 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
             return Ok(url);
         }
     }
-    if !cpu_supports_bundled_pgvector() {
+    if !embedded_supported() {
         return Err(Error::Store(
-            "embedded Postgres is off on this CPU (the bundled pgvector needs AVX-512); use the file store or set APP_PG_URL".into(),
+            "embedded Postgres + pgvector is not available here (no prebuilt pgvector for this platform, or an x86 CPU without AVX-512); use the file store or set APP_PG_URL"
+                .into(),
         ));
     }
     std::fs::create_dir_all(data_dir)?;
-    let key = std::fs::canonicalize(data_dir)?;
+    let key = plain_path(std::fs::canonicalize(data_dir)?);
     let mut servers = SERVERS.get_or_init(|| Mutex::new(HashMap::new())).lock().map_err(pg_err)?;
     if let Some((_, url)) = servers.get(&key) {
         return Ok(url.clone());
     }
     let settings = Settings {
-        version: VersionReq::parse("=17").map_err(pg_err)?,
+        version: VersionReq::parse("=16").map_err(pg_err)?,
         installation_dir: key.join("install"),
         data_dir: key.join("data"),
         password_file: key.join(".pgpass"),
@@ -248,5 +256,30 @@ impl Store for PostgresStore {
             .map_err(pg_err)?;
         db.batch_execute("drop index if exists chunks_hnsw; delete from meta where key = 'dim';").map_err(pg_err)?;
         Ok(())
+    }
+}
+
+/// `canonicalize` on Windows returns a verbatim `\\?\C:\...` path. postgresql_embedded turns it
+/// into `//?/C:/...`, which Windows can't resolve, so initdb can't find postgres.exe. Strip the
+/// prefix for ordinary drive paths.
+fn plain_path(path: std::path::PathBuf) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\").filter(|r| !r.starts_with("UNC\\")) {
+            return std::path::PathBuf::from(rest.to_string());
+        }
+    }
+    path
+}
+
+#[cfg(test)]
+mod path_tests {
+    #[test]
+    fn plain_path_has_no_verbatim_prefix() {
+        let dir = std::env::temp_dir();
+        let path = super::plain_path(std::fs::canonicalize(&dir).unwrap());
+        assert!(!path.to_string_lossy().starts_with(r"\\?\"), "{}", path.display());
+        assert!(path.join("x").parent().unwrap().is_dir());
     }
 }

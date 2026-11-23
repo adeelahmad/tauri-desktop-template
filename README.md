@@ -9,7 +9,7 @@ feature afterwards.
 |---|---|
 | `frontend` | React 19 + Vite (`ui-react/`) or plain HTML/JS (`ui/`) |
 | `embeddings` | Local ONNX text embeddings via fastembed-rs; pick Nomic v1.5, BGE small, MiniLM or multilingual E5 |
-| `postgres` | Embedded Postgres 17 + pgvector (downloads on first run, HNSW search, AVX-512 guard) |
+| `postgres` | Embedded Postgres 16 + pgvector (downloads on first run, HNSW search, AVX-512 guard) |
 | `pdf` | PDF text via docling.rs, tesseract OCR for pages without a text layer |
 | `ipc_worker` | Backend in its own process (`app --worker`) over a Unix socket / named pipe |
 | `background_agent` | Starts the worker at login: macOS launchd LaunchAgent, Windows Run entry, Linux systemd user unit |

@@ -76,6 +76,8 @@ jobs:
         shell: bash
         working-directory: src-tauri
     env:
+      # The self-test's embedded Postgres download lists GitHub releases (rate-limited without a token).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       APP_NAME: ${{ needs.plan.outputs.name }}
@@ -131,7 +133,7 @@ jobs:
           main=$(find "$app/Contents/MacOS" -type f -perm -u+x ! -name 'uv*' | head -1)
           "$main" --self-test /tmp/self-test.json || { cat /tmp/self-test.json; exit 1; }
           mkdir -p "$RUNNER_TEMP/pkgroot" && cp -R "$app" "$RUNNER_TEMP/pkgroot/"
-          hdiutil detach /tmp/app
+          n=0; until hdiutil detach /tmp/app; do n=$((n+1)); if [ $n -ge 5 ]; then hdiutil detach -force /tmp/app; break; fi; sleep 3; done
       - name: Build and test the .pkg (macOS)
         # Copies the app to /Applications and clears the quarantine flag in postinstall, so
         # after one "Open Anyway" for the installer the unsigned app opens freely.
