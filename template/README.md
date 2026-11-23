@@ -47,6 +47,9 @@ Everything runs on the user's machine.
 {% if ai -%}
 | AI answers over your documents (Claude, OpenAI, Gemini, Ollama, any OpenAI-compatible server): streaming, citations, fallbacks, budgets. Turn on under Settings → AI | `desktop-core/src/llm.rs` | `ai` |
 {% endif -%}
+{% if mcp_server -%}
+| MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
+{% endif -%}
 {% if pdf -%}
 | PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
 {% endif -%}
