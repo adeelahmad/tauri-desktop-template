@@ -1,0 +1,3 @@
+# SHA-256 of each extension zip, as in the release's SHA256SUMS ("<hash>  <file>" per line).
+# Paste them here after the "Postgres extensions" workflow publishes your release; a listed
+# zip must match exactly. Unlisted zips are checked against the release's SHA256SUMS instead.

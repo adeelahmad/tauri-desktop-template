@@ -1,7 +1,7 @@
 [template]
 cargo_generate_version = ">=0.22.0"
 # Copied as they are (GitHub Actions uses ${{ }} too, and icons are binary).
-exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", "src-tauri/icons/*"]
+exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", "src-tauri/icons/*"]
 
 [placeholders.app_name]
 type = "string"
@@ -161,7 +161,7 @@ default = "my-mcp-server"
 ignore = ["desktop-core/src/embed.rs"]
 
 [conditional.'!postgres']
-ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256"]
+ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256", ".github/workflows/pg-extensions.yml", "scripts/pg-ext"]
 
 [conditional.'!mcp_server']
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]

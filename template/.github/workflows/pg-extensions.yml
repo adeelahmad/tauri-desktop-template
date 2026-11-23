@@ -1,0 +1,165 @@
+name: Postgres extensions
+
+# Builds pgvector, pg_tokenizer and VectorChord-BM25 for the embedded Postgres 16 on each
+# desktop target, smoke-tests them on a real server, and (with publish) attaches one zip
+# per target to the pg-ext-<PG_VERSION>-r<PG_EXT_REVISION> release that the app downloads on first run.
+# Upstream ships VectorChord-BM25 for Linux only, and the prebuilt x86 pgvector needs AVX-512.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Attach the zips to a GitHub release
+        type: boolean
+        default: false
+  pull_request:
+    paths: [".github/workflows/pg-extensions.yml", "scripts/pg-ext/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          # Pinned: pgrx 0.16's bindgen misreads the headers with the newer clang on ubuntu-26.04.
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions
+        run: grep -E '^[A-Z0-9_]+=' scripts/pg-ext/versions.env >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pg-ext-${{ matrix.target }}
+          workspaces: |
+            ${{ runner.temp }}/src/pg_tokenizer
+            ${{ runner.temp }}/src/vchord_bm25
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Postgres ${{ env.PG_VERSION }} (the same build postgresql_embedded installs)
+        run: |
+          pg="$RUNNER_TEMP/pg"; mkdir -p "$pg"
+          # No tar -C: GNU tar reads "D:" in a Windows path as a remote host.
+          (cd "$pg" && curl -sSLf "https://github.com/theseus-rs/postgresql-binaries/releases/download/$PG_VERSION/postgresql-$PG_VERSION-${{ matrix.target }}.tar.gz" | tar xz --strip-components=1)
+          if [ "$RUNNER_OS" = Windows ]; then pg=$(cygpath -m "$pg"); fi
+          # The macOS build records the SDK it was built with; point that path at this runner's SDK.
+          if [ "$RUNNER_OS" = macOS ]; then
+            want=$("$pg/bin/pg_config" --cppflags | sed -n 's/.*-isysroot \([^ ]*\).*/\1/p')
+            if [ -n "$want" ] && [ ! -d "$want" ]; then sudo mkdir -p "$(dirname "$want")" && sudo ln -s "$(xcrun --show-sdk-path)" "$want"; fi
+          fi
+          echo "PG=$pg" >> "$GITHUB_ENV"
+          echo "PG_CONFIG=$pg/bin/pg_config" >> "$GITHUB_ENV"
+          echo "OUT=$(if [ "$RUNNER_OS" = Windows ]; then cygpath -m "$RUNNER_TEMP/out"; else echo "$RUNNER_TEMP/out"; fi)" >> "$GITHUB_ENV"
+          "$pg/bin/pg_config" --version
+      - name: Use MSVC's link.exe, not Git's coreutils link
+        if: runner.os == 'Windows'
+        run: |
+          msvc_link=$(where link.exe | grep -iF "VC\\Tools\\MSVC" | head -1)
+          echo "MSVC linker: $msvc_link"
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$msvc_link" >> "$GITHUB_ENV"
+      - name: Import library for postgres.exe (the Windows binaries ship without postgres.lib)
+        if: runner.os == 'Windows'
+        run: |
+          cd "$PG/lib"
+          if [ ! -f postgres.lib ]; then
+            dumpbin //nologo //exports ../bin/postgres.exe \
+              | awk 'BEGIN { print "LIBRARY postgres.exe"; print "EXPORTS" } $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9A-F]+$/ && NF >= 4 { print "  " $4 }' > postgres.def
+            echo "$(($(wc -l < postgres.def) - 2)) exports"
+            lib //nologo //machine:x64 //def:postgres.def //out:postgres.lib
+          fi
+      - name: Sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/src" && cd "$RUNNER_TEMP/src"
+          # The Rust cache may already have restored target/ into these folders.
+          clone() {
+            git -c advice.detachedHead=false clone -q --depth 1 --branch "$2" "$1" "$3.git-tmp"
+            mkdir -p "$3" && cp -a "$3.git-tmp/." "$3/" && rm -rf "$3.git-tmp"
+          }
+          clone https://github.com/pgvector/pgvector "v$PGVECTOR_VERSION" pgvector
+          clone https://github.com/tensorchord/pg_tokenizer.rs "$PG_TOKENIZER_VERSION" pg_tokenizer
+          clone https://github.com/tensorchord/VectorChord-bm25 "$VCHORD_BM25_VERSION" vchord_bm25
+      - name: "pgvector (portable, no -march=native, so no AVX-512 requirement)"
+        if: runner.os != 'Windows'
+        working-directory: ${{ runner.temp }}/src/pgvector
+        run: |
+          # with_llvm=no: the server was built with JIT, but the JIT bitcode is not needed.
+          make PG_CONFIG="$PG_CONFIG" OPTFLAGS="" with_llvm=no
+          mkdir -p "$OUT/lib" "$OUT/share/extension"
+          cp vector.control sql/vector--*.sql "$OUT/share/extension/"
+          cp vector$( [ "$RUNNER_OS" = macOS ] && echo .dylib || echo .so ) "$OUT/lib/"
+      - name: pgvector (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ${{ runner.temp }}/src/pgvector
+        shell: cmd
+        run: |
+          set "PGROOT=%PG%"
+          nmake /NOLOGO /F Makefile.win || exit /b 1
+          mkdir "%OUT%\lib" "%OUT%\share\extension"
+          copy vector.dll "%OUT%\lib\" || exit /b 1
+          copy vector.control "%OUT%\share\extension\" || exit /b 1
+          copy sql\vector--*.sql "%OUT%\share\extension\" || exit /b 1
+      - name: cargo-pgrx ${{ env.PGRX_VERSION }}
+        run: |
+          cargo install cargo-pgrx --version "$PGRX_VERSION" --locked
+          cargo pgrx init --pg16 "$PG_CONFIG"
+      - name: pg_tokenizer
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            # Windows has no fork: each backend re-runs _PG_init with IsUnderPostmaster set while
+            # shared_preload_libraries load, so allow that case (the check upstream assumes fork).
+            f="$RUNNER_TEMP/src/pg_tokenizer/src/lib.rs"
+            sed -i 's/if unsafe { pgrx::pg_sys::IsUnderPostmaster } {/if unsafe { pgrx::pg_sys::IsUnderPostmaster \&\& !pgrx::pg_sys::process_shared_preload_libraries_in_progress } {/' "$f"
+            grep -q process_shared_preload_libraries_in_progress "$f"
+          fi
+          scripts/pg-ext/build-rust-ext.sh "$RUNNER_TEMP/src/pg_tokenizer" pg_tokenizer "$PG_TOKENIZER_VERSION"
+      - name: vchord_bm25
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            # MSVC bindgen types C enums as i32 (u32 elsewhere); let the casts follow the bindings.
+            src="$RUNNER_TEMP/src/vchord_bm25/src"
+            sed -i 's/RELOPT_KIND_BM25\.get(),/RELOPT_KIND_BM25.get() as _,/' "$src/index/options.rs"
+            sed -i 's/^\( *\)arg_flags,$/\1arg_flags as _,/' "$src/page/postgres.rs"
+            grep -c "as _," "$src/index/options.rs" "$src/page/postgres.rs"
+          fi
+          scripts/pg-ext/build-rust-ext.sh "$RUNNER_TEMP/src/vchord_bm25" vchord_bm25 "$VCHORD_BM25_VERSION"
+      - name: Smoke test on a fresh server
+        run: scripts/pg-ext/smoke-test.sh
+      - name: Package
+        run: |
+          zip_name="pg16-extensions-${{ matrix.target }}.zip"
+          cd "$OUT" && 7z a -tzip "$RUNNER_TEMP/$zip_name" lib share > /dev/null
+          echo "ZIP=$RUNNER_TEMP/$zip_name" >> "$GITHUB_ENV"
+          ls -R "$OUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pg16-extensions-${{ matrix.target }}
+          path: ${{ env.ZIP }}
+
+  publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -a; . scripts/pg-ext/versions.env; set +a
+          tag="pg-ext-$PG_VERSION-r$PG_EXT_REVISION"
+          notes="pgvector $PGVECTOR_VERSION, pg_tokenizer $PG_TOKENIZER_VERSION, VectorChord-BM25 $VCHORD_BM25_VERSION for Postgres $PG_VERSION. VectorChord-BM25 is AGPL-3.0 or Elastic-2.0; pg_tokenizer is Apache-2.0; pgvector is PostgreSQL-licensed."
+          (cd dist && sha256sum *.zip > SHA256SUMS)
+          gh release create "$tag" dist/* --title "$tag" --notes "$notes" --target "$GITHUB_SHA"

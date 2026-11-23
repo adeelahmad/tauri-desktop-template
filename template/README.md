@@ -202,9 +202,13 @@ Changing it re-embeds stored chunks on the next start.
 `APP_PG_URL` uses an existing Postgres with pgvector instead of the embedded one. The
 embedded server (Postgres 16.16) runs on Apple Silicon Macs and x86-64 Windows and Linux.
 On first use it installs one extension bundle (pgvector, pg_tokenizer, VectorChord-BM25)
-built by the `pg-extensions` workflow for that platform, from `APP_PG_EXT_URL` in
-`.cargo/config.toml`, after checking its SHA-256 (pin the hashes in
-`desktop-core/pg-ext.sha256`). `APP_PG_EXT_DIR` installs it from a local folder instead.
+for that platform, from `APP_PG_EXT_URL` in `.cargo/config.toml`, after checking its SHA-256.
+Before the first release, run **Actions → Postgres extensions → Run workflow** with
+*publish* on: it builds the bundle on macOS, Windows and Linux, smoke-tests it on a real
+server and attaches it to this repo's `pg-ext-16.16.0-r1` release (versions in
+`scripts/pg-ext/versions.env`). Paste the release's `SHA256SUMS` into
+`desktop-core/pg-ext.sha256` to pin it. The release must download without a login, so use a
+public repo or point `APP_PG_EXT_URL` at another public host. `APP_PG_EXT_DIR` installs it from a local folder instead.
 pgvector there is built without `-march=native`, so no AVX-512 is needed.
 The first server download calls the GitHub API; set `GITHUB_TOKEN` if you hit its rate limit.
 {% if bm25 %}
