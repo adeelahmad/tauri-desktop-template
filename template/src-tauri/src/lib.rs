@@ -31,8 +31,12 @@ mod ipc;
 mod python;
 {% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
 mod mcp;
-{% endif %}mod service;
-{% if updater %}#[cfg(feature = "updater")]
+{% endif %}mod guard;
+mod paths;
+mod service;
+{% if single_instance %}#[cfg(feature = "single-instance")]
+mod single;
+{% endif %}{% if updater %}#[cfg(feature = "updater")]
 mod update;
 {% endif %}
 use service::Service;
@@ -75,7 +79,12 @@ fn settings_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn load_settings(app: &tauri::AppHandle) -> Settings {
-    settings_file(app).ok().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    settings_file(app).ok().map(|f| settings_at(&f)).unwrap_or_default()
+}
+
+/// The saved settings, read without a window (they are optional: defaults when missing).
+fn settings_at(file: &Path) -> Settings {
+    std::fs::read(file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 /// Written to a temporary file and renamed, so a crash never leaves half a settings file.
@@ -350,6 +359,8 @@ fn mcp_register_claude() -> Result<&'static str, String> {
 
 #[cfg(feature = "ipc-worker")]
 pub fn worker_main() -> i32 {
+    let (config, data) = paths::app_dirs();
+    desktop_core::logging::init(&data.join("logs"), "worker", settings_at(&config.join("settings.json")).config.log);
     ipc::serve()
 }
 
@@ -446,20 +457,48 @@ pub fn self_test(out: Option<&Path>) -> i32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let (config_dir, data_dir) = paths::app_dirs();
+    let process = if cfg!(feature = "ipc-worker") { "window" } else { "app" };
+    desktop_core::logging::init(&data_dir.join("logs"), process, settings_at(&config_dir.join("settings.json")).config.log);
+    #[cfg(feature = "single-instance")]
+    let instance = match single::claim(&data_dir) {
+        Ok(single::Instance::Second) => {
+            log::info!("already running: asked that window to come to the front");
+            return;
+        }
+        Ok(single::Instance::First(lock, listener)) => Some((lock, listener)),
+        Err(e) => {
+            log::warn!("single-instance check failed, starting anyway: {e}");
+            None
+        }
+    };
     #[cfg(feature = "ipc-worker")]
     let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
     #[cfg(not(feature = "ipc-worker"))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
-    let builder = tauri::Builder::default().manage(AppState { service });
+    let builder = tauri::Builder::default().manage(AppState { service }).plugin(guard::plugin());
     #[cfg(feature = "python-example")]
     let builder = builder.manage(python::PythonWorker::default());
     #[cfg(feature = "updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    // Panics in the window process are written to <data>/crashes too (sent only if allowed).
-    #[cfg(feature = "telemetry")]
-    let builder = builder.setup(|app| {
+    let builder = builder.setup(move |app| {
+        let _ = &app;
+        // Panics in the window process are written to <data>/crashes too (sent only if allowed).
+        #[cfg(feature = "telemetry")]
         if let Ok(dir) = app.path().app_data_dir() {
             desktop_core::telemetry::install_panic_hook(&dir, &app.package_info().name, &app.package_info().version.to_string());
+        }
+        #[cfg(feature = "single-instance")]
+        if let Some((lock, listener)) = instance {
+            app.manage(single::Held(lock));
+            let handle = app.handle().clone();
+            single::listen(listener, move || {
+                if let Some(w) = handle.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            });
         }
         Ok(())
     });

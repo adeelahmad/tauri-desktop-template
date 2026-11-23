@@ -75,6 +75,10 @@ const FIELDS = [
   ['stt', 'translate', 'Translate into English', 'bool', { needs: 'stt' }],
   ['stt', 'maxSeconds', 'Longest recording (seconds)', 'number', { needs: 'stt', min: 5, max: 7200 }],
   ['stt', 'threads', 'CPU threads (0 = automatic)', 'number', { needs: 'stt', min: 0 }],
+  ['log', 'level', 'Log level', 'select', { options: ['error', 'warn', 'info', 'debug', 'trace'] }],
+  ['log', 'file', 'Write a log file (logs folder in the app data)', 'bool', {}],
+  ['log', 'maxMb', 'Start a new file at (MB)', 'number', { min: 1, max: 1024 }],
+  ['log', 'keep', 'Old log files to keep', 'number', { min: 0, max: 50 }],
   ['telemetry', 'crashReports', 'Send crash reports (Sentry)', 'bool', { needs: 'telemetry' }],
   ['telemetry', 'sentryDsn', 'Sentry DSN', 'text', { needs: 'telemetry' }],
   ['telemetry', 'analytics', 'Send anonymous usage statistics', 'bool', { needs: 'telemetry' }],
@@ -110,6 +114,7 @@ const TITLES = {
   tts: 'Speech',
   stt: 'Dictation',
   telemetry: 'Privacy',
+  log: 'Logs',
   watch: 'Watch folders',
 };
 
@@ -402,7 +407,9 @@ export default function Settings({ features }) {
     setCfg(await invoke('set_config', { config: {} }));
   };
   const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', telemetry: 'telemetry' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'telemetry', 'watch'].filter((s) => !needs[s] || features[needs[s]]);
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'telemetry', 'log', 'watch'].filter(
+    (s) => !needs[s] || features[needs[s]],
+  );
   return (
     <section>
       <h2>Settings</h2>

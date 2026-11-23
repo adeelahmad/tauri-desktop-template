@@ -16,26 +16,8 @@ use std::sync::Arc;
 
 /// The name clients list this server under.
 pub const NAME: &str = env!("CARGO_PKG_NAME");
-const IDENTIFIER: &str = "{{identifier}}";
-
-fn home() -> PathBuf {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap_or_default()
-}
-
-/// The folders Tauri's `app_config_dir` / `app_data_dir` resolve to, without a window.
-pub fn app_dirs() -> (PathBuf, PathBuf) {
-    let env_dir = |k: &str| std::env::var_os(k).map(PathBuf::from).filter(|p| p.is_absolute());
-    let (config, data) = if cfg!(target_os = "macos") {
-        let d = home().join("Library").join("Application Support");
-        (d.clone(), d)
-    } else if cfg!(windows) {
-        let d = env_dir("APPDATA").unwrap_or_else(|| home().join("AppData").join("Roaming"));
-        (d.clone(), d)
-    } else {
-        (env_dir("XDG_CONFIG_HOME").unwrap_or_else(|| home().join(".config")), env_dir("XDG_DATA_HOME").unwrap_or_else(|| home().join(".local").join("share")))
-    };
-    (config.join(IDENTIFIER), data.join(IDENTIFIER))
-}
+pub use crate::paths::app_dirs;
+use crate::paths::home;
 
 struct Tools {
     service: Arc<dyn Service>,
@@ -98,6 +80,8 @@ impl Handler for Tools {
 pub fn main(load: impl Fn(&Path) -> Settings, service: Arc<dyn Service>) -> i32 {
     let (config_dir, data_dir) = app_dirs();
     let settings = load(&config_dir.join("settings.json"));
+    // Logs go to <data>/logs/mcp.log (stdout carries only JSON-RPC).
+    desktop_core::logging::init(&data_dir.join("logs"), "mcp", settings.config.log.clone());
     if !settings.config.mcp.enabled {
         eprintln!("The MCP server is off. Turn it on in the app under Settings → MCP server.");
         return 2;

@@ -10,6 +10,7 @@ pub mod chunk;
 pub mod config;
 pub mod engine;
 pub mod fuse;
+pub mod logging;
 pub mod net;
 pub mod store;
 
@@ -35,6 +36,7 @@ pub mod stt;
 pub mod telemetry;
 {% endif %}
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
+pub use logging::LogConfig;
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};
 pub use engine::{Backend, Engine, EngineOptions, IngestReport, Status};
 {% if ai %}#[cfg(feature = "ai")]

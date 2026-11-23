@@ -59,6 +59,8 @@ pdf = ["dep:docling", "dep:tempfile"]
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "2"
+# Already in the tree through ureq and Tauri; the facade our JSON-lines logger plugs into.
+log = "0.4"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 {% if embeddings -%}
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }

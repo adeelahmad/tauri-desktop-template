@@ -65,6 +65,11 @@ type = "bool"
 prompt = "Opt-in telemetry: crash reports (Sentry), anonymous analytics (PostHog or Aptabase), traces (OpenTelemetry)? Nothing is sent until the user switches it on"
 default = false
 
+[placeholders.single_instance]
+type = "bool"
+prompt = "Single instance: a second launch brings the running window to the front (recommended with embedded Postgres)?"
+default = false
+
 [placeholders.mcp_server]
 type = "bool"
 prompt = "Built-in MCP server (Rust, stdio) so Claude Desktop, Claude Code and other MCP clients can search this app's documents? Off until switched on in Settings"
@@ -175,6 +180,9 @@ ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlem
 
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]
+
+[conditional.'!single_instance']
+ignore = ["src-tauri/src/single.rs"]
 
 [conditional.'!watch_folders']
 ignore = ["desktop-core/src/watch.rs"]
