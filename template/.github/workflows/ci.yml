@@ -78,4 +78,6 @@ jobs:
           pkg=$(cargo metadata --no-deps --format-version 1 | python3 -c "import json,sys; print([p['name'] for p in json.load(sys.stdin)['packages'] if p['name']!='desktop-core'][0])")
           cargo test -p "$pkg"
           cargo build -p "$pkg"
-          cargo run -p "$pkg" -- --self-test
+          # The first run downloads the embedding model, which sometimes fails mid-download; retry.
+          for i in 1 2 3; do cargo run -p "$pkg" -- --self-test && exit 0; echo "self-test attempt $i failed"; sleep 15; done
+          exit 1
