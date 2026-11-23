@@ -6,7 +6,8 @@
 //! `remove_source` {source}, `clear`, `configure` {config}, `watch_status`, and with
 //! feature `ai`: `ask` {question} (the answer streams as progress lines), `ai_keys`,
 //! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}; with feature `tts`: `speak` {text}
-//! (a WAV as base64), `download_voice`.
+//! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
+//! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}.
 //!
 //! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
@@ -33,6 +34,9 @@ pub struct Local {
     /// The voice model, loaded on first use.
     #[cfg(feature = "tts")]
     voice: Mutex<Option<Arc<desktop_core::tts::Tts>>>,
+    /// The Whisper model, loaded on first use (and again when the size changes).
+    #[cfg(feature = "stt")]
+    whisper: Mutex<Option<Arc<desktop_core::stt::Stt>>>,
     /// Recent watch events, newest last (at most 100).
     events: Arc<Mutex<std::collections::VecDeque<Value>>>,
 }
@@ -193,12 +197,63 @@ impl Service for Local {
                     v.clone().ok_or("no voice")?
                 };
                 let audio = voice.speak(&arg::<String>(&params, "text")?, &cfg).map_err(err)?;
-                Ok(json!({"wav": tts::base64(&tts::wav(&audio, tts::SAMPLE_RATE)), "seconds": audio.len() as f32 / tts::SAMPLE_RATE as f32}))
+                Ok(json!({"wav": desktop_core::audio::base64(&desktop_core::audio::wav(&audio, tts::SAMPLE_RATE)), "seconds": audio.len() as f32 / tts::SAMPLE_RATE as f32}))
             }
             #[cfg(feature = "tts")]
             "download_voice" => {
                 let dir = desktop_core::tts::model_dir(self.engine()?.data_dir());
                 desktop_core::tts::download(&dir, &mut |name, done, total| {
+                    progress(&match total {
+                        Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
+                        None => format!("{name}: {} MB", done >> 20),
+                    })
+                })
+                .map_err(err)?;
+                Ok(json!(dir))
+            }
+            #[cfg(feature = "stt")]
+            "transcribe" => {
+                use desktop_core::{audio, stt};
+                let e = self.engine()?;
+                let cfg = e.config().stt;
+                if !cfg.enabled {
+                    return Err("Speech to text is turned off in Settings".into());
+                }
+                let text = |k: &str| params.get(k).and_then(Value::as_str);
+                let samples = if let Some(b) = text("pcm16") {
+                    audio::from_pcm16(&audio::base64_decode(b).map_err(err)?)
+                } else {
+                    let bytes = match (text("wav"), text("path")) {
+                        (Some(b), _) => audio::base64_decode(b).map_err(err)?,
+                        (None, Some(p)) => std::fs::read(p).map_err(err)?,
+                        _ => return Err("send pcm16, wav or path".into()),
+                    };
+                    let (s, rate) = audio::read_wav(&bytes).map_err(err)?;
+                    audio::resample(&s, rate, stt::SAMPLE_RATE)
+                };
+                if samples.len() > cfg.max_seconds as usize * stt::SAMPLE_RATE as usize {
+                    return Err(format!("Recordings longer than {} s are turned off in Settings", cfg.max_seconds));
+                }
+                let model = {
+                    let mut m = self.whisper.lock().map_err(err)?;
+                    if m.as_ref().is_none_or(|m| m.model != cfg.model) {
+                        *m = None;
+                        let dir = stt::model_dir(e.data_dir(), &cfg.model);
+                        if !stt::is_downloaded(&dir) {
+                            return Err(format!("Download the {} model first (Settings → Dictation)", cfg.model));
+                        }
+                        *m = Some(Arc::new(stt::Stt::load(&dir, &cfg.model, cfg.threads).map_err(err)?));
+                    }
+                    m.clone().ok_or("no model")?
+                };
+                to(model.transcribe(&samples, &cfg))
+            }
+            #[cfg(feature = "stt")]
+            "download_stt" => {
+                let e = self.engine()?;
+                let model = params.get("model").and_then(Value::as_str).map(String::from).unwrap_or(e.config().stt.model);
+                let dir = desktop_core::stt::model_dir(e.data_dir(), &model);
+                desktop_core::stt::download(&dir, &model, &mut |name, done, total| {
                     progress(&match total {
                         Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
                         None => format!("{name}: {} MB", done >> 20),

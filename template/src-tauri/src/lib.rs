@@ -97,6 +97,7 @@ fn features() -> Value {
         "ai": cfg!(feature = "ai"),
         "llama": cfg!(feature = "llama"),
         "tts": cfg!(feature = "tts"),
+        "stt": cfg!(feature = "stt"),
         "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
@@ -263,6 +264,23 @@ fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
 fn download_voice(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
     state.service.call("download_voice", Value::Null, &mut |p| {
         let _ = app.emit("voice-progress", p.to_string());
+    })
+}
+
+/// Speech to text with Whisper. `audio` is base64 16-bit 16 kHz mono PCM (what the UI
+/// records); returns `{text, language, seconds}`.
+#[cfg(feature = "stt")]
+#[tauri::command(async)]
+fn transcribe(state: tauri::State<AppState>, audio: String) -> Result<Value, String> {
+    call(&state, "transcribe", json!({"pcm16": audio}))
+}
+
+/// Fetch the chosen Whisper model (checksummed) with `stt-progress` events.
+#[cfg(feature = "stt")]
+#[tauri::command(async)]
+fn download_stt(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+    state.service.call("download_stt", Value::Null, &mut |p| {
+        let _ = app.emit("stt-progress", p.to_string());
     })
 }
 
@@ -452,6 +470,10 @@ pub fn run() {
             speak,
             #[cfg(feature = "tts")]
             download_voice,
+            #[cfg(feature = "stt")]
+            transcribe,
+            #[cfg(feature = "stt")]
+            download_stt,
             #[cfg(feature = "mcp")]
             mcp_setup,
             #[cfg(feature = "mcp")]

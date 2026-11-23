@@ -59,6 +59,22 @@ const FIELDS = [
   ['tts', 'pitchRange', 'Pitch range', 'number', { needs: 'tts', step: 0.1, min: 0, max: 3 }],
   ['tts', 'pauseMs', 'Pause between sentences (ms)', 'number', { needs: 'tts', min: 0, max: 5000 }],
   ['tts', 'threads', 'CPU threads (0 = automatic)', 'number', { needs: 'tts', min: 0 }],
+  ['stt', 'enabled', 'Dictation and audio files (Whisper, on this computer)', 'bool', { needs: 'stt' }],
+  [
+    'stt',
+    'model',
+    'Model',
+    'select',
+    {
+      needs: 'stt',
+      options: ['tiny', 'base', 'small'],
+      labels: ['Tiny (40 MB, fastest)', 'Base (75 MB)', 'Small (250 MB, most accurate)'],
+    },
+  ],
+  ['stt', 'language', 'Language code, e.g. en, de (empty = detect)', 'text', { needs: 'stt' }],
+  ['stt', 'translate', 'Translate into English', 'bool', { needs: 'stt' }],
+  ['stt', 'maxSeconds', 'Longest recording (seconds)', 'number', { needs: 'stt', min: 5, max: 7200 }],
+  ['stt', 'threads', 'CPU threads (0 = automatic)', 'number', { needs: 'stt', min: 0 }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolder', 'Use the drop folder', 'bool', { needs: 'watch' }],
   ['watch', 'dropFolderPath', 'Drop folder (empty = Documents/<app> Inbox)', 'text', { needs: 'watch', nullable: true }],
@@ -70,7 +86,15 @@ const FIELDS = [
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
 ];
 
-const TITLES = { search: 'Search', ingest: 'Ingest', llm: 'AI', mcp: 'MCP server', tts: 'Speech', watch: 'Watch folders' };
+const TITLES = {
+  search: 'Search',
+  ingest: 'Ingest',
+  llm: 'AI',
+  mcp: 'MCP server',
+  tts: 'Speech',
+  stt: 'Dictation',
+  watch: 'Watch folders',
+};
 
 function Field({ kind, label, value, extra, onChange }) {
   if (kind === 'bool')
@@ -175,6 +199,32 @@ function VoiceDownload() {
     <div className="row">
       <button onClick={go} disabled={busy}>
         Download the voice (25 MB)
+      </button>
+      <span className="hint">{msg}</span>
+    </div>
+  );
+}
+
+function SttDownload() {
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    const unlisten = await listen('stt-progress', (e) => setMsg(`Downloading ${e.payload}`));
+    try {
+      await invoke('download_stt');
+      setMsg('Model ready.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      unlisten();
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="row">
+      <button onClick={go} disabled={busy}>
+        Download the chosen model (save settings first)
       </button>
       <span className="hint">{msg}</span>
     </div>
@@ -315,8 +365,8 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'watch'].filter((s) => !needs[s] || features[needs[s]]);
+  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt' };
+  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'watch'].filter((s) => !needs[s] || features[needs[s]]);
   return (
     <section>
       <h2>Settings</h2>
@@ -340,6 +390,7 @@ export default function Settings({ features }) {
           {s === 'llm' && features.llama && <ModelDownload onDone={(p) => set('llm', 'local.modelPath', p)} />}
           {s === 'mcp' && <McpConnect />}
           {s === 'tts' && <VoiceDownload />}
+          {s === 'stt' && <SttDownload />}
         </details>
       ))}
       <div className="row">

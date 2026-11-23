@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import Speak from './Speak.jsx';
+import Dictate from './Dictate.jsx';
 
 export default function Ask({ features }) {
   const [question, setQuestion] = useState('');
@@ -45,6 +46,7 @@ export default function Ask({ features }) {
         <button onClick={run} disabled={busy}>
           {busy ? 'Thinking…' : 'Ask'}
         </button>
+        {features?.stt && <Dictate onText={setQuestion} />}
       </div>
       {error && <p className="status error">{error}</p>}
       {answer && <div className="answer">{answer}</div>}

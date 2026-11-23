@@ -66,7 +66,14 @@
       <div class="row">
         <input id="query" placeholder="What are you looking for?">
         <button id="search">Search</button>
+        <span id="stt" hidden>
+          <button id="dictate" title="Dictate (press again to stop)" aria-label="Dictate">🎤</button>
+          <button id="stt-file-go" class="link">Audio file</button>
+          <input id="stt-file" type="file" accept="audio/*" hidden>
+          <button id="stt-download" class="link">Download the Whisper model</button>
+        </span>
       </div>
+      <p id="stt-status" class="hint"></p>
       <ol id="results"></ol>
     </section>
 

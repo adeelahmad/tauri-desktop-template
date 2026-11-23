@@ -7,6 +7,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, DESCRIPTION } from './config.js';
 import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
+import Dictate from './Dictate.jsx';
 
 function describe(info, status) {
   if (!info) return '';
@@ -167,7 +168,7 @@ function AddDocuments({ onChange }) {
   );
 }
 
-function Search() {
+function Search({ features }) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState(null);
   const [error, setError] = useState('');
@@ -192,6 +193,7 @@ function Search() {
           placeholder="What are you looking for?"
         />
         <button onClick={run}>Search</button>
+        {features?.stt && <Dictate onText={setQuery} />}
       </div>
       {error && <Status text={error} error />}
       {hits && (
@@ -360,7 +362,7 @@ export default function App() {
       {phase === 'ready' && (
         <main>
           <AddDocuments onChange={refresh} />
-          <Search />
+          <Search features={f} />
           {f.ai && <Ask features={f} />}
           <Settings features={f} />
           {f.backgroundAgent && <BackgroundAgent />}

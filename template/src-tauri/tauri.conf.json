@@ -40,7 +40,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "13.4",
+      "minimumSystemVersion": "13.4",{% if stt %}
+      "entitlements": "Entitlements.plist",{% endif %}
       "signingIdentity": "-"
     },
     "windows": {

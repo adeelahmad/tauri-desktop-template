@@ -18,6 +18,7 @@ async function start() {
   if (f.mcp) { show('mcp'); invoke('mcp_setup').then((s) => { $('mcp-cmd').textContent = s.claude_code; }).catch(() => {}); }
   show('llama', f.llama);
   show('tts', f.tts);
+  show('stt', f.stt);
   if (f.ai) { show('ask'); invoke('ai_keys').then(keysText).catch(() => {}); }
   show('w-pg-option', f.postgres);
   if (f.postgres && !info.postgresAvailable) {
@@ -245,4 +246,49 @@ $('voice-go').onclick = async () => {
   const off = await listen('voice-progress', (e) => { $('voice-status').textContent = `Downloading ${e.payload}`; });
   try { await invoke('download_voice'); $('voice-status').textContent = 'Voice ready.'; }
   catch (e) { $('voice-status').textContent = String(e); } finally { off(); }
+};
+
+// Dictation (feature `stt`): Whisper turns the microphone or an audio file into the query.
+// Turn it on and pick the model in the settings JSON (`stt.enabled`, `stt.model`).
+async function toPcm16(blob) {
+  const ctx = new AudioContext();
+  let decoded;
+  try { decoded = await ctx.decodeAudioData(await blob.arrayBuffer()); } finally { ctx.close(); }
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * 16000)), 16000);
+  const src = off.createBufferSource();
+  src.buffer = decoded; src.connect(off.destination); src.start();
+  const mono = (await off.startRendering()).getChannelData(0);
+  const pcm = new Int16Array(mono.length);
+  for (let i = 0; i < mono.length; i++) pcm[i] = Math.max(-1, Math.min(1, mono[i])) * 0x7fff;
+  const bytes = new Uint8Array(pcm.buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+async function transcribe(blob) {
+  say('stt-status', 'Transcribing…');
+  try {
+    const r = await invoke('transcribe', { audio: await toPcm16(blob) });
+    $('query').value = r.text;
+    say('stt-status', r.text ? `${r.language}, ${r.seconds.toFixed(1)} s` : 'No speech heard.');
+  } catch (e) { say('stt-status', String(e), true); }
+}
+let recorder = null;
+$('dictate').onclick = async () => {
+  if (recorder) { recorder.stop(); recorder = null; $('dictate').textContent = '🎤'; return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chunks = [];
+    const r = new MediaRecorder(stream);
+    r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    r.onstop = () => { stream.getTracks().forEach((t) => t.stop()); transcribe(new Blob(chunks, { type: r.mimeType })); };
+    r.start(); recorder = r; $('dictate').textContent = '■ Stop'; say('stt-status', 'Listening…');
+  } catch (e) { say('stt-status', `Microphone: ${e.message || e}`, true); }
+};
+$('stt-file-go').onclick = () => $('stt-file').click();
+$('stt-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) transcribe(f); };
+$('stt-download').onclick = async () => {
+  const off = await listen('stt-progress', (e) => say('stt-status', `Downloading ${e.payload}`));
+  try { await invoke('download_stt'); say('stt-status', 'Model ready.'); }
+  catch (e) { say('stt-status', String(e), true); } finally { off(); }
 };

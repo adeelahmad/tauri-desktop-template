@@ -53,6 +53,9 @@ Everything runs on the user's machine.
 {% if tts -%}
 | Text to speech in Rust (tiny-voca, 24 kHz, ONNX Runtime; two voices, speed and pitch): "Read aloud" on answers. Turn on under Settings → Speech | `desktop-core/src/tts.rs` | `tts` |
 {% endif -%}
+{% if stt -%}
+| Speech to text with Whisper (tiny/base/small, multilingual, language detection, translate to English) over ONNX Runtime; mel spectrogram and decoding in Rust. Dictate into search and Ask, or transcribe an audio file. Turn on under Settings → Dictation | `desktop-core/src/stt.rs`, `desktop-core/src/audio.rs` | `stt` |
+{% endif -%}
 {% if mcp_server -%}
 | MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
 {% endif -%}
