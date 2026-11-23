@@ -36,7 +36,7 @@ Everything runs on the user's machine.
 | Local ONNX embeddings (fastembed-rs, `{{embedding_model}}`) | `desktop-core/src/embed.rs` | `embed` |
 {% endif -%}
 {% if postgres -%}
-| Embedded Postgres 17 + pgvector (HNSW cosine, full-text fallback) | `desktop-core/src/pgstore.rs` | `postgres` |
+| Embedded Postgres 16 + pgvector (HNSW cosine, full-text fallback) | `desktop-core/src/pgstore.rs` | `postgres` |
 {% endif -%}
 {% if pdf -%}
 | PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
@@ -137,8 +137,9 @@ Changing it re-embeds stored chunks on the next start.
 {% endif -%}
 {% if postgres %}
 `APP_PG_URL` uses an existing Postgres with pgvector instead of the embedded one. The
-embedded server with prebuilt pgvector runs on macOS and Windows (x86-64 needs AVX-512);
-elsewhere, including Linux, the wizard offers only the file store unless `APP_PG_URL` is set.
+embedded server (Postgres 16, the newest with prebuilt pgvector) runs on Apple Silicon Macs,
+and on x86-64 Windows and Linux with AVX-512; elsewhere the wizard offers only the file store
+unless `APP_PG_URL` is set.
 The first download calls the GitHub API; set `GITHUB_TOKEN` if you hit its rate limit.
 {% endif %}
 ## Versions and changelog

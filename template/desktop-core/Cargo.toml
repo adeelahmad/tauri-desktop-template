@@ -16,7 +16,7 @@ default = []
 embed = ["dep:fastembed"]
 {% endif -%}
 {% if postgres -%}
-# Embedded Postgres 17 + pgvector store (server and extension download on first use).
+# Embedded Postgres 16 + pgvector store (server and extension download on first use).
 postgres = ["dep:postgresql_embedded", "dep:postgresql_extensions", "dep:postgres"]
 {% endif -%}
 {% if pdf -%}

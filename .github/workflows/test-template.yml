@@ -45,7 +45,7 @@ jobs:
       - name: WebKitGTK
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev
-      - name: Postgres + pgvector for Linux (no prebuilt embedded pgvector there)
+      - name: Postgres + pgvector for Linux (runner CPUs may lack the AVX-512 the prebuilt pgvector needs)
         if: runner.os == 'Linux' && matrix.variant == 'all-on'
         run: |
           docker run -d --name pg -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app -p 5433:5432 pgvector/pgvector:pg17

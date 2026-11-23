@@ -1,4 +1,4 @@
-//! Embedded Postgres 17 + pgvector.
+//! Embedded Postgres 16 + pgvector (the newest major with prebuilt pgvector packages).
 //!
 //! The server runs from a private data folder (`postgresql_embedded`), listens on
 //! localhost with a random password, and installs prebuilt pgvector on first use. Vector
@@ -62,10 +62,11 @@ pub fn cpu_supports_bundled_pgvector() -> bool {
     }
 }
 
-/// Prebuilt pgvector packages exist for macOS and Windows; on Linux use `APP_PG_URL`
-/// (for example the compose.yaml database) or the file store.
+/// Prebuilt pgvector (portalcorp/pgvector_compiled) exists for Postgres 16 on macOS arm64,
+/// Windows x86-64 and Linux x86-64; the x86-64 builds need AVX-512.
 pub fn embedded_supported() -> bool {
-    !cfg!(target_os = "linux") && cpu_supports_bundled_pgvector()
+    let target = cfg!(any(all(target_os = "macos", target_arch = "aarch64"), all(any(windows, target_os = "linux"), target_arch = "x86_64")));
+    target && cpu_supports_bundled_pgvector()
 }
 
 /// Whether the embedded server can run here (or `APP_PG_URL` is set).
@@ -82,7 +83,7 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
     }
     if !embedded_supported() {
         return Err(Error::Store(
-            "embedded Postgres + pgvector is not available here (Linux, or an x86 CPU without AVX-512); use the file store or set APP_PG_URL"
+            "embedded Postgres + pgvector is not available here (no prebuilt pgvector for this platform, or an x86 CPU without AVX-512); use the file store or set APP_PG_URL"
                 .into(),
         ));
     }
@@ -93,7 +94,7 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
         return Ok(url.clone());
     }
     let settings = Settings {
-        version: VersionReq::parse("=17").map_err(pg_err)?,
+        version: VersionReq::parse("=16").map_err(pg_err)?,
         installation_dir: key.join("install"),
         data_dir: key.join("data"),
         password_file: key.join(".pgpass"),
