@@ -269,6 +269,65 @@ function SttDownload() {
   );
 }
 
+// Separate settings, documents and index per profile; switching restarts the app.
+function Profiles() {
+  const [p, setP] = useState(null);
+  const [name, setName] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = () =>
+    invoke('list_profiles')
+      .then(setP)
+      .catch((e) => setMsg(String(e)));
+  useEffect(() => {
+    load();
+  }, []);
+  if (!p) return null;
+  const act = (fn) => async () => {
+    setMsg('');
+    try {
+      await fn();
+    } catch (e) {
+      setMsg(String(e));
+    }
+    load();
+  };
+  return (
+    <div>
+      <ul className="profiles">
+        {p.saved.profiles.map((x) => (
+          <li key={x.id}>
+            {x.name}
+            {x.id === p.running ? ' (open now)' : ''}{' '}
+            {x.id !== p.running && (
+              <button className="link" onClick={act(() => invoke('switch_profile', { id: x.id }))}>
+                Switch
+              </button>
+            )}
+            {x.id !== p.running && x.id !== 'default' && (
+              <button className="link" onClick={act(() => invoke('remove_profile', { id: x.id, deleteData: false }))}>
+                Remove (keeps its files)
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="row">
+        <input placeholder="New profile name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button
+          disabled={!name.trim()}
+          onClick={act(async () => {
+            await invoke('create_profile', { name });
+            setName('');
+          })}
+        >
+          Add profile
+        </button>
+      </div>
+      <p className="hint">{msg}</p>
+    </div>
+  );
+}
+
 function Backups() {
   const [list, setList] = useState([]);
   const [msg, setMsg] = useState('');
@@ -479,6 +538,10 @@ export default function Settings({ features }) {
   return (
     <section>
       <h2>Settings</h2>
+      <details>
+        <summary>Profiles</summary>
+        <Profiles />
+      </details>
       {sections.map((s) => (
         <details key={s}>
           <summary>{TITLES[s]}</summary>

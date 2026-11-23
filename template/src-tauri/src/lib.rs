@@ -74,8 +74,9 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-fn settings_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().app_config_dir().map_err(err)?.join("settings.json"))
+/// The settings of the running profile (see `paths`).
+fn settings_file(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(paths::app_dirs().0.join("settings.json"))
 }
 
 fn load_settings(app: &tauri::AppHandle) -> Settings {
@@ -141,8 +142,44 @@ fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Valu
         "postgresAvailable": postgres_available(),
         "settings": load_settings(&app),
         "status": status,
-        "dataDir": app.path().app_data_dir().map_err(err)?,
+        "dataDir": paths::app_dirs().1,
+        "profile": paths::profile(),
     }))
+}
+
+/// The profiles, which one is running and which one the next start opens.
+#[tauri::command]
+fn list_profiles() -> Value {
+    json!({ "running": paths::profile(), "saved": paths::profiles() })
+}
+
+#[tauri::command]
+fn create_profile(name: String) -> Result<paths::Profile, String> {
+    paths::create(&name)
+}
+
+#[tauri::command]
+fn rename_profile(id: String, name: String) -> Result<(), String> {
+    paths::rename(&id, &name)
+}
+
+/// Remove a profile; its documents and settings are deleted only with `delete_data`.
+#[tauri::command]
+fn remove_profile(id: String, delete_data: bool) -> Result<(), String> {
+    paths::remove(&id, delete_data)
+}
+
+/// Open another profile: it becomes the active one and the app restarts into it.
+#[tauri::command]
+fn switch_profile(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    paths::set_active(&id)?;
+    log::info!("switching to profile {id}");
+    // The same orderly stop as quitting; this profile's worker goes too (the new one starts its own).
+    on_exit(&app);
+    #[cfg(feature = "ipc-worker")]
+    ipc::shutdown_worker();
+    log::logger().flush();
+    app.restart()
 }
 
 #[derive(Clone, Serialize)]
@@ -164,7 +201,7 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         config: saved.config,
     };
     let opts = EngineOptions {
-        data_dir: app.path().app_data_dir().map_err(err)?,
+        data_dir: paths::app_dirs().1,
         backend: settings.backend,
         embeddings: settings.embeddings,
         config: settings.config.clone(),
@@ -507,7 +544,8 @@ pub fn run() {
         let _ = &app;
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
-        if let Ok(dir) = app.path().app_data_dir() {
+        {
+            let dir = paths::app_dirs().1;
             desktop_core::telemetry::install_panic_hook(&dir, &app.package_info().name, &app.package_info().version.to_string());
         }
         #[cfg(feature = "single-instance")]
@@ -535,6 +573,11 @@ pub fn run() {
             get_config,
             set_config,
             watch_status,
+            list_profiles,
+            create_profile,
+            rename_profile,
+            remove_profile,
+            switch_profile,
             backup_now,
             list_backups,
             restore_backup,

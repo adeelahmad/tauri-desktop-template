@@ -160,6 +160,14 @@ the script as a bundle resource. Tests: `python3 python/test_worker.py`.
 App data (store, database, model cache) lives in the OS app-data folder for
 `{{identifier}}`; settings in its config folder.
 
+### Profiles
+
+Settings → Profiles adds separate profiles (for example Work and Personal). Each has its own
+settings, documents, index, keys, backups and logs. The default profile uses the app
+folders as before; the others live in `profiles/<id>/` inside them. Switching restarts the
+app into the other profile. `APP_PROFILE=<id>` opens one for a single run, and the MCP
+server registers with the profile it was set up from.
+
 ### Settings
 
 Search, ingest and watch settings live under `config` in `settings.json` (the Settings

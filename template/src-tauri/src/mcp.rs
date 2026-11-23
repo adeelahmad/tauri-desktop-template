@@ -148,13 +148,20 @@ pub struct Setup {
 
 pub fn entry() -> Result<Value, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    Ok(json!({"command": exe, "args": ["--mcp"]}))
+    Ok(match crate::paths::profile() {
+        crate::paths::DEFAULT => json!({"command": exe, "args": ["--mcp"]}),
+        // Clients start the server for the profile that registered it.
+        p => json!({"command": exe, "args": ["--mcp"], "env": {"APP_PROFILE": p}}),
+    })
 }
 
 pub fn setup() -> Result<Setup, String> {
     let entry = entry()?;
     let exe = entry["command"].as_str().unwrap_or_default().to_string();
-    Ok(Setup { claude_code: format!("claude mcp add {NAME} -- \"{exe}\" --mcp"), claude_desktop_file: claude_desktop_config().display().to_string(), entry })
+    Ok(Setup { claude_code: match crate::paths::profile() {
+            crate::paths::DEFAULT => format!("claude mcp add {NAME} -- \"{exe}\" --mcp"),
+            p => format!("claude mcp add {NAME} -e APP_PROFILE={p} -- \"{exe}\" --mcp"),
+        }, claude_desktop_file: claude_desktop_config().display().to_string(), entry })
 }
 
 /// Add (or update) `mcpServers.<NAME>` in an MCP client's JSON config, keeping everything
