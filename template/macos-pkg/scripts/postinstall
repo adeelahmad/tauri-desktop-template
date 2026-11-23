@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs as root after the installer copied the app to /Applications. The app is not signed
+# with an Apple Developer ID; clearing the quarantine flag means macOS opens it without
+# the "cannot be verified" prompt from now on. The release workflow fills in __APP__.
+xattr -dr com.apple.quarantine "/Applications/__APP__" 2>/dev/null || true
+exit 0

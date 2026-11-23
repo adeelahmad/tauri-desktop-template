@@ -1,0 +1,7 @@
+# Linux build and test environment (not the app's runtime: desktop apps ship as installers).
+FROM rust:1-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev patchelf \
+      python3 nodejs npm make \
+    && rm -rf /var/lib/apt/lists/*
+RUN rustup component add rustfmt clippy

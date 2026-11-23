@@ -1,0 +1,12 @@
+[env]
+{% if embeddings -%}
+# Default embedding model (APP_EMBED_MODEL at run time overrides it). Changing it re-embeds
+# the stored chunks on next start.
+APP_EMBED_MODEL = "{{embedding_model}}"
+{% endif -%}
+{% if claude_mcp -%}
+APP_MCP_NAME = "{{mcp_server_name}}"
+APP_MCP_PACKAGE = "{{mcp_package}}"
+{% endif -%}
+APP_REPOSITORY = "{{github_repo}}"
+APP_IDENTIFIER = "{{identifier}}"

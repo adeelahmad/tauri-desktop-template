@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["desktop-core", "src-tauri"]
+# `cargo test` from here skips the desktop shell (it needs WebKitGTK on Linux).
+# Build the app with `cargo tauri dev` or `cargo build -p {{project-name}}`.
+default-members = ["desktop-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+desktop-core = { path = "desktop-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace.lints.rust]
+# Optional parts are cargo features; the ones you left out at generation are simply absent.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("embed", "postgres", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "python-example", "claude-mcp"))'] }
+
+[profile.release]
+lto = "thin"

@@ -1,0 +1,37 @@
+# Development services. The app runs on the host; these are optional.
+services:
+  # Postgres 17 + pgvector instead of the embedded server:
+  #   make db-up && export APP_PG_URL=postgres://app:app@localhost:5433/app
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "app"]
+      interval: 2s
+      retries: 15
+
+  # Linux toolchain with WebKitGTK, for `make docker-test` or Linux builds from macOS/Windows.
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    working_dir: /src
+    volumes:
+      - .:/src
+      - cargo:/usr/local/cargo/registry
+      - target:/src/target
+    environment:
+      APP_PG_URL: postgres://app:app@db:5432/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  cargo:
+  target:

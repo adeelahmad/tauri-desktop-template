@@ -1,0 +1,43 @@
+[package]
+name = "desktop-core"
+description = "Local documents, embeddings and search for {{app_name}}"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+{% if embeddings -%}
+# Local ONNX embeddings through fastembed-rs (model downloads once into the cache folder).
+embed = ["dep:fastembed"]
+{% endif -%}
+{% if postgres -%}
+# Embedded Postgres 17 + pgvector store (server and extension download on first use).
+postgres = ["dep:postgresql_embedded", "dep:postgresql_extensions", "dep:postgres"]
+{% endif -%}
+{% if pdf -%}
+# PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
+pdf = ["dep:docling", "dep:tempfile"]
+{% endif %}
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "2"
+{% if embeddings -%}
+fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }
+{% endif -%}
+{% if postgres -%}
+postgresql_embedded = { version = "0.22", optional = true, features = ["blocking"] }
+postgresql_extensions = { version = "0.22", optional = true, default-features = false, features = ["blocking", "portal-corp", "tls-rustls-ring"] }
+postgres = { version = "0.19", optional = true }
+{% endif -%}
+{% if pdf -%}
+docling = { version = "2.86", optional = true, default-features = false, features = ["pdf-text"] }
+tempfile = { version = "3", optional = true }
+{% endif %}
+[dev-dependencies]
+tempfile = "3"

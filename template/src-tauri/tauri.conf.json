@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "{{app_name}}",
+  "version": "0.1.0",
+  "identifier": "{{identifier}}",
+  "build": {
+    {%- if frontend == "react" %}
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm --prefix ui-react install --include=dev && npm --prefix ui-react run dev",
+    "beforeBuildCommand": "npm --prefix ui-react ci --include=dev && npm --prefix ui-react run build",
+    "frontendDist": "../ui-react/dist"
+    {%- else %}
+    "frontendDist": "../ui"{% endif %}
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "{{app_name}}",
+        "width": 960,
+        "height": 760
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",{% if updater %}
+    "createUpdaterArtifacts": true,{% endif %}
+    "shortDescription": "{{description}}",{% if python_example %}
+    "resources": {
+      "../python/worker.py": "python/worker.py"
+    },{% endif %}
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.4",
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }{% if updater %},
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/{{github_repo}}/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }{% endif %}
+}

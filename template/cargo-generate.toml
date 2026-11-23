@@ -1,0 +1,152 @@
+[template]
+cargo_generate_version = ">=0.22.0"
+# Copied as they are (GitHub Actions uses ${{ }} too, and icons are binary).
+exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", "src-tauri/icons/*"]
+
+[placeholders.app_name]
+type = "string"
+prompt = "App name shown to users (window title, installer)"
+default = "My App"
+
+[placeholders.identifier]
+type = "string"
+prompt = "Bundle identifier (reverse domain)"
+default = "com.example.myapp"
+regex = "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z0-9-]+)+$"
+
+[placeholders.description]
+type = "string"
+prompt = "One-line description"
+default = "A cross-platform desktop app"
+
+[placeholders.github_repo]
+type = "string"
+prompt = "GitHub repository (owner/name), used by releases, the updater and the install scripts"
+default = "owner/my-app"
+regex = "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+
+[placeholders.embeddings]
+type = "bool"
+prompt = "Local ONNX text embeddings (fastembed-rs, no API calls)?"
+default = true
+
+[placeholders.postgres]
+type = "bool"
+prompt = "Embedded Postgres + pgvector store (downloads itself on first run)?"
+default = true
+
+[placeholders.pdf]
+type = "bool"
+prompt = "PDF text extraction (docling.rs, tesseract OCR fallback)?"
+default = true
+
+[placeholders.wizard]
+type = "bool"
+prompt = "First-run setup wizard?"
+default = true
+
+[placeholders.frontend]
+type = "string"
+prompt = "Frontend"
+choices = ["vanilla", "react"]
+default = "react"
+
+[placeholders.ipc_worker]
+type = "bool"
+prompt = "Run the backend as a separate worker process over local IPC (socket / named pipe)?"
+default = true
+
+[placeholders.python_example]
+type = "bool"
+prompt = "Python worker example (child process over stdio JSON)?"
+default = true
+
+[placeholders.updater]
+type = "bool"
+prompt = "Auto-update from GitHub releases (Tauri updater)?"
+default = true
+
+[placeholders.installers]
+type = "bool"
+prompt = "Release workflow that builds and tests installers (macOS .dmg, Windows .exe)?"
+default = true
+
+[placeholders.claude_mcp]
+type = "bool"
+prompt = "Bundle uv and register a Python MCP server in Claude Desktop?"
+default = false
+
+[conditional.'embeddings'.placeholders.embedding_model]
+type = "string"
+prompt = "Embedding model"
+choices = ["nomic-embed-text-v1.5", "bge-small-en-v1.5", "all-MiniLM-L6-v2", "multilingual-e5-small"]
+default = "nomic-embed-text-v1.5"
+
+[conditional.'installers'.placeholders.macos_pkg]
+type = "bool"
+prompt = "Also build a macOS .pkg that clears the quarantine flag (unsigned app opens without prompts)?"
+default = true
+
+[conditional.'installers'.placeholders.install_scripts]
+type = "bool"
+prompt = "One-line install scripts (curl | sh for macOS, PowerShell for Windows)?"
+default = true
+
+[conditional.'installers'.placeholders.linux]
+type = "bool"
+prompt = "Also build Linux installers (.AppImage, .deb)?"
+default = false
+
+[conditional.'ipc_worker'.placeholders.background_agent]
+type = "bool"
+prompt = "Background agent that starts the worker at login (macOS LaunchAgent, Windows Run entry, Linux systemd)?"
+default = true
+
+[conditional.'claude_mcp'.placeholders.mcp_server_name]
+type = "string"
+prompt = "MCP server name in Claude Desktop's config"
+default = "my-mcp"
+
+[conditional.'claude_mcp'.placeholders.mcp_package]
+type = "string"
+prompt = "Python package uv runs (a PyPI name, or 'name @ https://.../archive.zip')"
+default = "my-mcp-server"
+
+[conditional.'!embeddings']
+ignore = ["desktop-core/src/embed.rs"]
+
+[conditional.'!postgres']
+ignore = ["desktop-core/src/pgstore.rs"]
+
+[conditional.'!pdf']
+ignore = ["desktop-core/src/pdf.rs"]
+
+[conditional.'frontend == "react"']
+ignore = ["ui"]
+
+[conditional.'frontend != "react"']
+ignore = ["ui-react"]
+
+[conditional.'!ipc_worker']
+ignore = ["src-tauri/src/ipc.rs", "src-tauri/src/agent.rs"]
+
+[conditional.'ipc_worker && !background_agent']
+ignore = ["src-tauri/src/agent.rs"]
+
+[conditional.'!python_example']
+ignore = ["python", "src-tauri/src/python.rs"]
+
+[conditional.'!updater']
+ignore = ["src-tauri/src/update.rs"]
+
+[conditional.'!claude_mcp']
+ignore = ["src-tauri/src/claude.rs", "src-tauri/tauri.release.conf.json"]
+
+[conditional.'!installers']
+ignore = [".github/workflows/release.yml", ".github/release.json", "macos-pkg", "scripts", "docs/install-unsigned.md"]
+
+[conditional.'installers && !macos_pkg']
+ignore = ["macos-pkg"]
+
+[conditional.'installers && !install_scripts']
+ignore = ["scripts"]

@@ -1,0 +1,118 @@
+:root {
+  color-scheme: light dark;
+  --accent: #3b6eea;
+  --muted: #777;
+  --line: #8884;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  font:
+    15px/1.5 -apple-system,
+    'Segoe UI',
+    system-ui,
+    sans-serif;
+  margin: 0 auto;
+  max-width: 820px;
+  padding: 24px;
+}
+header h1 {
+  margin: 0;
+}
+.sub,
+.hint {
+  color: var(--muted);
+  margin-top: 4px;
+}
+section {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.steps {
+  padding-left: 0;
+  list-style: none;
+}
+.steps li {
+  margin-bottom: 16px;
+}
+.steps label {
+  display: block;
+  margin: 4px 0;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.row input {
+  flex: 1;
+}
+input,
+textarea,
+button {
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+textarea {
+  width: 100%;
+}
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.link {
+  background: none;
+  color: var(--accent);
+  padding: 0 6px;
+}
+progress {
+  width: 100%;
+}
+.status {
+  min-height: 1.5em;
+}
+.status.error {
+  color: #d33;
+}
+#results li {
+  margin-bottom: 10px;
+}
+#results .meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+.banner {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--accent);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.banner button {
+  background: white;
+  color: var(--accent);
+}
+footer {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+#root {
+  display: contents;
+}

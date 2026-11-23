@@ -1,0 +1,246 @@
+name: Release
+
+# Builds unsigned installers on each platform in .github/release.json, tests each one
+# after installing it (`--self-test`), and publishes them as a GitHub release.
+#
+# - Push a tag `v<version>` (same version as src-tauri/tauri.conf.json): a full release.
+#   With the updater on, it also carries signed update bundles and `latest.json`, which
+#   installed apps poll.
+# - Run the workflow by hand: a pre-release `v<version>-test.<run>` to try a build.
+#
+# Secrets (optional): TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD sign
+# the update bundles (`cargo tauri signer generate`). Without them the installers still
+# build; there are just no update bundles.
+# Settings > Actions > General > Workflow permissions must be "Read and write" for the
+# release step.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  # release-please.yml calls this after it tagged and created the release.
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.p.outputs.targets }}
+      macos_pkg: ${{ steps.p.outputs.macos_pkg }}
+      uv_sidecar: ${{ steps.p.outputs.uv_sidecar }}
+      uv_version: ${{ steps.p.outputs.uv_version }}
+      version: ${{ steps.p.outputs.version }}
+      name: ${{ steps.p.outputs.name }}
+      identifier: ${{ steps.p.outputs.identifier }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - id: p
+        run: |
+          {
+            echo "targets=$(jq -c .targets .github/release.json)"
+            echo "macos_pkg=$(jq -r .macos_pkg .github/release.json)"
+            echo "uv_sidecar=$(jq -r .uv_sidecar .github/release.json)"
+            echo "uv_version=$(jq -r .uv_version .github/release.json)"
+            echo "version=$(jq -r .version src-tauri/tauri.conf.json)"
+            echo "name=$(jq -r .productName src-tauri/tauri.conf.json)"
+            echo "identifier=$(jq -r .identifier src-tauri/tauri.conf.json)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: test "$TAG" = "v${{ steps.p.outputs.version }}" || { echo "Tag $TAG but tauri.conf.json says ${{ steps.p.outputs.version }}"; exit 1; }
+
+  installer:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.targets) }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: src-tauri
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APP_NAME: ${{ needs.plan.outputs.name }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: WebKitGTK
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev patchelf
+      - name: Bundle uv as a sidecar
+        if: needs.plan.outputs.uv_sidecar == 'true'
+        env:
+          UV_VERSION: ${{ needs.plan.outputs.uv_version }}
+        run: |
+          case "${{ matrix.target }}" in
+            *windows*) asset="uv-${{ matrix.target }}.zip" ;;
+            *) asset="uv-${{ matrix.target }}.tar.gz" ;;
+          esac
+          mkdir -p binaries dl
+          curl -fsSL --retry 5 --retry-all-errors -o "dl/$asset" "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/$asset"
+          case "$asset" in
+            *.zip) unzip -q -o "dl/$asset" -d dl/x && cp dl/x/uv.exe "binaries/uv-${{ matrix.target }}.exe" ;;
+            *) tar -xzf "dl/$asset" -C dl && cp dl/*/uv "binaries/uv-${{ matrix.target }}" && chmod +x "binaries/uv-${{ matrix.target }}" ;;
+          esac
+      - name: Build
+        run: |
+          # ONNX Runtime's macOS objects need compiler-rt, which rustc leaves out once a deployment target is set.
+          if [ "$RUNNER_OS" = macOS ]; then export RUSTFLAGS="-C link-arg=$(xcrun clang --print-runtime-dir)/libclang_rt.osx.a"; fi
+          args=(build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }})
+          [ -f tauri.release.conf.json ] && args+=(--config tauri.release.conf.json)
+          # No signing key: build installers without update bundles.
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] && jq -e '.bundle.createUpdaterArtifacts' tauri.conf.json >/dev/null; then
+            args+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+          fi
+          npx --yes @tauri-apps/cli@2 "${args[@]}"
+      - name: Install and self-test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          dmg=$(find ../target/${{ matrix.target }}/release/bundle/dmg -name '*.dmg' | head -1)
+          hdiutil attach -nobrowse -mountpoint /tmp/app "$dmg"
+          app=$(find /tmp/app -maxdepth 1 -name '*.app' | head -1)
+          main=$(find "$app/Contents/MacOS" -type f -perm -u+x ! -name 'uv*' | head -1)
+          "$main" --self-test /tmp/self-test.json || { cat /tmp/self-test.json; exit 1; }
+          mkdir -p "$RUNNER_TEMP/pkgroot" && cp -R "$app" "$RUNNER_TEMP/pkgroot/"
+          hdiutil detach /tmp/app
+      - name: Build and test the .pkg (macOS)
+        # Copies the app to /Applications and clears the quarantine flag in postinstall, so
+        # after one "Open Anyway" for the installer the unsigned app opens freely.
+        if: runner.os == 'macOS' && needs.plan.outputs.macos_pkg == 'true'
+        run: |
+          app=$(ls -d "$RUNNER_TEMP"/pkgroot/*.app | head -1); appname=$(basename "$app")
+          sed "s|__APP__|$appname|" ../macos-pkg/scripts/postinstall > "$RUNNER_TEMP/postinstall" && mkdir -p "$RUNNER_TEMP/scripts" && mv "$RUNNER_TEMP/postinstall" "$RUNNER_TEMP/scripts/" && chmod +x "$RUNNER_TEMP/scripts/postinstall"
+          pkgbuild --analyze --root "$RUNNER_TEMP/pkgroot" "$RUNNER_TEMP/component.plist"
+          plutil -replace 0.BundleIsRelocatable -bool NO "$RUNNER_TEMP/component.plist"
+          mkdir -p ../target/pkg
+          pkg="../target/pkg/${APP_NAME}_${VERSION}_aarch64.pkg"
+          pkgbuild --root "$RUNNER_TEMP/pkgroot" --component-plist "$RUNNER_TEMP/component.plist" \
+            --install-location /Applications --scripts "$RUNNER_TEMP/scripts" \
+            --identifier "${{ needs.plan.outputs.identifier }}" --version "$VERSION" "$pkg"
+          sudo installer -pkg "$pkg" -target /
+          ! xattr -p com.apple.quarantine "/Applications/$appname" 2>/dev/null
+          main=$(find "/Applications/$appname/Contents/MacOS" -type f -perm -u+x ! -name 'uv*' | head -1)
+          "$main" --self-test /tmp/pkg-self-test.json || { cat /tmp/pkg-self-test.json; exit 1; }
+      - name: Install and self-test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          setup=$(find ../target/${{ matrix.target }}/release/bundle/nsis -name '*-setup.exe' | head -1)
+          "$setup" //S
+          sleep 5
+          dir="$LOCALAPPDATA/$APP_NAME"
+          main=$(find "$dir" -maxdepth 1 -iname '*.exe' ! -iname 'uv*' ! -iname 'uninstall*' | head -1)
+          "$main" --self-test "$RUNNER_TEMP/self-test.json" || { cat "$RUNNER_TEMP/self-test.json"; exit 1; }
+          cat "$RUNNER_TEMP/self-test.json"
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          main="../target/${{ matrix.target }}/release/$(grep -m1 '^name' Cargo.toml | cut -d'"' -f2)"
+          "$main" --self-test /tmp/self-test.json || { cat /tmp/self-test.json; exit 1; }
+      - name: Collect
+        run: |
+          out="$GITHUB_WORKSPACE/dist"; mkdir -p "$out"
+          b=../target/${{ matrix.target }}/release/bundle
+          find "$b" ../target/pkg \( -name '*.dmg' -o -name '*.pkg' -o -name '*-setup.exe' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} "$out/" \; 2>/dev/null || true
+          # Update bundles and their signatures, renamed per platform for latest.json.
+          find "$b" -name '*.sig' | while read -r sig; do
+            f="${sig%.sig}"
+            case "$f" in
+              *.app.tar.gz) name="update-${{ matrix.updater }}.app.tar.gz" ;;
+              *-setup.exe) name="update-${{ matrix.updater }}-setup.exe" ;;
+              *.AppImage) name="update-${{ matrix.updater }}.AppImage" ;;
+              *) continue ;;
+            esac
+            cp "$f" "$out/$name"; cp "$sig" "$out/$name.sig"
+          done
+          ls -l "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    needs: [plan, installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_TYPE}" = tag ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${{ needs.plan.outputs.version }}-test.${{ github.run_number }}" >> "$GITHUB_OUTPUT"; echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: latest.json for the updater
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          shopt -s nullglob
+          sigs=(dist/update-*.sig)
+          [ ${#sigs[@]} -gt 0 ] || { echo "No update bundles (no signing key or updater off)."; exit 0; }
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          python3 - "$base" "$VERSION" "${sigs[@]}" > dist/latest.json <<'PY'
+          import json, sys, datetime, os
+          base, version, sigs = sys.argv[1], sys.argv[2], sys.argv[3:]
+          platforms = {}
+          for sig in sigs:
+              f = os.path.basename(sig)[: -len(".sig")]
+              platform = f[len("update-"):].split(".")[0].removesuffix("-setup")
+              platforms[platform] = {"signature": open(sig).read().strip(), "url": f"{base}/{f}"}
+          print(json.dumps({"version": version, "notes": "", "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": platforms}, indent=2))
+          PY
+          cat dist/latest.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.plan.outputs.name }} ${{ steps.tag.outputs.tag }}
+          prerelease: ${{ steps.tag.outputs.prerelease }}
+          body_path: docs/install-unsigned.md
+          # release-please already wrote the changelog into the release; keep it.
+          append_body: true
+          files: dist/*
+          fail_on_unmatched_files: true

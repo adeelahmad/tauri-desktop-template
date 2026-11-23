@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{app_name}}</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="update-banner" class="banner" hidden>
+    <span id="update-text"></span>
+    <button id="update-install">Install and restart</button>
+  </div>
+
+  <header>
+    <h1>{{app_name}}</h1>
+    <p class="sub">{{description}}</p>
+  </header>
+
+  <section id="loading"><p class="status">Starting…</p></section>
+
+  <section id="wizard" hidden>
+    <h2>Welcome</h2>
+    <p class="hint">A one-time setup. Everything stays on this computer.</p>
+    <ol class="steps">
+      <li id="w-store">
+        <h3>1. Where to keep your data</h3>
+        <label><input type="radio" name="backend" value="file" checked> A simple file (fast, nothing to download)</label>
+        <label id="w-pg-option"><input type="radio" name="backend" value="postgres"> A private Postgres database with vector search
+          (downloads about 30 MB the first time)</label>
+        <p id="w-pg-note" class="hint" hidden></p>
+      </li>
+      <li id="w-model">
+        <h3>2. Smart search</h3>
+        <label><input type="checkbox" id="w-embed" checked> Search by meaning with a local AI model
+          (downloads it once, 100–500 MB; nothing is sent anywhere)</label>
+      </li>
+      <li>
+        <h3>3. Set up</h3>
+        <button id="w-go">Set up</button>
+        <progress id="w-progress" hidden></progress>
+        <p id="w-status" class="status"></p>
+      </li>
+    </ol>
+  </section>
+
+  <main id="main" hidden>
+    <section>
+      <h2>Add documents</h2>
+      <p class="hint">Drop files on this window (PDF, .txt, .md), give a file path, or paste text.</p>
+      <div class="row">
+        <input id="file-path" placeholder="/path/to/file.pdf">
+        <button id="add-file">Add file</button>
+      </div>
+      <textarea id="paste" rows="4" placeholder="Paste text here"></textarea>
+      <div class="row">
+        <input id="paste-name" placeholder="Name for the pasted text" value="pasted">
+        <button id="add-text">Add text</button>
+      </div>
+      <p id="add-status" class="status"></p>
+    </section>
+
+    <section>
+      <h2>Search</h2>
+      <div class="row">
+        <input id="query" placeholder="What are you looking for?">
+        <button id="search">Search</button>
+      </div>
+      <ol id="results"></ol>
+    </section>
+
+    <section id="agent" hidden>
+      <h2>Background</h2>
+      <label><input type="checkbox" id="agent-on"> Keep the backend running after the window closes, and start it at login</label>
+      <p id="agent-status" class="hint"></p>
+    </section>
+
+    <section id="python" hidden>
+      <h2>Python example</h2>
+      <p class="hint">Sends the text box above to <code>python/worker.py</code>, a separate Python process.</p>
+      <button id="python-go">Text stats in Python</button>
+      <pre id="python-out" class="status"></pre>
+    </section>
+
+    <section id="claude" hidden>
+      <h2>Claude Desktop</h2>
+      <p class="hint">Adds this app's tools to Claude Desktop (your current settings are backed up first).</p>
+      <button id="claude-go">Connect Claude Desktop</button>
+      <p id="claude-status" class="status"></p>
+    </section>
+  </main>
+
+  <footer>
+    <span id="about"></span>
+    <button id="check-update" class="link" hidden>Check for updates</button>
+    <button id="clear" class="link" hidden>Clear all data</button>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

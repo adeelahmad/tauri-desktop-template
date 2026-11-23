@@ -1,0 +1,36 @@
+name: Release Please
+
+# Conventional Commits on main → a release PR that bumps the version (semver) in
+# tauri.conf.json, Cargo.toml and package.json and updates CHANGELOG.md. Merging it tags
+# v<version>, creates the GitHub release and builds the installers into it.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      created: {% raw %}${{ steps.rp.outputs.release_created }}{% endraw %}
+      tag: {% raw %}${{ steps.rp.outputs.tag_name }}{% endraw %}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json{% if installers %}
+
+  # Tags pushed with the workflow token do not trigger other workflows, so call the
+  # installer build directly.
+  installers:
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: {% raw %}${{ needs.release-please.outputs.tag }}{% endraw %}
+    secrets: inherit{% endif %}

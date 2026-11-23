@@ -1,0 +1,54 @@
+# `make hooks` installs these; CI runs them on every push.
+default_install_hook_types: [pre-commit, commit-msg]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: tsconfig.*\.json$
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+  # Commit messages: https://www.conventionalcommits.org (feat:, fix:, chore:, feat!: …).
+  # release-please reads them to bump the version and write CHANGELOG.md.
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-core
+        name: clippy (desktop-core, all features)
+        entry: cargo clippy -p desktop-core --all-features --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+      - id: ruff-format
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.4
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.28.4
+    hooks:
+      - id: typos
