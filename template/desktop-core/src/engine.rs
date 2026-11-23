@@ -144,6 +144,18 @@ impl Engine {
 
     fn add(&self, chunks: &[Chunk]) -> Result<usize> {
         let batch = self.config().ingest.embed_batch.max(1);
+        // Re-embedding keeps where a chunk came from but records the new model.
+        let model = self.model_name();
+        let chunks: Vec<Chunk> = chunks
+            .iter()
+            .cloned()
+            .map(|mut c| {
+                if let Some(p) = c.prov.as_mut() {
+                    p.model.clone_from(&model);
+                }
+                c
+            })
+            .collect();
         let mut added = 0;
         for batch in chunks.chunks(batch) {
             let vectors = match &self.embedder {
@@ -163,7 +175,38 @@ impl Engine {
 
     pub fn ingest_text(&self, source: &str, text: &str) -> Result<usize> {
         let chunking = Chunking::from(&self.config().ingest);
-        self.ingest_chunks(source, &chunks_from_text_with(source, text, chunking))
+        let mut chunks = chunks_from_text_with(source, text, chunking);
+        self.stamp(&mut chunks, None, "direct");
+        self.ingest_chunks(source, &chunks)
+    }
+
+    fn model_name(&self) -> String {
+        self.embedder.as_ref().map(|e| e.name()).unwrap_or_default()
+    }
+
+    /// Fill in each chunk's provenance: the file's hash, size and time (when there is a
+    /// file), how the text was extracted (kept when the reader set it), its position, the
+    /// model and when it was indexed.
+    fn stamp(&self, chunks: &mut [Chunk], file: Option<(&[u8], &std::fs::Metadata)>, extractor: &str) {
+        use sha2::Digest;
+        let (sha256, size, modified) = match file {
+            Some((bytes, meta)) => (format!("{:x}", sha2::Sha256::digest(bytes)), meta.len(), meta.modified().map(crate::logging::rfc3339).unwrap_or_default()),
+            None => Default::default(),
+        };
+        let (model, ingested) = (self.model_name(), crate::logging::rfc3339(std::time::SystemTime::now()));
+        for (i, c) in chunks.iter_mut().enumerate() {
+            let method = c.prov.take().map(|p| p.extractor).filter(|e| !e.is_empty()).unwrap_or_else(|| extractor.into());
+            c.prov = Some(crate::chunk::Provenance {
+                sha256: sha256.clone(),
+                size,
+                modified: modified.clone(),
+                extractor: method,
+                index: i as u32,
+                model: model.clone(),
+                ingested: ingested.clone(),
+                indexer: env!("CARGO_PKG_VERSION").into(),
+            });
+        }
     }
 
     /// Why `path` would be skipped by folder ingest and watching, if it would.
@@ -196,14 +239,22 @@ impl Engine {
         let source = path.to_string_lossy().to_string();
         let chunking = Chunking::from(&self.config().ingest);
         let is_pdf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+        let failed = |e: std::io::Error| Error::Source(format!("{}: {e}", path.display()));
+        let meta = std::fs::metadata(path).map_err(failed)?;
+        let bytes = std::fs::read(path).map_err(failed)?;
         if is_pdf {
             #[cfg(feature = "pdf")]
-            return Ok((source, crate::pdf::chunks_from_pdf_with(path, chunking)?));
+            {
+                let mut chunks = crate::pdf::chunks_from_pdf_with(path, chunking)?;
+                self.stamp(&mut chunks, Some((&bytes, &meta)), "pdf-text");
+                return Ok((source, chunks));
+            }
             #[cfg(not(feature = "pdf"))]
             return Err(Error::NotBuilt("PDF reading"));
         }
-        let text = std::fs::read_to_string(path).map_err(|e| Error::Source(format!("{}: {e}", path.display())))?;
-        let chunks = chunks_from_text_with(&source, &text, chunking);
+        let text = String::from_utf8(bytes).map_err(|_| Error::Source(format!("{}: not UTF-8 text", path.display())))?;
+        let mut chunks = chunks_from_text_with(&source, &text, chunking);
+        self.stamp(&mut chunks, Some((text.as_bytes(), &meta)), "text");
         Ok((source, chunks))
     }
 

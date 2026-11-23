@@ -13,6 +13,31 @@ pub struct Chunk {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
     pub text: String,
+    /// How this chunk was made; travels with it into every search hit and citation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prov: Option<Provenance>,
+}
+
+/// Where a chunk came from and how it was made, kept through search and citations.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Provenance {
+    /// SHA-256 of the source file (hex); empty for text given directly.
+    pub sha256: String,
+    /// Source file size in bytes.
+    pub size: u64,
+    /// Source file modification time (RFC 3339), when known.
+    pub modified: String,
+    /// "text", "pdf-text", "pdf-ocr" or "direct" (text handed to `ingest_text`).
+    pub extractor: String,
+    /// Position among the source's chunks (0-based).
+    pub index: u32,
+    /// Embedding model, empty for keyword-only indexes.
+    pub model: String,
+    /// When it was indexed (RFC 3339).
+    pub ingested: String,
+    /// The desktop-core version that indexed it.
+    pub indexer: String,
 }
 
 /// Chunk size and overlap (from `IngestConfig`).
@@ -40,7 +65,7 @@ pub fn chunks_from_text(source: &str, text: &str) -> Vec<Chunk> {
 }
 
 pub fn chunks_from_text_with(source: &str, text: &str, c: Chunking) -> Vec<Chunk> {
-    split_with(text, c).into_iter().map(|t| Chunk { source: source.into(), page: None, text: t }).collect()
+    split_with(text, c).into_iter().map(|t| Chunk { source: source.into(), page: None, text: t, prov: None }).collect()
 }
 
 /// Chunks per page, so every chunk keeps its page number.
@@ -51,7 +76,7 @@ pub fn chunks_from_pages(source: &str, pages: &[(u32, String)]) -> Vec<Chunk> {
 pub fn chunks_from_pages_with(source: &str, pages: &[(u32, String)], c: Chunking) -> Vec<Chunk> {
     pages
         .iter()
-        .flat_map(|(n, text)| split_with(text, c).into_iter().map(move |t| Chunk { source: source.into(), page: Some(*n), text: t }))
+        .flat_map(|(n, text)| split_with(text, c).into_iter().map(move |t| Chunk { source: source.into(), page: Some(*n), text: t, prov: None }))
         .collect()
 }
 
