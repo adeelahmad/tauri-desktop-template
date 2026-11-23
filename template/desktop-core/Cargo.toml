@@ -39,6 +39,10 @@ llama = ["ai", "dep:llama-cpp-2"]
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
 {% endif -%}
+{% if mcp_server -%}
+# A Model Context Protocol server over stdio (no extra dependencies).
+mcp = []
+{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile"]

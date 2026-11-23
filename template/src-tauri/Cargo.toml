@@ -40,6 +40,9 @@ llama = ["ai", "desktop-core/llama"]
 {% if mcp_server -%}
 mcp = ["desktop-core/mcp"]
 {% endif -%}
+{% if mcp_server -%}
+mcp = ["desktop-core/mcp"]
+{% endif -%}
 {% if pdf -%}
 pdf = ["desktop-core/pdf"]
 {% endif -%}
