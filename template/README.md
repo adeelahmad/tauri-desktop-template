@@ -178,11 +178,17 @@ is off by default; values are clamped to safe ranges.
 | `ingest.chunkChars`, `ingest.chunkOverlap` | 800, 0 | chunking |
 | `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
 | `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
+| `backup.intervalHours`, `backup.keep`, `backup.folder` | 0, 5, app data | scheduled backups; a synced folder keeps a copy off the computer |
 | `net.offline` | false | block every request that leaves the computer (a local model server still works) |
 | `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |
 | `net.proxy`, `net.noProxy` | system | empty = `HTTPS_PROXY`/`ALL_PROXY`, `direct`, or an `http://`/`socks5://` URL |
 | `net.caFiles` | empty | PEM files trusted instead of the bundled Mozilla roots (company TLS inspection) |
 | `net.pins`, `net.pinsOff` | none | `{"updates.example.com": ["<PEM or file>"]}`: only those CAs may vouch for the host |
+
+Backups are one JSON-lines file each (a manifest with a SHA-256, then the chunks with their
+provenance). Restoring checks the file first, backs up the index it replaces, and embeds the
+chunks again with the current model, so a backup moves between models, stores and computers.
+Before a Postgres schema migration the old rows are kept in `chunks_before_migration`.
 
 Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through
 `desktop-core/src/net.rs` and obeys `net`. Child processes (the Python worker, uv) get the

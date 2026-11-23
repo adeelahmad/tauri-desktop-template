@@ -461,6 +461,44 @@ impl Engine {
     pub fn clear(&self) -> Result<()> {
         self.store.clear()
     }
+
+    /// Where backups go: the configured folder, or `<data>/backups`.
+    pub fn backup_dir(&self) -> PathBuf {
+        self.config().backup.folder.unwrap_or_else(|| self.data_dir.join("backups"))
+    }
+
+    /// Write a backup of every chunk now, then delete the oldest beyond `backup.keep`.
+    pub fn backup(&self) -> Result<crate::backup::BackupInfo> {
+        let dir = self.backup_dir();
+        let info = crate::backup::write(&dir, &self.store.all()?, &self.model_name()).map_err(|e| Error::Store(format!("backup to {}: {e}", dir.display())))?;
+        let pruned = crate::backup::prune(&dir, self.config().backup.keep);
+        log::info!("backup written: {} chunks, {} bytes ({pruned} old backups removed)", info.chunks, info.bytes);
+        Ok(info)
+    }
+
+    /// Backups in the backup folder, newest first.
+    pub fn backups(&self) -> Vec<crate::backup::BackupInfo> {
+        crate::backup::list(&self.backup_dir())
+    }
+
+    /// Back up if the schedule says one is due (`None` when not).
+    pub fn backup_if_due(&self) -> Option<Result<crate::backup::BackupInfo>> {
+        crate::backup::due(&self.backup_dir(), self.config().backup.interval_hours).then(|| self.backup())
+    }
+
+    /// Replace the index with a backup. The file is verified first, and the current index
+    /// is backed up before it is replaced (unless it is empty). Chunks are embedded again
+    /// with the current model. Returns the chunks restored.
+    pub fn restore(&self, path: &Path) -> Result<usize> {
+        let (manifest, chunks) = crate::backup::read(path).map_err(|e| Error::Store(format!("{}: {e}", path.display())))?;
+        if self.store.count()? > 0 {
+            self.backup()?;
+        }
+        self.store.clear()?;
+        let restored = self.add(&chunks)?;
+        log::info!("restored {restored} chunks from a backup made {} by version {}", manifest.created, manifest.app_version);
+        Ok(restored)
+    }
 }
 
 fn open_store(opts: &EngineOptions) -> Result<Box<dyn Store>> {

@@ -206,6 +206,41 @@ fn hits_carry_provenance_and_newer_stores_are_refused() {
     assert!(FileStore::open(&dir.path().join("store")).is_err());
 }
 
+#[test]
+fn backup_and_restore_across_models_and_stores() {
+    let dir = tempfile::tempdir().unwrap();
+    let open = |sub: &str, model: &'static str| {
+        let store = FileStore::open(&dir.path().join(sub)).unwrap();
+        Engine::with_parts(Box::new(store), Some(Box::new(Bag(model))), dir.path(), &mut |_| {}).unwrap()
+    };
+    let a = open("a", "bag");
+    a.ingest_text("notes.md", DOCS).unwrap();
+    let before = a.status().unwrap().chunks;
+    assert!(a.backup_if_due().is_none(), "no schedule by default");
+    let info = a.backup().unwrap();
+    assert_eq!(info.chunks, before);
+    assert_eq!(a.backups().len(), 1);
+
+    // Another store and another model: restoring embeds again and search still works.
+    let b = open("b", "bag-2");
+    b.ingest_text("other.md", "Something else entirely.").unwrap();
+    assert_eq!(b.restore(&info.path).unwrap(), before);
+    assert_eq!(b.status().unwrap().chunks, before);
+    assert_eq!(b.search("heart blood", 1).unwrap()[0].source, "notes.md");
+    assert_eq!(b.backups().len(), 2, "the replaced index was backed up first");
+
+    // Scheduled backups and pruning follow the settings.
+    let mut cfg = b.config();
+    cfg.backup.interval_hours = 1;
+    cfg.backup.keep = 1;
+    cfg.backup.folder = Some(dir.path().join("elsewhere"));
+    b.configure(cfg).unwrap();
+    assert!(b.backup_if_due().unwrap().is_ok());
+    assert!(b.backup_if_due().is_none());
+    b.backup().unwrap();
+    assert_eq!(b.backups().len(), 1);
+}
+
 /// Needs a Postgres with pgvector (and, for BM25, vchord_bm25 + pg_tokenizer):
 /// `APP_TEST_PG_URL=postgres://... cargo test --features postgres,bm25`.
 #[cfg(feature = "postgres")]

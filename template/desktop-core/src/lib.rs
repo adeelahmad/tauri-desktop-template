@@ -6,6 +6,7 @@
 //! back to keywords, so the app works (and tests run) with no model download.
 
 pub mod audio;
+pub mod backup;
 pub mod chunk;
 pub mod config;
 pub mod engine;
