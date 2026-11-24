@@ -67,6 +67,28 @@ fn new_enable_disable_round_trip() {
     .unwrap();
     assert!(r.summary.starts_with("Created"), "{r}");
     let app = work.join("app");
+    // The rule table: a clean app passes `features --check`; switching off what others
+    // need is refused without --with-deps, and a dry run lists what it would switch.
+    let check = run(&Args::parse(["features", "--check"]), &app).unwrap();
+    assert!(check.summary.contains("no problems"), "{check}");
+    let e = run(&Args::parse(["disable", "ipc_worker"]), &app)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("background_agent needs ipc_worker") && e.contains("--with-deps"),
+        "{e}"
+    );
+    let dry = run(&Args::parse(["disable", "ipc_worker", "--dry-run"]), &app).unwrap();
+    assert!(
+        dry.lines
+            .iter()
+            .any(|l| l.starts_with("also off  background_agent")),
+        "{dry}"
+    );
+    let e = run(&Args::parse(["set", "bm25=true"]), &app)
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("bm25 needs postgres"), "{e}");
     let before = snapshot(&app);
     let on = run(&Args::parse(["enable", "email"]), &app).unwrap();
     assert!(

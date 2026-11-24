@@ -40,18 +40,19 @@
 //! use kitchen::{project::Project, Options};
 //!
 //! let project = Project::find(std::path::Path::new("."))?;
-//! let report = project.set_features(&["email"], &[], &Options { dry_run: true })?;
+//! let report = project.set_features(&["email"], &[], &Options { dry_run: true, ..Options::default() })?;
 //! println!("{report}");
 //! # Ok::<(), kitchen::Error>(())
 //! ```
 //!
-//! Modules: [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
+//! Modules: [`compat`] (which features need which: the rule table), [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
 //! generators), [`lifecycle`] (start, test, package, publish, eject), [`doctor`] (machine
 //! checks), [`hooks`] (the app's git hooks), [`service`] (the app's daemon as a service),
 //! [`mcp`] (the MCP server), [`cli`] (arguments).
 
 pub mod cli;
+pub mod compat;
 pub mod doctor;
 pub mod generate;
 pub mod hooks;
@@ -100,6 +101,10 @@ pub(crate) fn io<T>(what: impl fmt::Display, r: std::io::Result<T>) -> Result<T>
 pub struct Options {
     /// Show what would change and change nothing.
     pub dry_run: bool,
+    /// Also switch what the named features need (`enable`) or what needs them (`disable`),
+    /// following [`compat::REQUIRES`]. Without it such a change is refused, and a dry run
+    /// lists what it would take.
+    pub with_deps: bool,
 }
 
 /// What a command did (or, on a dry run, would do): lines for people, and JSON for tools.

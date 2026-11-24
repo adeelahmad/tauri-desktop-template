@@ -21,10 +21,15 @@ pub const HELP: &str = "kitchen: create and grow cross-platform desktop apps
 Usage:
   kitchen new <name> [--enable a,b] [--disable c] [--set key=value] [--dir <parent>]
                      [--source <git url or folder>] [--rev <commit|tag|branch>] [--no-git]
-  kitchen features                     list the features and which are on
-  kitchen enable <feature>...          turn features on (keeps your edits; 3-way merge)
-  kitchen disable <feature>...         turn features off
-  kitchen set <name>=<value>           change an answer, e.g. frontend=vanilla
+                     [--with-deps]
+  kitchen features [--check]           list the features and which are on; --check: do the
+                                       answers in kitchen.toml work together?
+  kitchen enable <feature>... [--with-deps]
+                                       turn features on (keeps your edits; 3-way merge);
+                                       --with-deps also turns on what they need
+  kitchen disable <feature>... [--with-deps]
+                                       turn features off; --with-deps also turns off what needs them
+  kitchen set <name>=<value>           change an answer, e.g. frontend=vanilla (same checks)
   kitchen upgrade [--rev <rev>]        move to a newer template, keeping your edits
   kitchen generate module <name> [--config]
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
@@ -51,7 +56,8 @@ Usage:
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
 Options:
-  --dry-run   show what would change, change nothing
+  --dry-run   show what would change (and which dependencies), change nothing
+  --with-deps switch the features a change needs too (see \"Feature dependencies\")
   --json      print the result as JSON
   -h, --help  this text;  -V, --version  the version
 
@@ -144,6 +150,7 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
 pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
     let opts = Options {
         dry_run: args.flag("dry-run"),
+        with_deps: args.flag("with-deps"),
     };
     let project = || Project::find(cwd);
     let cmd = args.words.first().map(String::as_str).unwrap_or("help");
@@ -180,8 +187,10 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 disable: args.values("disable"),
                 set,
                 no_git: args.flag("no-git"),
+                with_deps: opts.with_deps,
             })
         }
+        "features" | "list" if args.flag("check") => Ok(project()?.check_features()),
         "features" | "list" => project()?.features_report(),
         "enable" | "disable" => {
             let names: Vec<&str> = args.words[1..]
