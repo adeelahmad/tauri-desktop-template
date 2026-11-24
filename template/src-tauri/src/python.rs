@@ -4,6 +4,19 @@
 //! Interpreter, first that works: `APP_PYTHON`; the bundled uv (feature `claude-mcp`),
 //! which fetches Python itself; `python3`; `python`; `py -3` on Windows. Release builds
 //! ship the script as a resource (`bundle.resources` in tauri.conf.json).
+//!
+//! # Example
+//!
+//! The JSON lines between the app and `worker.py`:
+//!
+//! ```
+//! use serde_json::json;
+//!
+//! let request = json!({"id": 1, "method": "stats", "params": {"text": "hi"}});
+//! let reply: serde_json::Value = serde_json::from_str(r#"{"id": 1, "result": {"words": 1}}"#)?;
+//! assert_eq!(reply["id"], request["id"]);
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -18,6 +31,7 @@ struct Proc {
     next_id: u64,
 }
 
+/// The Python child process, started on the first call (Tauri state).
 #[derive(Default)]
 pub struct PythonWorker {
     proc: Mutex<Option<Proc>>,
@@ -129,6 +143,7 @@ impl Drop for PythonWorker {
     }
 }
 
+/// Tauri command: call `method` in `worker.py` with `params` and return its result.
 #[tauri::command(async)]
 pub fn python_call(app: tauri::AppHandle, worker: tauri::State<PythonWorker>, method: String, params: Option<Value>) -> Result<Value, String> {
     use tauri::Manager;

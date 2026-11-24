@@ -2,6 +2,22 @@
 //! window to the front and exits, so two copies never share the index or the embedded
 //! database. Standard library only: an exclusive lock on `<data>/instance.lock`, and the
 //! first instance listens on a loopback port (written beside the lock) for "focus".
+//!
+//! # Example
+//!
+//! What a second launch does, with the standard library only: the lock is already held, so
+//! it knocks on the port the first instance wrote and exits.
+//!
+//! ```
+//! let dir = std::env::temp_dir().join(format!("single-doc-{}", std::process::id()));
+//! std::fs::create_dir_all(&dir)?;
+//! let first = std::fs::File::create(dir.join("instance.lock"))?;
+//! first.try_lock().expect("nobody else holds it");
+//! let second = std::fs::File::open(dir.join("instance.lock"))?;
+//! assert!(second.try_lock().is_err()); // a second launch: knock and exit
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), std::io::Error>(())
+//! ```
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
@@ -16,10 +32,13 @@ pub struct Held(#[allow(dead_code)] pub std::fs::File);
 /// Either we are the only instance (keep the returned lock and listener for the life of
 /// the process), or another one was asked to show itself and this one should exit.
 pub enum Instance {
+    /// This is the only instance: keep the lock file and the listener.
     First(std::fs::File, TcpListener),
+    /// Another instance was asked to come to the front; exit.
     Second,
 }
 
+/// Take the instance lock in `data_dir`, or knock on the instance that holds it.
 pub fn claim(data_dir: &Path) -> std::io::Result<Instance> {
     std::fs::create_dir_all(data_dir)?;
     let lock = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(data_dir.join("instance.lock"))?;

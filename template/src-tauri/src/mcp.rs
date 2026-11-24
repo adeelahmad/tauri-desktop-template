@@ -5,6 +5,19 @@
 //! and registers the app in Claude Desktop with no terminal.
 //!
 //! Nothing but JSON-RPC goes to stdout; progress and errors go to stderr.
+//!
+//! # Example
+//!
+//! The entry a client gets (Settings shows it, and `mcp_register_claude` writes it into
+//! Claude Desktop's config):
+//!
+//! ```
+//! use serde_json::json;
+//!
+//! let entry = json!({"command": "/Applications/My App.app/Contents/MacOS/my-app", "args": ["--mcp"]});
+//! let config = json!({"mcpServers": {"my-app": entry}});
+//! assert_eq!(config["mcpServers"]["my-app"]["args"][0], "--mcp");
+//! ```
 
 use crate::service::Service;
 use crate::Settings;
@@ -145,17 +158,21 @@ pub fn claude_desktop_config() -> PathBuf {
     dir.join("claude_desktop_config.json")
 }
 
+/// How to connect a client to this app, for Settings.
 #[derive(Debug, Serialize)]
 pub struct Setup {
     /// The entry for any client's `mcpServers`.
     pub entry: Value,
     /// For Claude Code: `claude mcp add ...`.
     pub claude_code: String,
+    /// Claude Desktop's config file on this computer.
     pub claude_desktop_file: String,
     /// Every tool name, for the per-tool policy in Settings.
     pub tools: Vec<String>,
 }
 
+/// The `mcpServers` entry: this executable with `--mcp`, and `APP_PROFILE` for a
+/// profile other than the default.
 pub fn entry() -> Result<Value, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     Ok(match crate::paths::profile() {
@@ -165,6 +182,7 @@ pub fn entry() -> Result<Value, String> {
     })
 }
 
+/// The entry and the matching `claude mcp add` command.
 pub fn setup() -> Result<Setup, String> {
     let entry = entry()?;
     let exe = entry["command"].as_str().unwrap_or_default().to_string();

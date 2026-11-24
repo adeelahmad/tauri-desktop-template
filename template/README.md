@@ -62,11 +62,20 @@ Everything runs on the user's machine.
 {% if plugins -%}
 | Plugin API: compiled-in extensions (`Plugin` trait + registry) with ingest hooks, extra search sources, their own methods (`plugin.<name>.<method>`) and a settings schema; example plugin `glossary`. Turn on under Settings → Plugins | `desktop-core/src/plugin.rs` | `plugins` |
 {% endif -%}
+{% if background_jobs -%}
+| Background jobs: a persistent queue (survives restarts and crashes) of named job types with typed JSON payloads; run now, later, or on cron/interval schedules; a concurrency limit per queue; retries with exponential backoff and jitter, then dead letters you can retry; cancel, timeouts, a pruned run history. Respects `resources` and `net.offline`. Examples `backup_now` and `reindex`; Settings → Jobs | `desktop-core/src/queue.rs`, `desktop-core/src/job_types/` | `jobs-queue` |
+{% endif -%}
 {% if rclone -%}
 | Cloud sync of the backups (or data) folder to any cloud with rclone: pinned, checksummed binary downloaded on first use; remote config in an owner-only file; schedule, direction, bandwidth limit. Settings → Cloud sync | `desktop-core/src/rclone.rs` | `rclone` |
 {% endif -%}
 {% if tailscale -%}
 | Tailscale: status, and `tailscale serve` to reach a local MCP/HTTP port from your tailnet (never Funnel, never installs anything). Settings → Tailnet | `desktop-core/src/tailscale.rs` | `tailscale` |
+{% endif -%}
+{% if webview -%}
+| Embedded web views (desktop): allowlisted remote pages in the app's own windows, with no Tauri IPC for them, cookies kept per profile (or incognito), and an opt-in message bridge. Settings → Web views | `desktop-core/src/webview.rs`, `src-tauri/src/webview.rs` | `webview` |
+{% endif -%}
+{% if tray_menu -%}
+| Tray / macOS menu-bar icon with its own menu, global shortcuts (rebind by pressing keys) and an app-defined menu next to the platform's App/Edit/Window menus; all three run actions through one registry. Settings → Tray & shortcuts | `desktop-core/src/actions.rs`, `src-tauri/src/tray.rs` | `tray-menu` |
 {% endif -%}
 {% if tauri_plugins -%}
 | Official Tauri plugins (see the table below) | `src-tauri/src/lib.rs`, `src-tauri/capabilities/` | |
@@ -187,6 +196,8 @@ make help        # everything else (db-up, docker-test, build, …)
 `compose.yaml` has an optional Postgres + pgvector (`make db-up`, then
 `APP_PG_URL=postgres://app:app@localhost:5433/app`) and a Linux build container.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for commits, PRs and releases.
+[docs/GUIDE.md](docs/GUIDE.md) explains the architecture, how to add a feature, how settings
+work, and where each module is documented (`cargo doc --workspace --no-deps --open`).
 
 Linux needs `libwebkit2gtk-4.1-dev librsvg2-dev`.
 {% if frontend == "react" -%}
@@ -208,6 +219,10 @@ Google Play update the app), single instance, the stdio MCP server, Python, Clau
 Desktop, folder watching and embedded Postgres (the file store is used; a saved Postgres
 choice falls back to it). `app_info` reports `features.mobile`, and the UI hides what is
 not there. Everything is kept in the app's private folder.
+{% if background_jobs -%}
+Background jobs run only while the app is in the foreground there; due jobs and missed
+schedules catch up when it opens or comes back.
+{% endif -%}
 
 Once, install the Android SDK and NDK (Android Studio; set `ANDROID_HOME` and `NDK_HOME`)
 and Java 17, or Xcode on a Mac, then the Rust targets and the native projects:
@@ -348,6 +363,10 @@ is off by default; values are clamped to safe ranges.
 {% if plugins -%}
 | `plugins.enabled`, `plugins.disabled`, `plugins.settings` | off, none, `{}` | run plugins; leave some out; each plugin's settings by name |
 {% endif -%}
+{% if background_jobs -%}
+| `jobs.enabled`, `jobs.workers`, `jobs.maxAttempts` | off, 2, 5 | run jobs and schedules; jobs at once (capped by `resources.cpuPercent`); attempts before the dead letters |
+| `jobs.backoffBaseSecs`, `jobs.backoffMaxSecs`, `jobs.historyDays`, `jobs.queues` | 10, 3600, 7, `{}` | retry waits double from the base up to the max (half of each is random jitter); history kept; per-queue limits, e.g. `{"maintenance": 1}` |
+{% endif -%}
 {% if rclone -%}
 | `rclone.enabled`, `rclone.remote`, `rclone.path` | off, empty, empty | remote name in the rclone config, folder on it |
 | `rclone.folder`, `rclone.direction` | `backups`, `push` | `data` (up only); `pull`, `mirror` (deletes extras there), `bisync` |
@@ -356,8 +375,19 @@ is off by default; values are clamped to safe ranges.
 {% if daemon -%}
 | Settings → Service (not a saved key) | off | installs or removes the user-level service; the system level needs `sudo <app> --service install --system` (or an Administrator terminal) |
 {% endif -%}
+{% if tray_menu -%}
+| `tray.enabled`, `tray.items` | off, show/hide · search · clipboard · pause · settings · quit | each item `{id, label, action, shortcutHint?, enabled}`; `action` `separator` draws a line |
+| `tray.leftClickOpens`, `tray.closeToTray`, `tray.showInMenuBarOnly` | on, off, off | left click shows the window; closing hides it; macOS: no Dock icon |
+| `shortcuts` | none | `[{accelerator, action}]`, e.g. `CmdOrCtrl+Shift+K`; an empty accelerator turns off a code default |
+| `menu.title`, `menu.extra` | `Actions`, none | items added after the ones the code defines |
+{% endif -%}
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
+{% endif -%}
+{% if webview -%}
+| `webview.enabled`, `webview.allow`, `webview.blocked` | off, empty, `refuse` | open remote pages in the app; hosts shown (`example.com`, `*.example.com`; never `*`); `browser` hands other pages to the system browser |
+| `webview.isolation`, `webview.allowHttp`, `webview.maxWindows` | `profile`, off, 8 | cookies per profile or `incognito`; plain HTTP on allowed hosts; window limit |
+| `webview.bridge`, `webview.bridgeHosts` | off, empty | `window.kitchenBridge.post(m)` for pages on these (allowed) hosts |
 {% endif -%}
 | `net.offline` | false | block every request that leaves the computer (a local model server still works) |
 | `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |
@@ -388,6 +418,23 @@ command), and describe its settings with a JSON Schema that Settings → Plugins
 a form. The `glossary` example shows each hook.
 
 {% endif -%}
+{% if background_jobs -%}
+### Background jobs
+
+`desktop_core::queue` keeps a queue in `<data>/queue/` (`queue.json`, written atomically,
+and `history.jsonl`). A job type implements `Job` (a name, a payload type, `run`; optionally
+its queue, timeout, attempts and whether it needs the network) and is registered in
+`desktop-core/src/job_types/mod.rs`; `kitchen generate job <name>` writes one with docs and a
+test. Jobs run in the backend: in the app, or in the worker with `ipc_worker`; with
+`background_agent` the worker starts at login and schedules keep running while the window is
+closed. On iOS and Android jobs run only while the app is in the foreground (no
+`BGTaskScheduler`/`WorkManager`); what came due meanwhile runs when it is back, and a missed
+schedule fires once. Commands: `jobs_list`, `jobs_enqueue` {kind, payload, options},
+`jobs_cancel`, `jobs_retry`, `jobs_schedules`, `jobs_set_schedule`. The queue is built on std
+threads plus [croner](https://crates.io/crates/croner) for cron (apalis was considered; its
+persistent stores need SQL or Redis and an async runtime, see the module docs).
+
+{% endif -%}
 {% if rclone -%}
 Cloud sync downloads rclone (the version pinned in `desktop-core/src/rclone.rs`, checked by
 SHA-256) into the data folder on first use, through the same network policy. Paste the
@@ -395,11 +442,61 @@ output of `rclone config show` into Settings → Cloud sync: it is kept in an ow
 and never synced. Data-folder sync leaves out keys, passwords, models, logs and Postgres.
 
 {% endif -%}
+{% if tray_menu -%}
+### Tray, shortcuts and menus
+
+The tray (a template image in the macOS menu bar), global shortcuts and the app menu all
+name actions by id and run them through one registry (`desktop_core::actions`):
+`show_hide`, `show`, `hide`, `search` (focus the search box), `ingest_clipboard`,
+`ingest_drop_folder`, `pause_resume` (ingest and folder watching, for this session),
+`settings` and `quit`. The app's own actions emit `app-action` to the window and call the
+backend's `action` method (`src-tauri/src/service.rs`). Add one with
+`kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E`, or
+give an action a default global shortcut with `kitchen generate shortcut search CmdOrCtrl+Alt+F`.
+Changes in Settings apply at once. An unknown action, a bad accelerator, two actions on the
+same keys, or keys another app already holds are listed in Settings, not fatal. On macOS
+the standard App, Edit and Window menus stay (copy and paste keep working); Windows and
+Linux get a menu bar only when the app menu has items. Clipboard text is read with
+`pbpaste`, PowerShell's `Get-Clipboard`, or `wl-paste`/`xclip`/`xsel` on Linux.
+
+{% endif -%}
 {% if tailscale -%}
 Tailscale is never installed by the app: without the `tailscale` CLI, Settings → Tailnet
 links to <https://tailscale.com/download>. With it, **Apply sharing** runs
 `tailscale serve --bg --https=<port> http://127.0.0.1:<local port>`, reachable only inside
 your tailnet; turning it off removes only that mapping.
+
+{% endif -%}
+{% if webview -%}
+### Embedded web views
+
+With `webview.enabled` on, the app can show remote pages in its own windows (`web-<name>`).
+Only hosts on `webview.allow` load; every other navigation, `window.open` and (on macOS and
+Linux) frame is refused, or with `webview.blocked = "browser"` opened in the system browser.
+Remote pages get **no Tauri IPC**: `capabilities/webview.json` grants `web-*` windows nothing,
+Tauri's ACL refuses commands from remote origins, and the app refuses any command from a
+`web-*` window before it runs. The app's own window keeps its CSP (`tauri.conf.json`).
+
+```json
+"webview": { "enabled": true, "allow": ["docs.rs", "*.github.com"], "isolation": "profile" }
+```
+
+```js
+const label = await invoke('webview_open', { url: 'https://docs.rs/tauri', name: 'docs', title: 'Docs' });
+await invoke('webview_close', { name: 'docs' });
+```
+
+Cookies and storage: `profile` keeps a separate jar for each app profile (WebView2 user data
+folder on Windows, a WebKitGTK context on Linux, a `WKWebsiteDataStore` per profile on macOS
+14+; macOS 13 shares the system default, so use `incognito` there). `incognito` keeps nothing.
+iOS and Android builds leave web views out.
+
+The bridge is off by default. With `webview.bridge` on, pages on `webview.bridgeHosts` get
+`window.kitchenBridge.post(message)`; the main window receives `webview-message` events
+(`{label, host, data}`), and `invoke('webview_post', { name, message })` answers with a
+`message` event whose `origin` is `"kitchen-app"`. Messages are JSON, at most 64 KB, and
+never reach a command. Child webviews inside the main window need Tauri's `unstable`
+feature, so web views open as separate windows.
 
 {% endif -%}
 Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through

@@ -140,6 +140,12 @@ const FIELDS = [
   ['mail', 'from', 'Sender, e.g. Me <me@example.com>', 'text', { needs: 'mail' }],
   ['mail', 'maxMb', 'Largest message (MB)', 'number', { needs: 'mail', min: 1, max: 100 }],
   ['mail', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'mail', min: 5, max: 300 }],
+  ['jobs', 'enabled', 'Run background jobs and schedules', 'bool', { needs: 'jobs' }],
+  ['jobs', 'workers', 'Jobs at once', 'number', { needs: 'jobs', min: 1, max: 32 }],
+  ['jobs', 'maxAttempts', 'Attempts before a job is dead', 'number', { needs: 'jobs', min: 1, max: 100 }],
+  ['jobs', 'backoffBaseSecs', 'First retry after about (seconds, doubling)', 'number', { needs: 'jobs', min: 1 }],
+  ['jobs', 'backoffMaxSecs', 'Longest wait between retries (seconds)', 'number', { needs: 'jobs', min: 1 }],
+  ['jobs', 'historyDays', 'Keep the run history for (days)', 'number', { needs: 'jobs', min: 1, max: 365 }],
   ['plugins', 'enabled', 'Run plugins', 'bool', { needs: 'plugins' }],
   ['plugins', 'disabled', 'Leave out these plugins (names)', 'list', { needs: 'plugins' }],
   ['rclone', 'enabled', 'Sync to the cloud with rclone', 'bool', { needs: 'rclone' }],
@@ -169,6 +175,26 @@ const FIELDS = [
   ['tailscale', 'serve', 'Share a local port with my tailnet (tailscale serve)', 'bool', { needs: 'tailscale' }],
   ['tailscale', 'port', 'Local port to share (on 127.0.0.1)', 'number', { needs: 'tailscale', min: 0, max: 65535 }],
   ['tailscale', 'httpsPort', 'HTTPS port on the tailnet', 'select', { needs: 'tailscale', options: [443, 8443, 10000], numeric: true }],
+  ['webview', 'enabled', 'Open allowed web pages inside the app', 'bool', { needs: 'webview' }],
+  ['webview', 'allow', 'Allowed hosts (example.com, or *.example.com for subdomains too)', 'list', { needs: 'webview', lines: true }],
+  [
+    'webview',
+    'blocked',
+    'Other pages',
+    'select',
+    { needs: 'webview', options: ['refuse', 'browser'], labels: ['Refuse them', 'Open them in the system browser'] },
+  ],
+  [
+    'webview',
+    'isolation',
+    'Cookies and sign-ins',
+    'select',
+    { needs: 'webview', options: ['profile', 'incognito'], labels: ['Kept, separately for each profile', 'Never kept (incognito)'] },
+  ],
+  ['webview', 'allowHttp', 'Also show plain HTTP pages on allowed hosts', 'bool', { needs: 'webview' }],
+  ['webview', 'maxWindows', 'Most web view windows open at once', 'number', { needs: 'webview', min: 1, max: 64 }],
+  ['webview', 'bridge', 'Message bridge for trusted pages (window.kitchenBridge)', 'bool', { needs: 'webview' }],
+  ['webview', 'bridgeHosts', 'Hosts that may use the bridge (must be allowed above)', 'list', { needs: 'webview', lines: true }],
   ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
@@ -180,6 +206,10 @@ const FIELDS = [
   ['watch', 'ingestExisting', 'Ingest files already there', 'bool', { needs: 'watch' }],
   ['watch', 'removeDeleted', 'Forget deleted files', 'bool', { needs: 'watch' }],
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
+  ['tray', 'enabled', 'Show an icon in the tray (menu bar on macOS)', 'bool', { needs: 'trayMenu' }],
+  ['tray', 'leftClickOpens', 'Left click opens the window (right click: the menu)', 'bool', { needs: 'trayMenu' }],
+  ['tray', 'closeToTray', 'Closing the window keeps the app in the tray', 'bool', { needs: 'trayMenu' }],
+  ['tray', 'showInMenuBarOnly', 'macOS: menu bar only, no Dock icon', 'bool', { needs: 'trayMenu' }],
   // kitchen:settings (`kitchen generate setting` adds fields above this line)
 ];
 
@@ -197,10 +227,13 @@ const TITLES = {
   backup: 'Backups',
   mail: 'Email',
   plugins: 'Plugins',
+  jobs: 'Jobs',
   rclone: 'Cloud sync',
   tailscale: 'Tailnet',
+  webview: 'Web views',
   watch: 'Watch folders',
   service: 'Service',
+  tray: 'Tray & shortcuts',
   // kitchen:titles
 };
 
@@ -403,6 +436,109 @@ function JsonField({ label, value, onChange }) {
   );
 }
 
+const when = (ms) => (ms ? new Date(ms).toLocaleString() : '-');
+
+// Background jobs: the queue, the dead letters (retry or drop), schedules (pause or resume)
+// and recent runs, polled while the section is open.
+function JobsPanel() {
+  const [st, setSt] = useState(null);
+  const [schedules, setSchedules] = useState([]);
+  const [kind, setKind] = useState('');
+  const [payload, setPayload] = useState('{}');
+  const [msg, setMsg] = useState('');
+  const refresh = () => {
+    invoke('jobs_list').then(setSt, (e) => setMsg(String(e)));
+    invoke('jobs_schedules').then(setSchedules, () => {});
+  };
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 3000);
+    return () => clearInterval(t);
+  }, []);
+  const act = (cmd, args) => async () => {
+    try {
+      await invoke(cmd, args);
+      setMsg('');
+    } catch (e) {
+      setMsg(String(e));
+    }
+    refresh();
+  };
+  const enqueue = async () => {
+    try {
+      const job = await invoke('jobs_enqueue', { kind: kind || st.types[0], payload: JSON.parse(payload || '{}') });
+      setMsg(`Queued ${job.kind}.`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+    refresh();
+  };
+  if (!st) return <p className="hint">{msg}</p>;
+  return (
+    <div className="hint">
+      {!st.enabled && <div>Jobs are kept but not run until you turn them on above and save.</div>}
+      <div className="row">
+        <select value={kind || st.types[0]} onChange={(e) => setKind(e.target.value)} aria-label="Job type">
+          {st.types.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
+        <input value={payload} onChange={(e) => setPayload(e.target.value)} aria-label="Payload (JSON)" placeholder="Payload (JSON)" />
+        <button onClick={enqueue}>Run now</button>
+      </div>
+      <div>{st.jobs.length ? 'Queue:' : 'The queue is empty.'}</div>
+      <ul className="pending">
+        {st.jobs.map((j) => (
+          <li key={j.id}>
+            <code>{j.kind}</code> {j.state}, attempt {j.attempts} of {j.maxAttempts},{' '}
+            {j.state === 'running' ? 'now' : `at ${when(j.runAt)}`}
+            {j.lastError ? ` (${j.lastError})` : ''}{' '}
+            <button className="link" onClick={act('jobs_cancel', { id: j.id })}>
+              Cancel
+            </button>
+          </li>
+        ))}
+      </ul>
+      {st.dead.length > 0 && <div>Dead letters (out of attempts):</div>}
+      <ul className="pending">
+        {st.dead.map((j) => (
+          <li key={j.id}>
+            <code>{j.kind}</code> after {j.attempts} attempts: {j.lastError}{' '}
+            <button className="link" onClick={act('jobs_retry', { id: j.id })}>
+              Retry
+            </button>
+            <button className="link" onClick={act('jobs_cancel', { id: j.id })}>
+              Drop
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div>{schedules.length ? 'Schedules:' : 'No schedules.'}</div>
+      <ul className="pending">
+        {schedules.map((s) => (
+          <li key={s.id}>
+            <b>{s.id}</b>: <code>{s.kind}</code> {s.cron ? `cron ${s.cron}` : `every ${s.everySecs} s`},{' '}
+            {s.paused ? 'paused' : `next ${when(s.nextRun)}`}{' '}
+            <button className="link" onClick={act('jobs_set_schedule', { schedule: { id: s.id, paused: !s.paused } })}>
+              {s.paused ? 'Resume' : 'Pause'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div>Recent runs:</div>
+      <ul className="pending">
+        {st.history.slice(0, 10).map((r, i) => (
+          <li key={i}>
+            {when(r.finished)} <code>{r.kind}</code> attempt {r.attempt}: {r.outcome}
+            {r.message ? ` (${r.message})` : ''}
+          </li>
+        ))}
+      </ul>
+      {msg}
+    </div>
+  );
+}
+
 // rclone: the remote config (owner-only file, never in settings), the download, and Sync now.
 function RcloneSetup() {
   const [st, setSt] = useState(null);
@@ -548,6 +684,37 @@ function ServiceSetup() {
       </div>
       <p className="status">{msg}</p>
     </>
+  );
+}
+
+// Embedded web views: open an allowed page in its own window. Remote pages get no commands;
+// bridge messages from trusted pages arrive as 'webview-message' events.
+function WebviewTry() {
+  const [url, setUrl] = useState('https://');
+  const [msg, setMsg] = useState('Save settings first.');
+  useEffect(() => {
+    const off = listen('webview-message', (e) => setMsg(`Message from ${e.payload.host}: ${JSON.stringify(e.payload.data)}`));
+    return () => {
+      off.then((f) => f());
+    };
+  }, []);
+  const open = async () => {
+    try {
+      const label = await invoke('webview_open', { url, name: 'settings' });
+      setMsg(`Opened in ${label}.`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  return (
+    <div className="row">
+      <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Web page to open" />
+      <button onClick={open}>Open</button>
+      <button className="link" onClick={() => invoke('webview_close', { name: 'settings' }).catch((e) => setMsg(String(e)))}>
+        Close
+      </button>
+      <span className="hint">{msg}</span>
+    </div>
   );
 }
 
@@ -934,6 +1101,181 @@ function AiKeys() {
   );
 }
 
+// A key press as an accelerator Tauri reads, like CmdOrCtrl+Shift+K (null for a lone modifier).
+const MAC = navigator.userAgent.includes('Mac');
+function keysOf(e) {
+  if (['Shift', 'Control', 'Alt', 'Meta', 'OS'].includes(e.key)) return null;
+  const c = e.code || '';
+  const key = c.startsWith('Key')
+    ? c.slice(3)
+    : c.startsWith('Digit')
+      ? c.slice(5)
+      : c.startsWith('Numpad')
+        ? c.replace('Numpad', 'Num')
+        : c;
+  const mods = [];
+  if (MAC ? e.metaKey : e.ctrlKey) mods.push('CmdOrCtrl');
+  if (MAC && e.ctrlKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  if (!MAC && e.metaKey) mods.push('Super');
+  return [...mods, key].join('+');
+}
+
+// "Press keys" field: focus it and press the combination. Esc cancels, Backspace clears.
+function KeyCapture({ label, value, onChange }) {
+  const [listening, setListening] = useState(false);
+  const down = (e) => {
+    e.preventDefault();
+    if (e.key === 'Escape') return e.target.blur();
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      onChange('');
+      return e.target.blur();
+    }
+    const keys = keysOf(e);
+    if (keys) {
+      onChange(keys);
+      e.target.blur();
+    }
+  };
+  return (
+    <label className="field">
+      {label}
+      <input
+        readOnly
+        value={listening ? 'Press keys…' : value || ''}
+        placeholder="Click, then press keys"
+        onFocus={() => setListening(true)}
+        onBlur={() => setListening(false)}
+        onKeyDown={down}
+      />
+    </label>
+  );
+}
+
+function ActionPick({ value, actions, onChange, separator }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Action">
+      {separator && <option value="separator">— separator —</option>}
+      {actions.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.label} ({a.id})
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// Tray or menu items: action, label, accelerator, on/off, order.
+function EntryList({ title, entries, actions, onChange, keys }) {
+  const put = (i, k, v) => onChange(entries.map((e, j) => (j === i ? { ...e, [k]: v } : e)));
+  const move = (i, d) => {
+    const next = [...entries];
+    const [e] = next.splice(i, 1);
+    next.splice(Math.max(0, Math.min(next.length, i + d)), 0, e);
+    onChange(next);
+  };
+  const add = () => onChange([...entries, { id: `item${Date.now()}`, label: '', action: 'show', shortcutHint: null, enabled: true }]);
+  return (
+    <div className="hint">
+      <b>{title}</b>
+      {entries.map((e, i) => (
+        <div className="row" key={e.id || i}>
+          <ActionPick value={e.action} actions={actions} separator onChange={(v) => put(i, 'action', v)} />
+          {e.action !== 'separator' && (
+            <>
+              <input value={e.label} placeholder="Label (empty = default)" onChange={(x) => put(i, 'label', x.target.value)} />
+              {keys && <KeyCapture label="" value={e.shortcutHint} onChange={(v) => put(i, 'shortcutHint', v || null)} />}
+              <label className="field">
+                <input type="checkbox" checked={e.enabled} onChange={(x) => put(i, 'enabled', x.target.checked)} /> on
+              </label>
+            </>
+          )}
+          <button className="link" onClick={() => move(i, -1)} aria-label="Move up">
+            ↑
+          </button>
+          <button className="link" onClick={() => move(i, 1)} aria-label="Move down">
+            ↓
+          </button>
+          <button className="link" onClick={() => onChange(entries.filter((_, j) => j !== i))}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <button className="link" onClick={add}>
+        Add an item
+      </button>
+    </div>
+  );
+}
+
+// The tray menu, the app menu and global shortcuts, with what could not be set up.
+function TrayShortcuts({ cfg, setCfg }) {
+  const [status, setStatus] = useState({ actions: [], problems: [], shortcuts: [] });
+  useEffect(() => {
+    invoke('tray_status')
+      .then(setStatus)
+      .catch(() => {});
+    const off = listen('tray-status', (e) => setStatus(e.payload));
+    return () => {
+      off.then((f) => f());
+    };
+  }, []);
+  const actions = status.actions;
+  const shortcuts = cfg.shortcuts || [];
+  const putShortcut = (i, k, v) => setCfg({ ...cfg, shortcuts: shortcuts.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
+  const failed = (s) => status.shortcuts.find((b) => b.accelerator === s.accelerator && b.action === s.action)?.error;
+  return (
+    <>
+      <EntryList
+        title="Tray menu"
+        entries={cfg.tray.items}
+        actions={actions}
+        onChange={(v) => setCfg({ ...cfg, tray: { ...cfg.tray, items: v } })}
+      />
+      <div className="hint">
+        <b>App menu</b>
+        <label className="field">
+          Title
+          <input value={cfg.menu.title} onChange={(e) => setCfg({ ...cfg, menu: { ...cfg.menu, title: e.target.value } })} />
+        </label>
+      </div>
+      <EntryList
+        title=""
+        entries={cfg.menu.extra}
+        actions={actions}
+        keys
+        onChange={(v) => setCfg({ ...cfg, menu: { ...cfg.menu, extra: v } })}
+      />
+      <div className="hint">
+        <b>Global shortcuts</b> (work while other apps are in front)
+        {shortcuts.map((s, i) => (
+          <div className="row" key={i}>
+            <KeyCapture label="" value={s.accelerator} onChange={(v) => putShortcut(i, 'accelerator', v)} />
+            <ActionPick value={s.action} actions={actions} onChange={(v) => putShortcut(i, 'action', v)} />
+            <button className="link" onClick={() => setCfg({ ...cfg, shortcuts: shortcuts.filter((_, j) => j !== i) })}>
+              Remove
+            </button>
+            {failed(s) && <span className="status error">{failed(s)}</span>}
+          </div>
+        ))}
+        <button className="link" onClick={() => setCfg({ ...cfg, shortcuts: [...shortcuts, { accelerator: '', action: 'show_hide' }] })}>
+          Add a shortcut
+        </button>
+      </div>
+      {status.problems.length > 0 && (
+        <ul className="hint">
+          {status.problems.map((p) => (
+            <li key={p} className="status error">
+              {p}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 export default function Settings({ features }) {
   const [cfg, setCfg] = useState(null);
   const [msg, setMsg] = useState('');
@@ -969,10 +1311,13 @@ export default function Settings({ features }) {
     stt: 'stt',
     mail: 'mail',
     plugins: 'plugins',
+    jobs: 'jobs',
     rclone: 'rclone',
     tailscale: 'tailscale',
+    webview: 'webview',
     telemetry: 'telemetry',
     service: 'daemon',
+    tray: 'trayMenu',
   };
   const sections = [
     'search',
@@ -983,19 +1328,22 @@ export default function Settings({ features }) {
     'stt',
     'resources',
     'backup',
+    'jobs',
     'rclone',
     'mail',
     'tailscale',
+    'webview',
     'plugins',
     'net',
     'telemetry',
     'log',
     'watch',
     'service',
+    'tray',
     // kitchen:sections
   ].filter((s) => !needs[s] || features[needs[s]]);
   return (
-    <section>
+    <section id="settings">
       <h2>Settings</h2>
       <details>
         <summary>Profiles</summary>
@@ -1033,9 +1381,12 @@ export default function Settings({ features }) {
               onChange={(v) => setCfg({ ...cfg, plugins: { ...cfg.plugins, settings: v } })}
             />
           )}
+          {s === 'jobs' && <JobsPanel />}
           {s === 'rclone' && <RcloneSetup />}
           {s === 'tailscale' && <TailscaleStatus />}
           {s === 'service' && <ServiceSetup />}
+          {s === 'webview' && <WebviewTry />}
+          {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}
         </details>
       ))}
       <div className="row">

@@ -20,6 +20,40 @@
 //! assert_eq!(cfg.policy(&tool("ask")), ToolPolicy::Ask);
 //! assert_eq!(cfg.policy(&tool("search")), ToolPolicy::Allow, "no entry: allowed, as before");
 //! ```
+//!
+//! Main items: [`Server`] ([`Server::serve_stdio`], or [`Server::handle`] for one message),
+//! the [`Handler`] trait the app implements, [`Tool`], [`McpConfig`] and [`Approvals`].
+//!
+//! A server with one tool, answering two messages:
+//!
+//! ```
+//! use desktop_core::mcp::{Handler, McpConfig, Server, Tool};
+//! use serde_json::{json, Value};
+//!
+//! struct Echo;
+//! impl Handler for Echo {
+//!     fn tools(&self) -> Vec<Tool> {
+//!         vec![Tool { name: "echo".into(), description: "Repeat the arguments".into(), input_schema: json!({"type": "object"}), read_only: true }]
+//!     }
+//!     fn call(&self, _name: &str, args: Value) -> Result<Value, String> {
+//!         Ok(args)
+//!     }
+//! }
+//!
+//! let server = Server {
+//!     name: "demo".into(),
+//!     version: "1.0.0".into(),
+//!     instructions: None,
+//!     config: McpConfig { enabled: true, ..McpConfig::default() },
+//!     audit_file: None,
+//!     handler: &Echo,
+//!     approver: None,
+//! };
+//! let list = server.handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})).unwrap();
+//! assert_eq!(list["result"]["tools"][0]["name"], "echo");
+//! let call = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "echo", "arguments": {"text": "hi"}}});
+//! assert_eq!(server.handle(&call).unwrap()["result"]["isError"], false);
+//! ```
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -44,6 +78,7 @@ pub enum ToolPolicy {
 /// The protocol revision this server speaks (it also accepts older clients).
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
 
+/// The MCP server's policy (`mcp` in settings). Off, and read-only, by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct McpConfig {
@@ -106,7 +141,9 @@ impl McpConfig {
 /// How an `ask` call ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Approval {
+    /// Someone allowed the call.
     Approved,
+    /// Someone refused the call.
     Denied,
     /// Nobody answered in time.
     TimedOut,
@@ -118,18 +155,22 @@ pub enum Approval {
 
 /// Decides `ask` calls. `Approvals` is the real one; tests use their own.
 pub trait Approver {
+    /// Wait up to `timeout` for a decision on a call of `tool` with `args`.
     fn approve(&self, tool: &str, args: &Value, timeout: Duration) -> Approval;
 }
 
 /// A call waiting for approval, as the app shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingCall {
+    /// Identifies the call (pass it to the decision).
     pub id: String,
+    /// The tool asked for.
     pub tool: String,
     /// The arguments as JSON text, cut to 2000 characters.
     pub arguments: String,
     /// Unix seconds when the call arrived, and when it is refused unless answered.
     pub asked: u64,
+    /// Unix seconds when the call is refused unless answered.
     pub deadline: u64,
 }
 
@@ -266,12 +307,16 @@ impl Approver for Approvals {
     }
 }
 
+/// A tool the app offers to MCP clients.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
+    /// The tool's name, such as `search`.
     pub name: String,
+    /// What it does, for the client's model.
     pub description: String,
     /// JSON Schema of the arguments.
     pub input_schema: Value,
+    /// It changes nothing (only these are offered unless `allow_write` is on).
     pub read_only: bool,
 }
 
@@ -288,18 +333,25 @@ impl Tool {
 
 /// The app's side: which tools exist and what they do.
 pub trait Handler {
+    /// Every tool the app has (the policy picks which are offered).
     fn tools(&self) -> Vec<Tool>;
     /// Run a tool; the value is returned to the client as JSON text.
     fn call(&self, name: &str, args: Value) -> Result<Value, String>;
 }
 
+/// The protocol side: answers JSON-RPC messages with the handler's tools under the policy.
 pub struct Server<'a> {
+    /// Sent to the client as `serverInfo.name`.
     pub name: String,
+    /// Sent to the client as `serverInfo.version`.
     pub version: String,
     /// Shown to the client's model: what this server is for.
     pub instructions: Option<String>,
+    /// Which tools are offered, and auditing.
     pub config: McpConfig,
+    /// Where audit lines go (`None`: no audit log).
     pub audit_file: Option<PathBuf>,
+    /// The app's tools.
     pub handler: &'a dyn Handler,
     /// Decides `ask` calls; with none, every `ask` call is refused.
     pub approver: Option<&'a dyn Approver>,

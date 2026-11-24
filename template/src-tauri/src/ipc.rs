@@ -13,6 +13,21 @@
 //! [`bind`] and [`serve_on`], and says so in its `ping` reply (`"daemon": true`): then the
 //! window leaves it running when it closes, and after an update it waits for the service
 //! manager to start the new binary instead of starting a worker of its own.
+//!
+//! # Example
+//!
+//! One exchange, as the lines on the socket:
+//!
+//! ```
+//! use serde_json::{json, Value};
+//!
+//! let request = json!({"method": "ingest_folder", "params": {"path": "/docs", "recursive": true}});
+//! let replies = ["{\"progress\": \"Ingesting 12 files with 4 workers\"}", "{\"result\": {\"files\": 12, \"chunks\": 80}}"];
+//! let last: Value = serde_json::from_str(replies[1])?;
+//! assert_eq!(request["method"], "ingest_folder");
+//! assert_eq!(last["result"]["files"], 12);
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use crate::service::{Local, Service};
 use interprocess::local_socket::{prelude::*, GenericFilePath, GenericNamespaced, Listener, ListenerOptions, Name, Stream};
@@ -131,7 +146,10 @@ fn worker_exit() {
 pub fn serve() -> i32 {
     match bind() {
         Ok(Some(listener)) => {
-            serve_on(listener, Arc::new(Local::default()), worker_exit);
+            let local = Arc::new(Local::default());
+{% if background_jobs %}{% if background_agent %}            #[cfg(all(feature = "background-agent", feature = "jobs-queue"))]
+            crate::jobs_autostart(&local);
+{% endif %}{% endif %}            serve_on(listener, local, worker_exit);
             0
         }
         Ok(None) => {

@@ -32,6 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CacheConfig {
+    /// Use the cache (off by default).
     pub enabled: bool,
     /// Answers older than this are not used (1 hour to 1 year).
     pub ttl_hours: u64,
@@ -86,10 +87,12 @@ fn now() -> u64 {
 }
 
 impl SemanticCache {
+    /// A cache kept in `file` (it need not exist yet).
     pub fn new(file: impl Into<PathBuf>) -> Self {
         Self { file: file.into(), lock: Mutex::new(()) }
     }
 
+    /// The cache file.
     pub fn path(&self) -> &Path {
         &self.file
     }

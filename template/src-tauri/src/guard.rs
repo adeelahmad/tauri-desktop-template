@@ -6,6 +6,22 @@
 //!   enabled), and `APP_DEVTOOLS=1` opens them at start in a debug build.
 //!
 //! The content security policy is in `tauri.conf.json` (`app.security.csp`).
+{% if webview %}//!
+//! Windows labelled `web-*` (feature `webview`) are not the app's pages: their navigations
+//! are checked by their own allowlist hook in `webview.rs` instead.
+{% endif %}
+//!
+//! # Example
+//!
+//! The app's own pages are `tauri://localhost` (macOS, Linux) and `http(s)://tauri.localhost`
+//! (Windows); anything else is refused:
+//!
+//! ```
+//! let page = tauri::Url::parse("https://tauri.localhost/#/settings").unwrap();
+//! let other = tauri::Url::parse("https://tauri.localhost.evil.com/").unwrap();
+//! assert_eq!(page.host_str(), Some("tauri.localhost"));
+//! assert_ne!(other.host_str(), Some("tauri.localhost"));
+//! ```
 
 use tauri::{Manager, Runtime};
 
@@ -22,10 +38,16 @@ pub fn allowed(url: &tauri::Url) -> bool {
     }
 }
 
+/// The Tauri plugin that enforces this: register it with `Builder::plugin`.
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("guard")
         .on_navigation(|webview, url| {
-            // A debug build may also show the dev server, which on iOS and Android is this
+{% if webview %}            // Embedded web views (feature `webview`) have their own allowlist hook, and no IPC.
+            #[cfg(feature = "webview")]
+            if desktop_core::webview::is_webview_label(webview.label()) {
+                return true;
+            }
+{% endif %}            // A debug build may also show the dev server, which on iOS and Android is this
             // computer's address on the local network rather than `localhost`.
             let dev = cfg!(debug_assertions) && webview.config().build.dev_url.as_ref().is_some_and(|d| d.origin() == url.origin());
             let ok = allowed(url) || dev;

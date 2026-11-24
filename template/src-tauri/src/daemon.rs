@@ -16,7 +16,7 @@
 //! `--daemon` serves the same local socket as the worker process (feature `ipc-worker`),
 //! so the window and the MCP server (`--mcp`) use the daemon when it runs. It opens the
 //! store with the saved settings, starts the [`Headless`] tasks (the job workers and the
-//! scheduler of feature `background-jobs`, when built in), writes the JSON-lines log
+//! scheduler of feature `jobs-queue`, when built in), writes the JSON-lines log
 //! `<data>/logs/daemon.log` and the pid and health file `<data>/daemon.json`
 //! ([`desktop_core::daemon::Health`]), and stops cleanly on SIGTERM, ctrl-c (SIGINT) or the
 //! Windows service stop control: tasks stop, running ingests are cancelled, Postgres shuts
@@ -102,11 +102,11 @@ pub fn label() -> String {
 // ---------------------------------------------------------------------------------------
 
 /// What a [`Headless`] task gets when the daemon starts it.
-// Read by the tasks; a build without any has nobody reading it.
-#[cfg_attr(not(feature = "background-jobs"), allow(dead_code))]
+// For the tasks; the built-in ones need only some of it.
+#[allow(dead_code)]
 pub struct Context {
     /// The backend the daemon serves (the same one the window and MCP clients reach).
-    pub service: Arc<dyn Service>,
+    pub local: Arc<Local>,
     /// The profile's config folder (`settings.json`).
     pub config_dir: PathBuf,
     /// The profile's data folder.
@@ -129,17 +129,48 @@ pub trait Headless: Send {
     fn stop(&mut self) {}
 }
 
-/// The tasks this build runs headless.
-///
-/// The job queue (feature `background-jobs`) adds its workers and scheduler here: its
-/// module provides `pub fn daemon_task() -> Box<dyn crate::daemon::Headless>`.
+/// The tasks this build runs headless: the job queue's workers and scheduler (feature
+/// `jobs-queue`), and whatever you add.
+#[allow(clippy::vec_init_then_push)] // the list depends on the features
 pub fn headless_tasks() -> Vec<Box<dyn Headless>> {
     #[allow(unused_mut)]
     let mut tasks: Vec<Box<dyn Headless>> = Vec::new();
-    #[cfg(feature = "background-jobs")]
-    tasks.push(crate::jobs::daemon_task());
+    #[cfg(feature = "jobs-queue")]
+    tasks.push(Box::new(JobsTask::default()));
     // kitchen:headless (add `tasks.push(Box::new(...))` lines above)
     tasks
+}
+
+/// The background job queue under the daemon (feature `jobs-queue`). Its workers and
+/// scheduler run inside the backend as soon as the store is open and `jobs.enabled` is
+/// on in Settings (the daemon opens the store at start); stopping stops the dispatcher and
+/// hands running jobs back to the queue, their attempt not counted, so the next start
+/// runs them again.
+#[cfg(feature = "jobs-queue")]
+#[derive(Default)]
+pub struct JobsTask {
+    local: Option<Arc<Local>>,
+}
+
+#[cfg(feature = "jobs-queue")]
+impl Headless for JobsTask {
+    fn name(&self) -> &str {
+        "jobs"
+    }
+
+    fn start(&mut self, ctx: &Context) -> Result<(), String> {
+        self.local = Some(ctx.local.clone());
+        Ok(())
+    }
+
+    fn stop(&mut self) {
+        if let Some(local) = self.local.take() {
+            let back = local.stop_jobs(Duration::from_secs(10));
+            if back > 0 {
+                log::info!("daemon: handed {back} running job(s) back to the queue");
+            }
+        }
+    }
 }
 
 /// Start each task; the ones that failed are logged and left out.
@@ -277,7 +308,7 @@ fn run() -> i32 {
             Err(e) => log::error!("daemon: could not open the store: {e}"),
         });
     }
-    let ctx = Context { service: local.clone(), config_dir, data_dir, stopping: stop_flag().clone() };
+    let ctx = Context { local: local.clone(), config_dir, data_dir, stopping: stop_flag().clone() };
     let mut tasks = start_tasks(headless_tasks(), &ctx);
     let started = now_secs();
     let mut health = Health {
@@ -1013,7 +1044,7 @@ mod tests {
     fn tasks_start_in_order_and_stop_in_reverse() {
         let log = Arc::new(std::sync::Mutex::new(Vec::new()));
         let ctx = Context {
-            service: Arc::new(Local::default()),
+            local: Arc::new(Local::default()),
             config_dir: PathBuf::new(),
             data_dir: PathBuf::new(),
             stopping: Arc::new(AtomicBool::new(false)),
@@ -1031,7 +1062,9 @@ mod tests {
 
     #[test]
     fn this_build_lists_its_headless_tasks() {
-        assert_eq!(headless_tasks().len(), usize::from(cfg!(feature = "background-jobs")));
+        let names: Vec<String> = headless_tasks().iter().map(|t| t.name().to_string()).collect();
+        let expected: &[&str] = if cfg!(feature = "jobs-queue") { &["jobs"] } else { &[] };
+        assert_eq!(names, expected);
     }
 
     #[test]

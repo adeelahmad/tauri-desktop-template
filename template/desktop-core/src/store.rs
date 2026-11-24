@@ -1,6 +1,26 @@
 //! Where chunks live. `FileStore` is one JSON file and searches in memory (cosine and
 //! BM25), which is fast up to tens of thousands of chunks; `pgstore::PostgresStore`
 //! (feature `postgres`) keeps them in embedded Postgres with pgvector.
+//!
+//! Implement [`Store`] to add a backend; [`bm25_scores`], [`terms`] and [`plan`] are shared
+//! helpers, and [`crate::fuse`] merges lists in hybrid mode.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::{chunks_from_text, FileStore, SearchConfig, Store};
+//!
+//! # let dir = std::env::temp_dir().join(format!("desktop-core-store-{}", std::process::id()));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! let store = FileStore::open(&dir)?;
+//! store.add(&chunks_from_text("fruit.md", "Apples are red."), None)?;
+//! store.add(&chunks_from_text("veg.md", "Carrots are orange."), None)?;
+//! let hits = store.search("apples", None, &SearchConfig::default())?;
+//! assert_eq!(hits[0].source, "fruit.md");
+//! assert_eq!(store.count()?, 2);
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::config::{SearchConfig, SearchMode};
 use crate::fuse::{self, Candidate};
@@ -11,16 +31,21 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// One search result: a chunk, where it came from and how it scored.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Hit {
+    /// The source path or name of the chunk.
     pub source: String,
+    /// 1-based page for PDFs.
     pub page: Option<u32>,
+    /// The chunk's text.
     pub text: String,
     /// The final score: cosine, keyword score, or the fused RRF score in hybrid mode.
     pub score: f32,
     /// Hybrid mode: the raw scores from each list, when the chunk was in it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vector_score: Option<f32>,
+    /// Hybrid mode: the raw keyword score, when the chunk was in that list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_score: Option<f32>,
     /// File hash, extraction method, model and time of indexing.
@@ -31,11 +56,15 @@ pub struct Hit {
 /// What a search runs once the mode meets what is available (no vector: keywords).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Plan {
+    /// Nearest vectors only.
     Vector,
+    /// Keyword ranking only.
     Keyword,
+    /// Both lists, fused with reciprocal rank fusion.
     Hybrid,
 }
 
+/// The plan for `mode` when a query vector is (or is not) available.
 pub fn plan(mode: SearchMode, has_vector: bool) -> Plan {
     match (mode, has_vector) {
         (_, false) | (SearchMode::Keyword, _) => Plan::Keyword,
@@ -44,19 +73,26 @@ pub fn plan(mode: SearchMode, has_vector: bool) -> Plan {
     }
 }
 
+/// A place chunks are kept and searched. Implement it to add a backend (see
+/// [`FileStore`] for a small one).
 pub trait Store: Send + Sync {
+    /// A short name for status displays (`file`, `postgres`).
     fn kind(&self) -> &'static str;
     /// Add chunks, with one vector each when embeddings are on.
     fn add(&self, chunks: &[Chunk], vectors: Option<&[Vec<f32>]>) -> Result<usize>;
     /// Best chunks for `cfg` (mode, top k, thresholds, fusion weights).
     fn search(&self, query: &str, query_vector: Option<&[f32]>, cfg: &SearchConfig) -> Result<Vec<Hit>>;
+    /// Chunks stored.
     fn count(&self) -> Result<usize>;
     /// Every stored chunk, for re-embedding with a new model.
     fn all(&self) -> Result<Vec<Chunk>>;
+    /// Remove every chunk of `source`; returns how many went.
     fn remove_source(&self, source: &str) -> Result<usize>;
+    /// Remove every chunk.
     fn clear(&self) -> Result<()>;
     /// Name of the embedder the stored vectors came from (`None`: no vectors).
     fn embedder(&self) -> Result<Option<String>>;
+    /// Record the embedder the stored vectors come from.
     fn set_embedder(&self, name: Option<&str>) -> Result<()>;
     /// New settings (the Postgres store sets up BM25 here when it is turned on).
     fn configure(&self, _config: &crate::config::Config) -> Result<()> {
@@ -123,6 +159,7 @@ struct Record {
     vector: Option<Vec<f32>>,
 }
 
+/// Chunks and vectors in one JSON file (`chunks.json`), searched in memory.
 pub struct FileStore {
     path: PathBuf,
     data: Mutex<FileData>,

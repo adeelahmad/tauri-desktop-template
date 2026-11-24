@@ -10,11 +10,16 @@
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
 //! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}; with feature
 //! `telemetry`: `telemetry_status`; with feature `mail`: `send_mail` {to, cc, bcc, subject, text,
-//! html?, attachments: [path]}, `test_mail` {to?}, `mail_password` {password?};
+//! html?, attachments: \[path\]}, `test_mail` {to?}, `mail_password` {password?};
 //! with feature `plugins`: `plugins` (the list with schemas) and `plugin.<name>.<method>`
 //! {..} for any method a plugin offers; with feature `rclone`: `rclone_status`,
 //! `rclone_config` {text?}, `rclone_install`, `rclone_sync` (rclone's lines stream as
 //! progress); with feature `tailscale`: `tailscale_status`, `tailscale_apply`.
+//! with feature `jobs-queue`: `jobs_list`, `jobs_enqueue` {kind, payload, delaySecs?, runAt?,
+//! maxAttempts?, timeoutSecs?}, `jobs_cancel` {id}, `jobs_retry` {id}, `jobs_schedules`,
+//! `jobs_set_schedule` {id, kind?, payload?, cron? | everySecs?, paused?, remove?};
+//! with feature `tray-menu`: `action` {id} (the backend side of the app's own tray, menu and
+//! shortcut actions; `null` when an action has nothing to do here);
 //! with feature `mcp`:
 //! `mcp_pending` (MCP calls waiting for approval) and `mcp_decide` {id, allow} (every other call
 //! is timed for opt-in traces/analytics).
@@ -22,6 +27,28 @@
 //! Folder watching (feature `watch`, desktop only) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
 //! the UI polls (the same in this process and in the worker).
+//!
+//! To add a backend method: add a `"name" => ...` arm to `Local::dispatch` (behind its
+//! feature's `#[cfg]`), list it above, and call it from a Tauri command with
+//! `call(&state, "name", json!({...}))`. Nothing else changes for the worker process.
+//!
+//! # Example
+//!
+//! A call is a method name and a JSON object; this is what goes to the service, and over the
+//! socket to the worker:
+//!
+//! ```
+//! use serde_json::json;
+//!
+//! let params = json!({"query": "heart", "k": 3});
+//! let request = json!({"method": "search", "params": params});
+//! assert_eq!(request["params"]["k"], 3);
+//! // The reply is the engine's value as JSON, here a list of `desktop_core::Hit`.
+//! let reply = json!([{"source": "notes.md", "page": null, "text": "The heart pumps blood.", "score": 1.2}]);
+//! let hits: Vec<desktop_core::Hit> = serde_json::from_value(reply)?;
+//! assert_eq!(hits[0].source, "notes.md");
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use desktop_core::{Config, Engine, EngineOptions, SearchConfig};
 use serde::de::DeserializeOwned;
@@ -29,6 +56,8 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+/// The backend, wherever it runs: [`Local`] in this process, or `ipc::Remote` in the
+/// worker process. Commands, the MCP server and the self-test only use this.
 pub trait Service: Send + Sync {
     /// Run `method`; `progress` gets human-readable lines while it works.
     fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String>;
@@ -49,6 +78,18 @@ pub struct Local {
     whisper: Mutex<Option<Arc<desktop_core::stt::Stt>>>,
     /// Recent watch events, newest last (at most 100).
     events: Arc<Mutex<std::collections::VecDeque<Value>>>,
+    /// One `setup` at a time (the window and a worker started at login may both ask).
+    setup_lock: Mutex<()>,
+    /// The background job queue, and its runtime while `jobs.enabled`.
+    #[cfg(feature = "jobs-queue")]
+    jobs: Mutex<Jobs>,
+}
+
+#[cfg(feature = "jobs-queue")]
+#[derive(Default)]
+struct Jobs {
+    queue: Option<desktop_core::queue::Queue>,
+    runtime: Option<desktop_core::queue::Runtime>,
 }
 
 fn arg<T: DeserializeOwned>(params: &Value, key: &str) -> Result<T, String> {
@@ -57,6 +98,15 @@ fn arg<T: DeserializeOwned>(params: &Value, key: &str) -> Result<T, String> {
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Download progress as "12 of 40 MB" (or "12 MB" when the size is unknown).
+#[cfg(any(feature = "llama", feature = "tts", feature = "stt"))]
+fn megabytes(done: u64, total: Option<u64>) -> String {
+    match total {
+        Some(t) => format!("{} of {} MB", done >> 20, t >> 20),
+        None => format!("{} MB", done >> 20),
+    }
 }
 
 fn to<T: serde::Serialize>(v: Result<T, desktop_core::Error>) -> Result<Value, String> {
@@ -100,7 +150,68 @@ impl Local {
         Ok(())
     }
 
-    fn watch_status(&self) -> Result<Value, String> {
+    /// Open the job queue in the engine's data folder (once), apply the settings, and start or
+    /// stop its runtime to match `jobs.enabled`.
+    #[cfg(feature = "jobs-queue")]
+    fn rejobs(&self) -> Result<(), String> {
+        use desktop_core::queue::{Queue, Runtime};
+        let engine = self.engine()?;
+        let cfg = engine.config();
+        let mut j = self.jobs.lock().map_err(err)?;
+        if j.queue.as_ref().is_none_or(|q| q.dir() != engine.data_dir().join("queue")) {
+            j.runtime = None;
+            j.queue = None;
+            j.queue = Some(Queue::open(engine.data_dir(), desktop_core::job_types::registry(), cfg.jobs.clone()).map_err(err)?);
+        }
+        let queue = j.queue.clone().ok_or("no queue")?;
+        queue.set_engine(Arc::downgrade(&engine));
+        queue.configure(cfg.jobs.clone(), cfg.resources.clone());
+        match (cfg.jobs.enabled, j.runtime.is_some()) {
+            (true, false) if queue.is_owner() => j.runtime = Some(Runtime::start(queue).map_err(err)?),
+            (false, true) => j.runtime = None,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "jobs-queue"))]
+    fn rejobs(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Stop the job runtime and hand running jobs back to the queue (the daemon's clean
+    /// stop); returns how many went back.
+    #[cfg(all(desktop, feature = "daemon", feature = "jobs-queue"))]
+    pub fn stop_jobs(&self, grace: std::time::Duration) -> usize {
+        let queue = match self.jobs.lock() {
+            Ok(mut j) => {
+                j.runtime = None; // no new attempts; the dispatcher thread ends
+                j.queue.clone()
+            }
+            Err(_) => None,
+        };
+        queue.map_or(0, |q| q.shutdown(grace))
+    }
+
+    #[cfg(feature = "jobs-queue")]
+    fn queue(&self) -> Result<desktop_core::queue::Queue, String> {
+        self.jobs.lock().map_err(err)?.queue.clone().ok_or_else(|| "Still starting; try again in a moment.".into())
+    }
+
+{% if tray_menu %}    /// The backend side of the app's own tray, menu and shortcut actions, by id. Runs
+    /// where the engine runs (here, or in the worker process); `null` when there is
+    /// nothing to do here. The window gets the `app-action` event either way.
+    #[cfg(feature = "tray-menu")]
+    #[allow(clippy::match_single_binding)] // `kitchen generate menu` adds arms
+    fn action(&self, id: &str) -> Result<Value, String> {
+        let _ = self;
+        match id {
+            // kitchen:action-methods (`kitchen generate menu` adds actions above this line)
+            _ => Ok(Value::Null),
+        }
+    }
+
+{% endif %}    fn watch_status(&self) -> Result<Value, String> {
         #[cfg(all(desktop, feature = "watch"))]
         let folders = self.watcher.lock().map_err(err)?.as_ref().map(|w| w.folders.clone()).unwrap_or_default();
         #[cfg(not(all(desktop, feature = "watch")))]
@@ -137,66 +248,87 @@ fn rclone_folder(e: &Engine) -> std::path::PathBuf {
 }
 
 impl Local {
+    /// Open the engine (`setup`), then start what runs beside it.
+    fn setup(&self, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
+        let opts: EngineOptions = serde_json::from_value(params).map_err(err)?;
+        let engine = Engine::open(&opts, progress).map_err(err)?;
+        let status = engine.status().map_err(err)?;
+        *self.engine.lock().map_err(err)? = Some(Arc::new(engine));
+        *self.app_name.lock().map_err(err)? = opts.app_name.clone();
+        #[cfg(feature = "telemetry")]
+        if let Some(e) = self.engine.lock().map_err(err)?.as_ref() {
+            desktop_core::telemetry::init(
+                e.data_dir(),
+                opts.app_name.as_deref().unwrap_or("app"),
+                env!("CARGO_PKG_VERSION"),
+                e.config().telemetry,
+            );
+        }
+        if let Err(e) = self.rewatch() {
+            progress(&format!("Folder watching is off: {e}"));
+        }
+        // Finish what a crash or quit interrupted, in the background.
+        let e = self.engine()?;
+        let weak = Arc::downgrade(&e);
+        if e.config().resources.resume_interrupted && !e.interrupted().is_empty() {
+            std::thread::spawn(move || {
+                let r = e.resume_interrupted(&|_, _, _| {});
+                log::info!("resumed ingest: {} files, {} chunks, {} errors", r.files, r.chunks, r.errors.len());
+            });
+        }
+{% if rclone %}        // Scheduled cloud sync: checked every minute while this engine is open.
+        #[cfg(feature = "rclone")]
+        {
+            let weak = weak.clone();
+            std::thread::Builder::new()
+                .name("rclone".into())
+                .spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    let Some(e) = weak.upgrade() else { break };
+                    let cfg = e.config().rclone;
+                    if desktop_core::rclone::due(e.data_dir(), &cfg) {
+                        if let Err(err) = desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, &mut |l| log::debug!("rclone: {l}")) {
+                            log::warn!("scheduled cloud sync failed: {err}");
+                        }
+                    }
+                })
+                .map_err(err)?;
+        }
+{% endif %}        // Scheduled backups: checked every few minutes while this engine is open.
+        std::thread::Builder::new()
+            .name("backups".into())
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(300));
+                let Some(e) = weak.upgrade() else { break };
+                if let Some(Err(err)) = e.backup_if_due() {
+                    log::warn!("scheduled backup failed: {err}");
+                }
+            })
+            .map_err(err)?;
+        // Background jobs: the queue opens with the engine; its runtime runs while `jobs.enabled`.
+        if let Err(e) = self.rejobs() {
+            progress(&format!("Background jobs are off: {e}"));
+        }
+        serde_json::to_value(status).map_err(err)
+    }
+
+    /// `setup` from the saved settings, unless the window already did it (the worker that
+    /// the background agent starts at login has no window to ask it).
+    #[cfg(all(desktop, feature = "background-agent", feature = "jobs-queue"))]
+    pub fn setup_unless_open(&self, opts: &EngineOptions) -> Result<(), String> {
+        let _one_at_a_time = self.setup_lock.lock().map_err(err)?;
+        if self.engine.lock().map_err(err)?.is_some() {
+            return Ok(());
+        }
+        self.setup(serde_json::to_value(opts).map_err(err)?, &mut |p| log::debug!("setup: {p}")).map(|_| ())
+    }
+
     fn dispatch(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
         match method {
             "ping" => Ok(json!({"pid": std::process::id(), "version": env!("CARGO_PKG_VERSION")})),
             "setup" => {
-                let opts: EngineOptions = serde_json::from_value(params).map_err(err)?;
-                let engine = Engine::open(&opts, progress).map_err(err)?;
-                let status = engine.status().map_err(err)?;
-                *self.engine.lock().map_err(err)? = Some(Arc::new(engine));
-                *self.app_name.lock().map_err(err)? = opts.app_name.clone();
-                #[cfg(feature = "telemetry")]
-                if let Some(e) = self.engine.lock().map_err(err)?.as_ref() {
-                    desktop_core::telemetry::init(
-                        e.data_dir(),
-                        opts.app_name.as_deref().unwrap_or("app"),
-                        env!("CARGO_PKG_VERSION"),
-                        e.config().telemetry,
-                    );
-                }
-                if let Err(e) = self.rewatch() {
-                    progress(&format!("Folder watching is off: {e}"));
-                }
-                // Finish what a crash or quit interrupted, in the background.
-                let e = self.engine()?;
-                let weak = Arc::downgrade(&e);
-                if e.config().resources.resume_interrupted && !e.interrupted().is_empty() {
-                    std::thread::spawn(move || {
-                        let r = e.resume_interrupted(&|_, _, _| {});
-                        log::info!("resumed ingest: {} files, {} chunks, {} errors", r.files, r.chunks, r.errors.len());
-                    });
-                }
-{% if rclone %}                // Scheduled cloud sync: checked every minute while this engine is open.
-                #[cfg(feature = "rclone")]
-                {
-                    let weak = weak.clone();
-                    std::thread::Builder::new()
-                        .name("rclone".into())
-                        .spawn(move || loop {
-                            std::thread::sleep(std::time::Duration::from_secs(60));
-                            let Some(e) = weak.upgrade() else { break };
-                            let cfg = e.config().rclone;
-                            if desktop_core::rclone::due(e.data_dir(), &cfg) {
-                                if let Err(err) = desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, &mut |l| log::debug!("rclone: {l}")) {
-                                    log::warn!("scheduled cloud sync failed: {err}");
-                                }
-                            }
-                        })
-                        .map_err(err)?;
-                }
-{% endif %}                // Scheduled backups: checked every few minutes while this engine is open.
-                std::thread::Builder::new()
-                    .name("backups".into())
-                    .spawn(move || loop {
-                        std::thread::sleep(std::time::Duration::from_secs(300));
-                        let Some(e) = weak.upgrade() else { break };
-                        if let Some(Err(err)) = e.backup_if_due() {
-                            log::warn!("scheduled backup failed: {err}");
-                        }
-                    })
-                    .map_err(err)?;
-                serde_json::to_value(status).map_err(err)
+                let _one_at_a_time = self.setup_lock.lock().map_err(err)?;
+                self.setup(params, progress)
             }
             "status" => match self.engine.lock().map_err(err)?.as_ref() {
                 Some(e) => to(e.status()),
@@ -224,6 +356,7 @@ impl Local {
                 let e = self.engine()?;
                 e.configure(arg::<Config>(&params, "config")?).map_err(err)?;
                 self.rewatch()?;
+                self.rejobs()?;
                 desktop_core::logging::configure(e.config().log);
                 #[cfg(feature = "telemetry")]
                 desktop_core::telemetry::configure(e.config().telemetry);
@@ -272,10 +405,7 @@ impl Local {
             "download_model" => {
                 let url = arg::<Option<String>>(&params, "url")?;
                 let path = self.engine()?.download_model(url.as_deref(), &mut |done, total| {
-                    progress(&match total {
-                        Some(t) => format!("{} of {} MB", done >> 20, t >> 20),
-                        None => format!("{} MB", done >> 20),
-                    })
+                    progress(&megabytes(done, total))
                 });
                 to(path)
             }
@@ -341,10 +471,7 @@ impl Local {
             "download_voice" => {
                 let dir = desktop_core::tts::model_dir(self.engine()?.data_dir());
                 desktop_core::tts::download(&dir, &mut |name, done, total| {
-                    progress(&match total {
-                        Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
-                        None => format!("{name}: {} MB", done >> 20),
-                    })
+                    progress(&format!("{name}: {}", megabytes(done, total)))
                 })
                 .map_err(err)?;
                 Ok(json!(dir))
@@ -392,10 +519,7 @@ impl Local {
                 let model = params.get("model").and_then(Value::as_str).map(String::from).unwrap_or(e.config().stt.model);
                 let dir = desktop_core::stt::model_dir(e.data_dir(), &model);
                 desktop_core::stt::download(&dir, &model, &mut |name, done, total| {
-                    progress(&match total {
-                        Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
-                        None => format!("{name}: {} MB", done >> 20),
-                    })
+                    progress(&format!("{name}: {}", megabytes(done, total)))
                 })
                 .map_err(err)?;
                 Ok(json!(dir))
@@ -452,6 +576,24 @@ impl Local {
             "tailscale_status" => to(Ok(desktop_core::tailscale::status(&self.engine()?.config().tailscale))),
             #[cfg(feature = "tailscale")]
             "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale).map_err(err)?)),
+{% endif %}{% if background_jobs %}            #[cfg(feature = "jobs-queue")]
+            "jobs_list" => to(Ok(self.queue()?.list())),
+            #[cfg(feature = "jobs-queue")]
+            "jobs_enqueue" => {
+                let opts: desktop_core::queue::Enqueue = serde_json::from_value(params.clone()).map_err(err)?;
+                let payload = params.get("payload").cloned().filter(|p| !p.is_null()).unwrap_or_else(|| json!({}));
+                to(self.queue()?.enqueue(&arg::<String>(&params, "kind")?, payload, opts))
+            }
+            #[cfg(feature = "jobs-queue")]
+            "jobs_cancel" => to(self.queue()?.cancel(&arg::<String>(&params, "id")?)),
+            #[cfg(feature = "jobs-queue")]
+            "jobs_retry" => to(self.queue()?.retry(&arg::<String>(&params, "id")?)),
+            #[cfg(feature = "jobs-queue")]
+            "jobs_schedules" => to(Ok(self.queue()?.schedules())),
+            #[cfg(feature = "jobs-queue")]
+            "jobs_set_schedule" => to(self.queue()?.set_schedule(serde_json::from_value(params).map_err(err)?)),
+{% endif %}{% if tray_menu %}            #[cfg(feature = "tray-menu")]
+            "action" => self.action(&arg::<String>(&params, "id")?),
 {% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)
             other => Err(format!("unknown method {other:?}")),
         }

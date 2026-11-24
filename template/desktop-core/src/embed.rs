@@ -8,6 +8,21 @@
 //! ONNX Runtime's CPU provider only (`BUILT_PROVIDERS`), so another choice falls back to the
 //! CPU with a log line; enabling ort's `coreml`, `directml` or `cuda` feature and listing it
 //! there is all a GPU build needs.
+//!
+//! # Example
+//!
+//! The first run downloads the model into the cache folder:
+//!
+//! ```no_run
+//! use desktop_core::embed::LocalEmbedder;
+//! use desktop_core::{cosine, Embedder};
+//!
+//! let embedder = LocalEmbedder::new("models".as_ref())?;
+//! let docs = embedder.embed_documents(&["Cats purr.".into(), "Stocks fell.".into()])?;
+//! let query = embedder.embed_query("kittens")?;
+//! assert!(cosine(&query, &docs[0]) > cosine(&query, &docs[1]));
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::governor::OnnxProvider;
 use crate::{normalise, Embedder, Error, Result};
@@ -22,6 +37,7 @@ const BATCH: usize = 16;
 /// The ONNX Runtime execution providers this binary has.
 pub const BUILT_PROVIDERS: &[OnnxProvider] = &[OnnxProvider::Cpu];
 
+/// The models this build can load (`APP_EMBED_MODEL`); the first is the default.
 pub const MODELS: &[&str] = &["nomic-embed-text-v1.5", "bge-small-en-v1.5", "all-MiniLM-L6-v2", "multilingual-e5-small"];
 
 struct Spec {
@@ -55,6 +71,7 @@ pub fn model_name() -> String {
         .unwrap_or_else(|| MODELS[0].into())
 }
 
+/// An [`Embedder`](crate::Embedder) running a fastembed ONNX model on this computer.
 pub struct LocalEmbedder {
     name: String,
     spec: Spec,
