@@ -69,7 +69,12 @@ pub enum ActionError {
     Accelerator(String),
     /// The host could not run the action.
     #[error("{action} failed: {message}")]
-    Failed { action: String, message: String },
+    Failed {
+        /// The action's name.
+        action: String,
+        /// What went wrong.
+        message: String,
+    },
 }
 
 /// What an id stands for: a built-in action or one the app registered.
@@ -334,7 +339,16 @@ pub struct Plan {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlannedItem {
     /// A clickable item. `menu_id` is [`menu_id`]; menu events carry it back.
-    Item { menu_id: String, label: String, accelerator: Option<Accelerator>, enabled: bool },
+    Item {
+        /// The id menu events carry back.
+        menu_id: String,
+        /// The text shown in the menu.
+        label: String,
+        /// The keyboard shortcut shown next to it, if any.
+        accelerator: Option<Accelerator>,
+        /// Whether it can be clicked.
+        enabled: bool,
+    },
     /// A separator line.
     Separator,
 }
@@ -506,9 +520,13 @@ fn clean(list: Vec<MenuEntry>) -> Vec<MenuEntry> {
 /// Modifier keys. `cmd_or_ctrl` is Command on macOS and Control elsewhere.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Modifiers {
+    /// Command on macOS, Control elsewhere.
     pub cmd_or_ctrl: bool,
+    /// Control on every platform.
     pub ctrl: bool,
+    /// Option on macOS, Alt elsewhere.
     pub alt: bool,
+    /// Shift.
     pub shift: bool,
     /// Command on macOS, the Windows key elsewhere.
     pub super_key: bool,
@@ -528,6 +546,7 @@ pub struct Modifiers {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Accelerator {
+    /// The modifier keys held with it.
     pub modifiers: Modifiers,
     /// The main key, in its standard name (`K`, `1`, `F5`, `Space`, `ArrowUp`, `Comma`).
     pub key: String,
