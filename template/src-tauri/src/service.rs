@@ -9,7 +9,8 @@
 //! `set_ai_key` {provider, key}; with feature `llama`: `download_model` {url?}; with feature `tts`: `speak` {text}
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
 //! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}; with feature
-//! `telemetry`: `telemetry_status` (every other call is timed for opt-in traces/analytics).
+//! `telemetry`: `telemetry_status`; with feature `mail`: `send_mail` {to, cc, bcc, subject, text,
+//! html?, attachments: [path]}, `test_mail` {to?}, `mail_password` {password?} (every other call is timed for opt-in traces/analytics).
 //!
 //! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
@@ -243,6 +244,40 @@ impl Local {
                     })
                 });
                 to(path)
+            }
+            #[cfg(feature = "mail")]
+            "send_mail" => {
+                use desktop_core::mail;
+                let e = self.engine()?;
+                let mut msg: mail::Message = serde_json::from_value(params.clone()).map_err(err)?;
+                for path in arg::<Option<Vec<std::path::PathBuf>>>(&params, "attachments")?.unwrap_or_default() {
+                    msg.attachments.push(mail::Attachment::from_path(&path).map_err(err)?);
+                }
+                let password = mail::PasswordFile::new(e.data_dir()).get();
+                Ok(json!(mail::send(&e.config().mail, password.as_deref(), &msg).map_err(err)?))
+            }
+            #[cfg(feature = "mail")]
+            "test_mail" => {
+                use desktop_core::mail;
+                let e = self.engine()?;
+                let cfg = e.config().mail;
+                let password = mail::PasswordFile::new(e.data_dir()).get();
+                // With `to`, send a short message there; otherwise only connect and log in.
+                match arg::<Option<String>>(&params, "to")? {
+                    Some(to) => {
+                        let msg = mail::Message { to: vec![to], subject: "Test email".into(), text: "Email from this app works.".into(), ..Default::default() };
+                        Ok(json!(mail::send(&cfg, password.as_deref(), &msg).map_err(err)?))
+                    }
+                    None => mail::test(&cfg, password.as_deref()).map(|()| json!(true)).map_err(err),
+                }
+            }
+            #[cfg(feature = "mail")]
+            "mail_password" => {
+                let file = desktop_core::mail::PasswordFile::new(self.engine()?.data_dir());
+                if let Some(p) = arg::<Option<String>>(&params, "password")? {
+                    file.set(&p).map_err(err)?;
+                }
+                Ok(json!({ "set": file.get().is_some() }))
             }
             #[cfg(feature = "tts")]
             "speak" => {

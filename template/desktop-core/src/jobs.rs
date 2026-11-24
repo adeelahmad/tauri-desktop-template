@@ -35,6 +35,23 @@ pub struct Journal {
     dir: PathBuf,
 }
 
+/// Write a file only this user can read (0600 on Unix; the per-user app data folder
+/// already keeps it private on Windows). For keys and passwords.
+pub fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(file)?;
+        f.write_all(bytes)?;
+        f.sync_all()
+    }
+    #[cfg(not(unix))]
+    std::fs::write(file, bytes)
+}
+
 /// Write `bytes` to `path` through a synced temporary file and a rename.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("{}tmp", path.extension().map(|e| format!("{}.", e.to_string_lossy())).unwrap_or_default()));

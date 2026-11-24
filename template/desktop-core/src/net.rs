@@ -123,7 +123,14 @@ fn check_with(url: &str, any_http: bool) -> Result<(), String> {
         "http" if local || any_http => {}
         _ => return Err(format!("refusing a non-HTTPS URL: {}", redact(url))),
     }
-    if local {
+    check_host(&host)
+}
+
+/// Whether the policy lets this host be contacted at all, for clients that do not speak
+/// HTTP (mail, sockets). This computer is always reachable.
+pub fn check_host(host: &str) -> Result<(), String> {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if is_local(&host) {
         return Ok(());
     }
     let p = policy_lock().read().map_err(|_| "network policy lock poisoned".to_string())?;
@@ -159,6 +166,20 @@ fn read_pem(source: &str) -> Result<Vec<ureq::tls::Certificate<'static>>, String
         return Err(format!("no certificate in {}", if text.len() > 200 { "the PEM text" } else { source }));
     }
     Ok(certs)
+}
+
+/// The certificates that may vouch for `host` under the policy: its pins, else the CA
+/// files, else `None` for the bundled Mozilla roots. Any TLS client should use this.
+pub fn trusted_roots(host: &str) -> Result<Option<Vec<ureq::tls::Certificate<'static>>>, String> {
+    let p = policy();
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    let pinned = if p.pins_off { None } else { p.pins.iter().find(|(pat, _)| host_matches(pat, &host)).map(|(_, c)| c.clone()) };
+    let read_all = |sources: &mut dyn Iterator<Item = String>| sources.map(|s| read_pem(&s)).collect::<Result<Vec<_>, _>>().map(|v| v.concat());
+    Ok(match pinned {
+        Some(sources) => Some(read_all(&mut sources.into_iter())?),
+        None if !p.ca_files.is_empty() => Some(read_all(&mut p.ca_files.iter().map(|f| f.to_string_lossy().into_owned()))?),
+        None => None,
+    })
 }
 
 /// Timeouts for one request.
@@ -199,12 +220,7 @@ fn agent_with(url: &str, limits: Limits, any_http: bool) -> Result<ureq::Agent, 
     } else {
         Some(ureq::Proxy::new(&p.proxy).map_err(|e| e.to_string())?)
     };
-    let pinned = if p.pins_off { None } else { p.pins.iter().find(|(pat, _)| host_matches(pat, &host)).map(|(_, c)| c.clone()) };
-    let roots = match pinned {
-        Some(sources) => Some(sources.iter().map(|s| read_pem(s)).collect::<Result<Vec<_>, _>>()?.concat()),
-        None if !p.ca_files.is_empty() => Some(p.ca_files.iter().map(|f| read_pem(&f.to_string_lossy())).collect::<Result<Vec<_>, _>>()?.concat()),
-        None => None,
-    };
+    let roots = trusted_roots(&host)?;
     let mut tls = ureq::tls::TlsConfig::builder();
     if let Some(roots) = roots {
         tls = tls.root_certs(ureq::tls::RootCerts::new_with_certs(&roots));

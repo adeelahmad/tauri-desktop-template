@@ -108,6 +108,7 @@ fn features() -> Value {
         "llama": cfg!(feature = "llama"),
         "tts": cfg!(feature = "tts"),
         "stt": cfg!(feature = "stt"),
+        "mail": cfg!(feature = "mail"),
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
@@ -320,6 +321,27 @@ fn download_model(app: tauri::AppHandle, state: tauri::State<AppState>, url: Opt
     s.config.llm.local.model_path = serde_json::from_value(path.clone()).ok();
     save_settings(&app, &s)?;
     Ok(path)
+}
+
+/// Send an email (feature `mail`): `{to, cc, bcc, subject, text, html?, attachments: [path]}`.
+#[cfg(feature = "mail")]
+#[tauri::command(async)]
+fn send_mail(state: tauri::State<AppState>, message: Value) -> Result<Value, String> {
+    call(&state, "send_mail", message)
+}
+
+/// Check the mail settings: log in only, or with `to`, send a short test message.
+#[cfg(feature = "mail")]
+#[tauri::command(async)]
+fn test_mail(state: tauri::State<AppState>, to: Option<String>) -> Result<Value, String> {
+    call(&state, "test_mail", json!({ "to": to }))
+}
+
+/// Save the SMTP password (empty removes it), or with none, say whether one is saved.
+#[cfg(feature = "mail")]
+#[tauri::command(async)]
+fn mail_password(state: tauri::State<AppState>, password: Option<String>) -> Result<Value, String> {
+    call(&state, "mail_password", json!({ "password": password }))
 }
 
 /// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
@@ -596,6 +618,12 @@ pub fn run() {
             set_ai_key,
             #[cfg(feature = "llama")]
             download_model,
+            #[cfg(feature = "mail")]
+            send_mail,
+            #[cfg(feature = "mail")]
+            test_mail,
+            #[cfg(feature = "mail")]
+            mail_password,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]

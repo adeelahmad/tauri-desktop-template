@@ -43,6 +43,10 @@ tts = ["dep:ort"]
 # Speech to text with Whisper through ONNX Runtime (the same runtime, no whisper.cpp).
 stt = ["dep:ort"]
 {% endif -%}
+{% if email -%}
+# SMTP email (TLS, STARTTLS, attachments) on the rustls already in the tree.
+mail = ["dep:rustls", "dep:webpki-roots"]
+{% endif -%}
 {% if telemetry -%}
 # Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
 telemetry = []
@@ -66,6 +70,11 @@ sha2 = "0.10"
 # Already in every build through rustls; seals encrypted backups (ChaCha20-Poly1305).
 ring = "0.17"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+{% if email -%}
+# The same rustls and Mozilla roots ureq already uses (no new crates in the build).
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = { version = "1", optional = true }
+{% endif -%}
 {% if embeddings -%}
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }
 {% endif -%}
