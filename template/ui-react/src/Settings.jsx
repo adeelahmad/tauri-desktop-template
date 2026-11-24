@@ -1855,9 +1855,6 @@ export default function Settings({ features }) {
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}
           {s === 'updates' && <UpdateChannel />}
           {s === 'about' && <Licences />}
-        </details>
-      ))}
-      <div className="row">
         </div>
       </div>
       <div className="settings-actions">
