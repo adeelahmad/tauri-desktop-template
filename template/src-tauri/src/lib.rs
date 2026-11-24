@@ -6,7 +6,9 @@
 //!   `setup-done`; the first-run wizard calls it once, later starts call it with the saved
 //!   settings,
 //! - `ingest_text`, `ingest_file` (PDF or text), `search`, `remove_source`, `clear`,
-//! - `check_update` / `install_update` (feature `updater`),
+//! - `check_update` / `install_update` (feature `updater`); `update_channel_status` and
+//!   `rollback_update` (feature `release-channels`),
+//! - `third_party_notices` (feature `supply-chain`: Settings → About → Licences),
 //! - `agent_status` / `set_agent` (feature `background-agent`),
 //! - `service_status`, `set_service` and `service_system_hint` (feature `daemon`: the
 //!   backend as a service, see `daemon`),
@@ -112,6 +114,8 @@ mod tray;
 mod update;
 {% endif %}{% if app_shell %}#[cfg(feature = "app-shell")]
 mod shell;
+{% endif %}{% if supply_chain %}#[cfg(feature = "supply-chain")]
+mod notices;
 {% endif %}
 use service::Service;
 
@@ -219,6 +223,8 @@ fn features() -> Value {
         "pythonExample": cfg!(all(desktop, feature = "python-example")),
         "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
         "trayMenu": cfg!(all(desktop, feature = "tray-menu")),
+        "supplyChain": cfg!(feature = "supply-chain"),
+        "releaseChannels": cfg!(all(desktop, feature = "release-channels")),
     })
 }
 
@@ -1186,6 +1192,12 @@ pub fn run() {
             update::check_update,
             #[cfg(all(desktop, feature = "updater"))]
             update::install_update,
+            #[cfg(all(desktop, feature = "release-channels"))]
+            update::update_channel_status,
+            #[cfg(all(desktop, feature = "release-channels"))]
+            update::rollback_update,
+            #[cfg(feature = "supply-chain")]
+            notices::third_party_notices,
             #[cfg(all(desktop, feature = "background-agent"))]
             agent::agent_status,
             #[cfg(all(desktop, feature = "background-agent"))]

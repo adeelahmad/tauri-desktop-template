@@ -1,10 +1,15 @@
 {
   "targets": [
     { "os": "macos-latest", "target": "aarch64-apple-darwin", "bundles": "app,dmg", "name": "macOS-AppleSilicon", "updater": "darwin-aarch64" },
-    { "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "bundles": "nsis", "name": "Windows", "updater": "windows-x86_64" }{% if linux %},
-    { "os": "ubuntu-22.04", "target": "x86_64-unknown-linux-gnu", "bundles": "appimage,deb", "name": "Linux", "updater": "linux-x86_64" }{% endif %}
+    { "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "bundles": "nsis", "name": "Windows", "updater": "windows-x86_64" }{% if release_channels %},
+    { "os": "windows-latest", "target": "aarch64-pc-windows-msvc", "bundles": "nsis", "name": "Windows-ARM64", "updater": "windows-aarch64", "selftest": "skip" }{% endif %}{% if linux %},
+    { "os": "ubuntu-22.04", "target": "x86_64-unknown-linux-gnu", "bundles": "appimage,deb", "name": "Linux", "updater": "linux-x86_64" }{% if release_channels %},
+    { "os": "ubuntu-24.04-arm", "target": "aarch64-unknown-linux-gnu", "bundles": "appimage,deb", "name": "Linux-ARM64", "updater": "linux-aarch64" }{% endif %}{% endif %}
   ],
   "macos_pkg": {% if macos_pkg %}true{% else %}false{% endif %},
   "uv_sidecar": {% if claude_mcp %}true{% else %}false{% endif %},
-  "uv_version": "0.11.32"
+  "uv_version": "0.11.32",
+  "channels": {% if release_channels %}true{% else %}false{% endif %},
+  "rollout": 100,
+  "supply_chain": {% if supply_chain %}true{% else %}false{% endif %}
 }

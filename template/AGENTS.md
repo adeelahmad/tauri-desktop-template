@@ -101,6 +101,12 @@ This build has:
 {% endif -%}
 {% if updater -%}
 - `updater` (cargo feature `updater`): signed auto-update from GitHub releases, `src-tauri/src/update.rs`.
+{% if release_channels -%}
+- `release_channels` (cargo feature `release-channels`): stable/beta update channels, staged rollout and rollback, `desktop-core/src/release.rs`, `src-tauri/src/update.rs`.
+{% endif -%}
+{% endif -%}
+{% if supply_chain -%}
+- `supply_chain` (cargo feature `supply-chain`): cargo-deny, cargo-audit and SBOMs in `.github/workflows/supply-chain.yml`; licence notices made by `src-tauri/build.rs` (`desktop-core/src/notices.rs`) and shown in Settings → About.
 {% endif -%}
 {% if claude_mcp -%}
 - `claude_mcp` (cargo feature `claude-mcp`): bundled uv registers a Python MCP server in Claude Desktop, `src-tauri/src/claude.rs`.
@@ -143,6 +149,7 @@ This build has:
 - `app_shell` (cargo feature `app-shell`): custom titlebar, themes (light/dark/system) and fonts, Settings in its own window (Cmd/Ctrl+,), `src-tauri/src/shell.rs`, `desktop-core/src/appearance.rs`, `capabilities/{shell,settings}.json`. Settings values reach CSS and a pre-load script, so validate new ones in `AppearanceConfig::validated`; add a theme in `THEMES` and `shell.css`.
 {% endif -%}
 - Always on: security defaults (`src-tauri/src/guard.rs`, CSP), JSON-lines logs, `--self-test`,
+  dependency policy in `deny.toml` (`make audit` / `kitchen audit`),
   `.env`/`.env.local` in debug builds only (`desktop_core::dotenv`), git hooks in `.githooks/`
   (`kitchen hooks install`).
 

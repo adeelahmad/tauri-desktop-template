@@ -96,6 +96,9 @@ pub struct Config {
     /// The app-defined menu in the menu bar.
     #[cfg(feature = "tray-menu")]
     pub menu: crate::actions::MenuConfig,
+{% endif %}{% if release_channels %}    /// Update channel (stable or beta) for the updater.
+    #[cfg(feature = "release-channels")]
+    pub updates: crate::release::UpdatesConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -340,6 +343,10 @@ impl Config {
             self.tray = self.tray.validated();
             self.menu = self.menu.validated();
             self.shortcuts = crate::actions::validated_shortcuts(self.shortcuts);
+        }
+{% endif %}{% if release_channels %}        #[cfg(feature = "release-channels")]
+        {
+            self.updates = self.updates.validated();
         }
 {% endif %}        // kitchen:validate
         self

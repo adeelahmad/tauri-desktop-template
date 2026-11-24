@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+# An app, not a library: never published to crates.io (cargo-deny treats it as private).
+publish = false
 
 [lints]
 workspace = true
@@ -20,7 +22,7 @@ serde_json.workspace = true
 
 [features]
 # What you chose when generating; `cargo build --no-default-features --features ...` picks others.
-default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if oauth %}"oauth", {% endif %}{% if plugins %}"plugins", {% endif %}{% if background_jobs %}"jobs-queue", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if http_api %}"http-api", {% endif %}{% if webview %}"webview", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% if daemon %}"daemon", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}{% if tray_menu %}"tray-menu", {% endif %}{% if app_shell %}"app-shell", {% endif %}]
+default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if oauth %}"oauth", {% endif %}{% if plugins %}"plugins", {% endif %}{% if background_jobs %}"jobs-queue", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if http_api %}"http-api", {% endif %}{% if webview %}"webview", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% if daemon %}"daemon", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}{% if tray_menu %}"tray-menu", {% endif %}{% if app_shell %}"app-shell", {% endif %}{% if supply_chain %}"supply-chain", {% endif %}{% if release_channels %}"release-channels", {% endif %}]
 
 {% if embeddings -%}
 embed = ["desktop-core/embed"]
@@ -90,6 +92,14 @@ wizard = []
 {% if updater -%}
 # Checks GitHub releases for a signed update and installs it in place.
 updater = ["dep:tauri-plugin-updater"]
+{% endif -%}
+{% if release_channels -%}
+# Stable/beta update channels, staged rollout and rollback (src/update.rs, desktop_core::release).
+release-channels = ["updater", "desktop-core/release-channels"]
+{% endif -%}
+{% if supply_chain -%}
+# Third-party licence notices made at build time (build.rs) and shown in Settings → About.
+supply-chain = ["desktop-core/supply-chain"]
 {% endif -%}
 {% if ipc_worker -%}
 # Backend in its own process (`<app> --worker`), reached over a local socket / named pipe.

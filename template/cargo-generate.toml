@@ -1,7 +1,7 @@
 [template]
 cargo_generate_version = ">=0.22.0"
 # Copied as they are (GitHub Actions uses ${{ }} too, and icons are binary).
-exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", ".github/workflows/mobile.yml", "src-tauri/icons/*"]
+exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", ".github/workflows/mobile.yml", ".github/workflows/supply-chain.yml", ".github/workflows/rollout.yml", "src-tauri/icons/*"]
 
 [placeholders.app_name]
 type = "string"
@@ -171,6 +171,11 @@ type = "bool"
 prompt = "Release workflow that builds and tests installers (macOS .dmg, Windows .exe)?"
 default = true
 
+[placeholders.supply_chain]
+type = "bool"
+prompt = "Supply-chain checks: a CI workflow with cargo-deny, cargo-audit and CycloneDX SBOMs, build attestations on releases, and a licence-notices screen (Settings > About)?"
+default = false
+
 [placeholders.claude_mcp]
 type = "bool"
 prompt = "Bundle uv and register a Python MCP server in Claude Desktop?"
@@ -185,6 +190,11 @@ default = "nomic-embed-text-v1.5"
 [conditional.'postgres'.placeholders.bm25]
 type = "bool"
 prompt = "BM25 keyword ranking in Postgres (VectorChord-BM25) for hybrid BM25 + vector search?"
+default = false
+
+[conditional.'updater'.placeholders.release_channels]
+type = "bool"
+prompt = "Release channels: stable and beta updates picked in Settings, staged rollout by percentage, rollback to the previous version (and arm64 installers on every OS)?"
 default = false
 
 [conditional.'installers'.placeholders.macos_pkg]
@@ -392,11 +402,17 @@ ignore = ["python", "src-tauri/src/python.rs"]
 [conditional.'!updater']
 ignore = ["src-tauri/src/update.rs"]
 
+[conditional.'!supply_chain']
+ignore = [".github/workflows/supply-chain.yml", "desktop-core/src/notices.rs", "src-tauri/src/notices.rs"]
+
+[conditional.'!release_channels']
+ignore = ["desktop-core/src/release.rs", ".github/workflows/rollout.yml"]
+
 [conditional.'!claude_mcp']
 ignore = ["src-tauri/src/claude.rs", "src-tauri/tauri.release.conf.json"]
 
 [conditional.'!installers']
-ignore = [".github/workflows/release.yml", ".github/release.json", "macos-pkg", "scripts", "docs/install-unsigned.md"]
+ignore = [".github/workflows/release.yml", ".github/workflows/rollout.yml", ".github/release.json", "macos-pkg", "scripts", "docs/install-unsigned.md"]
 
 [conditional.'installers && !macos_pkg']
 ignore = ["macos-pkg"]

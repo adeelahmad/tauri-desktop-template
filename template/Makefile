@@ -12,7 +12,7 @@ ui: $(UI_DEPS) ## Build the React UI (the app embeds ui-react/dist)
 ui: ## Nothing to build: the UI is plain files in ui/
 	@true
 {% endif %}
-.PHONY: help setup dev build test lint fmt self-test ui db-up db-down docker-test hooks clean
+.PHONY: help setup dev build test lint fmt audit self-test ui db-up db-down docker-test hooks clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -48,6 +48,23 @@ fmt: ## Format everything
 {%- if frontend == "react" %}
 	npm --prefix ui-react run format
 {%- endif %}
+
+# Each tool runs when it is installed; a missing one is skipped with the command that installs it.
+audit: ## Supply chain: cargo-deny (deny.toml), cargo-audit{% if frontend == "react" %}, npm audit{% endif %}{% if python_example %}, pip-audit{% endif %}
+	@fail=0; \
+	if cargo deny --version >/dev/null 2>&1; then echo "== cargo deny check"; cargo deny check || fail=1; \
+	else echo "skip cargo-deny: cargo install --locked cargo-deny"; fi; \
+	if cargo audit --version >/dev/null 2>&1; then echo "== cargo audit"; cargo audit || fail=1; \
+	else echo "skip cargo-audit: cargo install --locked cargo-audit"; fi; \
+{%- if frontend == "react" %}
+	if command -v npm >/dev/null 2>&1; then echo "== npm audit (ui-react, shipped packages)"; npm --prefix ui-react audit --omit=dev || fail=1; \
+	else echo "skip npm audit: install Node.js (https://nodejs.org)"; fi; \
+{%- endif %}
+{%- if python_example %}
+	if command -v pip-audit >/dev/null 2>&1; then echo "== pip-audit (python/requirements.txt)"; pip-audit -r python/requirements.txt --progress-spinner off || fail=1; \
+	else echo "skip pip-audit: pipx install pip-audit"; fi; \
+{%- endif %}
+	exit $$fail
 
 self-test: ui ## What CI checks on every installer
 	cargo run -p $(APP) -- --self-test
