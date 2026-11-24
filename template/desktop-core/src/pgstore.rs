@@ -161,22 +161,45 @@ fn install_extensions(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Extract `lib/*` and `share/extension/*` only, refusing paths that climb out (zip slip).
-fn unzip_into(bytes: &[u8], root: &Path) -> Result<()> {
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(pg_err)?;
-    for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(pg_err)?;
-        let Some(rel) = entry.enclosed_name() else { return Err(pg_err("unsafe path in extension bundle")) };
-        let allowed = rel.starts_with("lib") || rel.starts_with(Path::new("share").join("extension"));
-        if !allowed || entry.is_dir() {
-            continue;
+/// Extract `lib/*` and `share/extension/*` of the zip in `bytes` into `root`, refusing paths
+/// that climb out (zip slip), more than
+/// [`limits::ZIP_ENTRIES`](crate::untrusted::limits::ZIP_ENTRIES) entries and more than
+/// [`limits::ZIP_UNPACKED_BYTES`](crate::untrusted::limits::ZIP_UNPACKED_BYTES) unpacked
+/// (a zip bomb). Public so the fuzz target can reach it.
+pub fn unzip_into(bytes: &[u8], root: &Path) -> Result<()> {
+    use crate::untrusted::limits::{ZIP_ENTRIES, ZIP_UNPACKED_BYTES};
+    unzip_limited(bytes, root, ZIP_ENTRIES, ZIP_UNPACKED_BYTES)
+}
+
+/// [`unzip_into`] with chosen limits: at most `max_entries` entries and `max_bytes` unpacked.
+pub fn unzip_limited(bytes: &[u8], root: &Path, max_entries: usize, max_bytes: u64) -> Result<()> {
+    crate::untrusted::guard("extension bundle", || {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(pg_err)?;
+        if zip.len() > max_entries {
+            return Err(pg_err(format!("the extension bundle has more than {max_entries} files")));
         }
-        let out = root.join(&rel);
-        std::fs::create_dir_all(out.parent().unwrap_or(root))?;
-        let mut f = std::fs::File::create(&out)?;
-        std::io::copy(&mut entry, &mut f)?;
-    }
-    Ok(())
+        let mut left = max_bytes;
+        for i in 0..zip.len() {
+            let mut entry = zip.by_index(i).map_err(pg_err)?;
+            let Some(rel) = entry.enclosed_name() else { return Err(pg_err("unsafe path in extension bundle")) };
+            let allowed = rel.starts_with("lib") || rel.starts_with(Path::new("share").join("extension"));
+            if !allowed || entry.is_dir() {
+                continue;
+            }
+            let out = root.join(&rel);
+            std::fs::create_dir_all(out.parent().unwrap_or(root))?;
+            let mut f = std::fs::File::create(&out)?;
+            // Count what is really inflated: the sizes in the zip's headers are the file's claim.
+            let n = std::io::copy(&mut std::io::Read::take(&mut entry, left + 1), &mut f)?;
+            if n > left {
+                drop(f);
+                let _ = std::fs::remove_file(&out);
+                return Err(pg_err("the extension bundle unpacks to more than the size limit"));
+            }
+            left -= n;
+        }
+        Ok(())
+    })
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
@@ -676,6 +699,32 @@ mod unzip_tests {
         assert_eq!(std::fs::read(dir.path().join("lib/vector.so")).unwrap(), b"so");
         assert_eq!(std::fs::read(dir.path().join("share/extension/vector.control")).unwrap(), b"ctl");
         assert!(!dir.path().join("bin").exists());
+    }
+
+    #[test]
+    fn refuses_more_than_the_unpacked_limit() {
+        // A highly compressed entry (a zip bomb) is cut off at the limit, whatever its header says.
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        w.start_file("lib/bomb.so", opts).unwrap();
+        w.write_all(&vec![0u8; 1 << 20]).unwrap();
+        let bytes = w.finish().unwrap().into_inner();
+        assert!(bytes.len() < 10_000);
+        let e = super::unzip_limited(&bytes, dir.path(), 10, 64 * 1024).unwrap_err();
+        assert!(e.to_string().contains("size limit"), "{e}");
+        assert!(!dir.path().join("lib/bomb.so").exists());
+        let many = bundle(&[("lib/a", b"1"), ("lib/b", b"2")]);
+        assert!(super::unzip_limited(&many, dir.path(), 1, 1024).is_err());
+        assert!(super::unzip_limited(&many, dir.path(), 2, 1024).is_ok());
+    }
+
+    #[test]
+    fn garbage_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        for bytes in [&b""[..], b"PK\x03\x04", b"PK\x05\x06\0\0\0\0\xff\xff\xff\xff\0\0\0\0\0\0\0\0\0\0"] {
+            assert!(super::unzip_into(bytes, dir.path()).is_err());
+        }
     }
 
     #[test]

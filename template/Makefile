@@ -12,7 +12,7 @@ ui: $(UI_DEPS) ## Build the React UI (the app embeds ui-react/dist)
 ui: ## Nothing to build: the UI is plain files in ui/
 	@true
 {% endif %}
-.PHONY: help setup dev build test lint check-windows fmt audit self-test {% if evals %}eval {% endif %}ui db-up db-down docker-test hooks clean
+.PHONY: help setup dev build test lint check-windows fmt audit self-test fuzz {% if evals %}eval {% endif %}ui db-up db-down docker-test hooks clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -73,6 +73,16 @@ audit: ## Supply chain: cargo-deny (deny.toml), cargo-audit{% if frontend == "re
 	else echo "skip pip-audit: pipx install pip-audit"; fi; \
 {%- endif %}
 	exit $$fail
+
+FUZZ_SECONDS ?= 60
+# Outside the workspace (fuzz/Cargo.toml): nightly only. One target per parser of outside input.
+fuzz: ## Fuzz every parser for FUZZ_SECONDS each (needs nightly and cargo-fuzz)
+	@cargo +nightly --version >/dev/null 2>&1 || { echo "needs nightly: rustup toolchain install nightly"; exit 1; }
+	@cargo fuzz --version >/dev/null 2>&1 || { echo "needs cargo-fuzz: cargo install cargo-fuzz"; exit 1; }
+	@for t in $$(cargo +nightly fuzz list); do \
+		echo "== fuzz $$t ($(FUZZ_SECONDS) s)"; \
+		cargo +nightly fuzz run $$t -- -max_total_time=$(FUZZ_SECONDS) -rss_limit_mb=4096 || exit 1; \
+	done
 
 self-test: ui ## What CI checks on every installer
 	cargo run -p $(APP) -- --self-test

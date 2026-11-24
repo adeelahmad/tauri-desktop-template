@@ -526,10 +526,14 @@ impl Local {
                 } else {
                     let bytes = match (text("wav"), text("path")) {
                         (Some(b), _) => audio::base64_decode(b).map_err(err)?,
-                        (None, Some(p)) => std::fs::read(p).map_err(err)?,
+                        (None, Some(p)) => desktop_core::untrusted::read_capped(p.as_ref(), desktop_core::untrusted::limits::WAV_BYTES).map_err(err)?,
                         _ => return Err("send pcm16, wav or path".into()),
                     };
                     let (s, rate) = audio::read_wav(&bytes).map_err(err)?;
+                    // Check the length before resampling, which allocates in proportion to it.
+                    if s.len() / rate as usize > cfg.max_seconds as usize {
+                        return Err(format!("Recordings longer than {} s are turned off in Settings", cfg.max_seconds));
+                    }
                     audio::resample(&s, rate, stt::SAMPLE_RATE)
                 };
                 if samples.len() > cfg.max_seconds as usize * stt::SAMPLE_RATE as usize {

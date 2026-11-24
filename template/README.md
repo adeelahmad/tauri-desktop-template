@@ -106,7 +106,7 @@ Everything runs on the user's machine.
 | MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; per-tool allow/ask/deny, where "ask" waits for Approve in Settings (refused when the app is closed); audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
 {% endif -%}
 {% if pdf -%}
-| PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
+| PDF text (docling.rs) with tesseract OCR fallback, parsed in a child process (`app --parse`) with a time and memory limit | `desktop-core/src/pdf.rs`, `desktop-core/src/sandbox.rs` | `pdf` |
 {% endif -%}
 {% if frontend == "react" -%}
 | React 19 + Vite frontend | `ui-react/` | |
@@ -144,6 +144,7 @@ Everything runs on the user's machine.
 | iOS and Android from the same code (Tauri 2 mobile): file store, backend in the app, store updates; `Mobile` workflow builds an unsigned APK/AAB and an iOS simulator app | `src-tauri/tauri.{android,ios}.conf.json`, `src-tauri/capabilities/mobile.json`, `.github/workflows/mobile.yml` | always |
 {% endif -%}
 | `--self-test` (CI runs it on every installed build) | `self_test` in `src-tauri/src/lib.rs` | always |
+| Hardened parsers: a size cap per input type, no panics (a panic becomes an error), fuzz targets for every parser of outside input (`make fuzz`) | `desktop-core/src/untrusted.rs`, `fuzz/` | always |
 | Dependency policy (licences, advisories, bans, sources) and `make audit`: cargo-deny, cargo-audit{% if frontend == "react" %}, `npm audit`{% endif %}{% if python_example %}, pip-audit{% endif %}, each skipped with an install hint when missing | `deny.toml`, `Makefile` | always |
 {% if installers -%}
 | Release workflow: unsigned .dmg{% if macos_pkg %}, .pkg{% endif %}, .exe{% if linux %}, .AppImage, .deb{% endif %}, tested after install | `.github/workflows/release.yml` | |
@@ -397,7 +398,10 @@ is off by default; values are clamped to safe ranges.
 | `search.bm25Tokenizer` | `bert_base_uncased` | pg_tokenizer model |
 | `ingest.workers` | 1 | parallel read/chunk/embed; 0 = one per core |
 | `ingest.chunkChars`, `ingest.chunkOverlap` | 800, 0 | chunking |
-| `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
+| `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what ingest takes; larger files are refused before they are read |
+{% if pdf -%}
+| `ingest.pdf.isolate`, `ingest.pdf.timeoutSecs`, `ingest.pdf.memoryMb` | on, 120, 2048 | parse each PDF in `app --parse` with these limits |
+{% endif -%}
 | `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
 | `backup.intervalHours`, `backup.keep`, `backup.folder`, `backup.encrypt` | 0, 5, app data, off | scheduled backups; a synced folder keeps a copy off the computer |
 | `resources.memoryBudgetMb` | 0 (none) | caps ingest workers and embedding batches by free memory inside the budget; files that would not fit are skipped with a reason |

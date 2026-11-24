@@ -57,18 +57,20 @@ impl Page {
 
     /// Items to skip.
     pub fn offset(&self) -> usize {
-        self.page.saturating_sub(1) as usize * self.per_page as usize
+        // Saturating: `page` and `perPage` come from the request, and usize is 32 bits on
+        // some targets.
+        (self.page.saturating_sub(1) as usize).saturating_mul(self.per_page as usize)
     }
 
     /// The index just past this page.
     pub fn end(&self) -> usize {
-        self.offset() + self.per_page as usize
+        self.offset().saturating_add(self.per_page as usize)
     }
 
     /// How many items to ask the backend for: the page and one more (to fill `hasMore`),
     /// at most [`MAX_ITEMS`].
     pub fn fetch(&self) -> usize {
-        (self.end() + 1).min(MAX_ITEMS)
+        self.end().saturating_add(1).min(MAX_ITEMS)
     }
 
     /// This page of `all` (the first [`Page::fetch`] items of the full list).
@@ -111,5 +113,13 @@ mod tests {
         let out = p.paginate(vec![1, 2, 3]);
         assert_eq!(out.items, [3]);
         assert!(!out.has_more);
+    }
+
+    #[test]
+    fn huge_pages_do_not_overflow() {
+        let p = Page { page: u32::MAX, per_page: u32::MAX };
+        assert!(p.check().is_err());
+        assert_eq!(p.fetch(), MAX_ITEMS);
+        assert!(p.paginate(vec![1, 2, 3]).items.is_empty());
     }
 }

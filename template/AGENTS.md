@@ -174,6 +174,9 @@ This build has:
    `cargo test -p {{project-name}} export_bindings` and commit them (docs/GUIDE.md, "Typed IPC").
 5. **Run `kitchen doctor`** before you start and after big changes: it checks the toolchain
    and that the generator markers are still in place.
+6. **Outside input is hostile.** Files, recordings, MCP and HTTP messages, backups and
+   downloads get a size cap (`desktop_core::untrusted::limits`), capped reads, no panics and
+   a fuzz target in `fuzz/` (`make fuzz`; docs/GUIDE.md, "Untrusted input").
 
 ## Adding things
 

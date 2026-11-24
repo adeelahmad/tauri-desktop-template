@@ -183,7 +183,8 @@ pub fn load_dev(dir: &Path) -> Vec<String> {
     let files: Vec<Parsed> = FILES
         .iter()
         .filter_map(|name| {
-            let text = std::fs::read_to_string(dir.join(name)).ok()?;
+            let bytes = crate::untrusted::read_capped(&dir.join(name), crate::untrusted::limits::DOTENV_BYTES).ok()?;
+            let text = String::from_utf8(bytes).ok()?;
             let parsed = parse(&text);
             for e in &parsed.errors {
                 // Written before logging starts, so to stderr; values never appear here.
