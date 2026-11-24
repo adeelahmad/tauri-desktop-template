@@ -135,3 +135,7 @@ cargo-generate uses the same credentials. Non-interactive: pass answers with
 
 The generated project's README covers developing, releasing, signing keys for the
 updater, and the process layout.
+
+## Roadmap
+
+What comes next, including `kitchen migrate` (port an Electron or web app): [ROADMAP.md](ROADMAP.md).
