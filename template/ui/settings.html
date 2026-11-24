@@ -14,37 +14,37 @@
   <section>
     <h2 data-i18n="section-appearance">Appearance</h2>
     <div class="row">
-      <label>Light or dark
+      <label><span data-i18n="setting-appearance-mode">Light or dark</span>
         <select id="mode">
-          <option value="system">Follow the system</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
+          <option value="system" data-i18n="setting-appearance-mode-system">Follow the system</option>
+          <option value="light" data-i18n="setting-appearance-mode-light">Light</option>
+          <option value="dark" data-i18n="setting-appearance-mode-dark">Dark</option>
         </select>
       </label>
-      <label>Theme
+      <label><span data-i18n="setting-appearance-theme">Theme</span>
         <select id="theme">
-          <option value="kitchen">Kitchen</option>
-          <option value="nord">Nord</option>
-          <option value="solarized">Solarized</option>
-          <option value="forest">Forest</option>
-          <option value="rose">Rosé</option>
-          <option value="contrast">High contrast</option>
+          <option value="kitchen" data-i18n="setting-appearance-theme-kitchen">Kitchen</option>
+          <option value="nord" data-i18n="setting-appearance-theme-nord">Nord</option>
+          <option value="solarized" data-i18n="setting-appearance-theme-solarized">Solarized</option>
+          <option value="forest" data-i18n="setting-appearance-theme-forest">Forest</option>
+          <option value="rose" data-i18n="setting-appearance-theme-rose">Rosé</option>
+          <option value="contrast" data-i18n="setting-appearance-theme-contrast">High contrast</option>
         </select>
       </label>
-      <label>Text size (px) <input id="font-size" type="number" min="10" max="24"></label>
+      <label><span data-i18n="setting-appearance-font-size">Text size (px)</span> <input id="font-size" type="number" min="10" max="24"></label>
     </div>
     <div class="row">
-      <label>Interface font <input id="ui-font" list="ui-fonts" placeholder="system"></label>
-      <label>Code and editor font <input id="mono-font" list="mono-fonts" placeholder="system"></label>
+      <label><span data-i18n="appearance-ui-font">Interface font</span> <input id="ui-font" list="ui-fonts" placeholder="system"></label>
+      <label><span data-i18n="appearance-mono-font">Code and editor font</span> <input id="mono-font" list="mono-fonts" placeholder="system"></label>
     </div>
     <datalist id="ui-fonts"><option value="humanist"><option value="rounded"><option value="serif"></datalist>
     <datalist id="mono-fonts"><option value="cascadia"><option value="jetbrains"><option value="fira"></datalist>
-    <p class="hint">Empty uses the system font. A preset, or the name of any installed or bundled font (see shell.css).</p>
+    <p class="hint" data-i18n="appearance-font-hint">Empty uses the system font. A preset, or the name of any installed or bundled font (see shell.css).</p>
   </section>
 
   <section>
-    <h2>Everything else</h2>
-    <p class="hint">Search, ingest and the other settings as JSON (missing keys use the defaults; everything optional is off).</p>
+    <h2 data-i18n="settings-everything-else">Everything else</h2>
+    <p class="hint" data-i18n="settings-json-hint-all">Search, ingest and the other settings as JSON (missing keys use the defaults; everything optional is off).</p>
     <textarea id="config" rows="16" spellcheck="false"></textarea>
   </section>
 

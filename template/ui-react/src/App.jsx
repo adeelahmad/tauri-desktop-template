@@ -432,7 +432,7 @@ export default function App() {
       .app_info()
       .then(async (i) => {
         // The saved language, or the OS one (feature i18n; nothing to do without it).
-        await setLocale(i.settings.config?.ui?.language || 'system');
+        await setLocale(i.settings.config?.ui?.language || 'system', i.settings.config?.ui?.digits);
         setConfig(i.config);
         setInfo(i);
         if (i.features.wizard && !i.settings.setupDone) setPhase('wizard');

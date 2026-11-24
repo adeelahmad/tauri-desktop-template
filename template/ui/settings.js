@@ -23,7 +23,7 @@ async function save(config) {
 
 $('save').onclick = () => {
   let rest;
-  try { rest = JSON.parse($('config').value || '{}'); } catch (e) { return say(`Not valid JSON: ${e.message}`, true); }
+  try { rest = JSON.parse($('config').value || '{}'); } catch (e) { return say(t('settings-bad-json', 'Not valid JSON: { $error }', { error: e.message }), true); }
   const appearance = {};
   for (const [key, id] of Object.entries(FIELDS)) appearance[key] = key === 'fontSize' ? Number($(id).value) : $(id).value;
   save({ ...rest, appearance });

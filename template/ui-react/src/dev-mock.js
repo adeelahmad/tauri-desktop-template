@@ -11,7 +11,7 @@
 //
 // URL options: ?mode=light|dark (default: the OS), ?theme=nord (any theme in shell.css),
 // ?os=macos|windows|linux, ?wizard=1 (start at the setup wizard), ?locale=ar (feature i18n: the
-// saved language; with ?pseudo=1 the pseudo-locale en-XA).
+// saved language; with ?pseudo=1 the pseudo-locale en-XA; ?digits=native for Arabic-Indic digits).
 // (No double curly braces in this folder: the template engine would eat them.)
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
@@ -125,7 +125,7 @@ const DEFAULTS = {
   },
   shortcuts: [],
   menu: { title: 'Actions', extra: [] },
-  ui: { language: params.get('locale') || (params.get('pseudo') === '1' ? 'en-XA' : 'system') },
+  ui: { language: params.get('locale') || (params.get('pseudo') === '1' ? 'en-XA' : 'system'), digits: params.get('digits') || 'latin' },
 };
 
 // Sample documents, so search has something to find.

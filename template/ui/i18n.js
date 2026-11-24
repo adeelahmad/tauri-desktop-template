@@ -3,15 +3,18 @@
 // file fills them in: `i18n.t('add-file-done', 'Added { $count } chunks.', { count: 3 })`.
 // Static text in the HTML is marked `data-i18n="<id>"` (and `data-i18n-placeholder`,
 // `data-i18n-title`, `data-i18n-aria-label` for attributes); the English in the HTML is the
-// fallback. Plurals and numbers use the browser's Intl with the same rules as the backend.
+// fallback. Plurals and numbers use the browser's Intl with the same rules as the backend, and
+// the digits the backend chose (`numbers`, e.g. `ar-u-nu-latn`: Latin unless `ui.digits` is "native").
 /* global window, document, Intl */
 (function () {
   const invoke = window.__TAURI__.core.invoke;
   const { listen } = window.__TAURI__.event;
-  /** @type {null | {locale: string, dir: string, available: {code: string, name: string, dir: string}[], messages: Record<string, unknown>}} */
+  /** @type {null | {locale: string, dir: string, numbers: string, available: {code: string, name: string, dir: string}[], messages: Record<string, unknown>}} */
   let bundle = null;
   const listeners = new Set();
   const locale = () => (bundle ? bundle.locale : 'en');
+  // The tag Intl formats numbers and dates with: the backend's digits, so both agree.
+  const numbers = () => (bundle && bundle.numbers) || locale();
   // Fluent wraps variables in bidi isolation marks; only right-to-left text needs them.
   const isolate = (s) => (bundle && bundle.dir === 'rtl' ? `⁨${s}⁩` : s);
 
@@ -21,7 +24,7 @@
     if (options.maximumFractionDigits) o.maximumFractionDigits = Number(options.maximumFractionDigits);
     if (options.useGrouping === 'false') o.useGrouping = false;
     if (options.style === 'percent') o.style = 'percent';
-    try { return new Intl.NumberFormat(locale(), o).format(n); } catch { return String(n); }
+    try { return new Intl.NumberFormat(numbers(), o).format(n); } catch { return String(n); }
   }
 
   function date(v, options = {}) {
@@ -31,7 +34,7 @@
     if (options.dateStyle && options.dateStyle !== 'none') o.dateStyle = options.dateStyle;
     if (options.timeStyle && options.timeStyle !== 'none') o.timeStyle = options.timeStyle;
     if (!o.dateStyle && !o.timeStyle) o.dateStyle = 'medium';
-    try { return new Intl.DateTimeFormat(locale(), o).format(d); } catch { return d.toISOString(); }
+    try { return new Intl.DateTimeFormat(numbers(), o).format(d); } catch { return d.toISOString(); }
   }
 
   // The value of an expression: what a selector compares, or a variable's raw value.
@@ -107,6 +110,9 @@
     onChange: (f) => listeners.add(f),
     ready: load(null).catch(() => {}),
   };
-  // Another window (Settings) switched the language.
-  listen('locale-changed', (e) => load(e.payload).catch(() => {}));
+  // Another window (Settings) switched the language or digits: { language, digits } (or the language).
+  listen('locale-changed', (e) => {
+    const p = e.payload;
+    load(p && typeof p === 'object' ? p.language : p).catch(() => {});
+  });
 })();

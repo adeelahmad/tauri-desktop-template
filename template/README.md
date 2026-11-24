@@ -471,6 +471,7 @@ is off by default; values are clamped to safe ranges.
 {% endif -%}
 {% if i18n -%}
 | `ui.language` | `system` | a locale code from `locales/` (`en`, `de`, `ar`); `system` follows the OS language, falling back to English |
+| `ui.digits` | `latin` | `native`: the language's own digits (Arabic-Indic for Arabic); Latin `0123456789` otherwise, the same in the UI and the backend |
 {% endif -%}
 {% if app_shell -%}
 | `appearance.mode`, `appearance.theme` | `system`, `kitchen` | `light`, `dark`; `nord`, `solarized`, `forest`, `rose`, `contrast` (add one in `shell.css` and `THEMES`) |

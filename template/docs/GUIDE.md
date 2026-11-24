@@ -635,9 +635,22 @@ setting-ui-language = Language
   CSS uses logical properties (`margin-inline-start`, `padding-inline-start`, `inset-inline`,
   `text-align: start`), so layouts mirror by themselves. Keep using them.
 - **Plurals, numbers, dates**: plural forms follow each language's CLDR rules (Arabic has
-  six); `NUMBER($n, minimumFractionDigits: 1)` and plain numbers use the locale's digits and
+  six); `NUMBER($n, minimumFractionDigits: 1)` and plain numbers use the locale's
   separators; `DATETIME($ms, dateStyle: "long")` formats dates from a small table of month
   names and orders (en, de, fr, es, ar; others fall back to ISO dates).
+- **Digits: Latin by default.** Every number and date is written with `0123456789`, in
+  Arabic too (`1,234.5`, not `١٬٢٣٤٫٥`). WebViews disagree about Arabic (newer ICU data
+  writes `ar` with Latin digits, older WebKit with Arabic-Indic ones), and the backend's
+  menus and messages must match the UI, so the backend decides and the UIs follow:
+  `ui.digits = "native"` (Settings → Language → Digits) switches to the language's own
+  digits where it has them (Arabic-Indic for Arabic, Persian digits for Persian; Arabic in
+  the Maghreb stays Latin, as CLDR says). The backend formats with
+  `desktop_core::i18n::format_number`; the UIs format with `Intl` under the tag
+  `number_locale` gives (`ar-u-nu-latn` or `ar-u-nu-arab`): the React UI builds it in
+  `ui-react/src/locales.js` (`numberLocale`, the same rule), the plain UI gets it from
+  `i18n_bundle` (`numbers`). Use `dateTime()` from `ui-react/src/i18n.js` for dates in React
+  rather than a bare `toLocaleString()`. Pass ids such as ports and process ids to `t()` as
+  text (`String(port)`), so they get no group separators.
 
 Why Fluent and not ICU4X: Fluent is a message format (variables, plurals, attributes,
 fallback between locales) with one Rust crate (`fluent-bundle`) and one JS package

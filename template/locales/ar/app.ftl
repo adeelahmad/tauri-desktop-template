@@ -249,12 +249,17 @@ section-service = الخدمة
 section-tray = شريط النظام والاختصارات
 section-updates = التحديثات
 section-about = حول
+section-kv = مخزن المفاتيح والقيم
+section-cache = الذاكرة المؤقتة
 
 ## Settings fields: setting-<section>-<key>, and setting-<section>-<key>-<option> for the choices of a list.
 
 setting-ui-language = اللغة
     .help = تتغير القوائم والرسائل فورًا. الترجمات الناقصة تظهر بالإنجليزية.
 setting-ui-language-system = مثل النظام
+setting-ui-digits = الأرقام
+setting-ui-digits-latin = لاتينية (0123456789)
+setting-ui-digits-native = أرقام اللغة نفسها، مثل الهندية العربية (٠١٢٣٤٥٦٧٨٩)
 setting-search-mode = وضع البحث
 setting-search-top-k = النتائج
 setting-search-candidates = المرشحون لكل قائمة (مختلط)
@@ -464,6 +469,19 @@ setting-tray-show-in-menu-bar-only = macOS: شريط القوائم فقط، ب�
 setting-updates-channel = قناة التحديث
 setting-updates-channel-stable = مستقرة
 setting-updates-channel-beta = تجريبية (والإصدارات التمهيدية أيضًا)
+setting-kv-ui-namespaces = نطاقات الأسماء المتاحة للنافذة وواجهة HTTP وأدوات MCP
+setting-kv-encrypted-namespaces = نطاقات أسماء مشفّرة عند التخزين
+setting-kv-key-source = مكان مفتاح التشفير
+setting-kv-key-source-file = ملف مفتاح في مجلد البيانات
+setting-kv-key-source-keychain = سلسلة مفاتيح النظام (تحتاج دعم تسجيل الدخول)
+setting-kv-max-size-mb = أكبر حجم للمخزن (ميغابايت)
+setting-kv-max-value-kb = أكبر قيمة (كيلوبايت)
+setting-kv-sweep-minutes = حذف المفاتيح المنتهية كل (دقيقة)
+setting-kv-backup = تضمين المخزن في النسخ الاحتياطية
+setting-cache-max-mb = أكبر حجم للذاكرة المؤقتة (ميغابايت)
+setting-cache-ttl-secs = الاحتفاظ بالعناصر لمدة (ثانية، 0 = حتى الإزاحة)
+setting-cache-tti-secs = إسقاط العناصر غير المستخدمة بعد (ثانية، 0 = أبدًا)
+setting-cache-persist = الاحتفاظ بالعناصر بعد إعادة التشغيل (في مخزن المفاتيح والقيم)
 
 ## Profiles.
 
@@ -598,6 +616,232 @@ tray-shortcuts = اختصارات عامة
 tray-shortcuts-hint = تعمل حتى عندما تكون تطبيقات أخرى في المقدمة.
 tray-shortcuts-none = لا شيء بعد. تعمل حتى عندما تكون تطبيقات أخرى في المقدمة.
 tray-add-shortcut = إضافة اختصار
+
+## The plain UI's settings (ui/index.html, ui/settings.html).
+
+settings-json-hint = إعدادات البحث والاستيراد ومراقبة المجلدات بصيغة JSON (المفاتيح الناقصة تأخذ القيم الافتراضية؛ كل ما هو اختياري معطّل).
+settings-json-hint-all = البحث والاستيراد وبقية الإعدادات بصيغة JSON (المفاتيح الناقصة تأخذ القيم الافتراضية؛ كل ما هو اختياري معطّل).
+settings-everything-else = كل ما عدا ذلك
+settings-bad-json = ليس JSON صالحًا: { $error }
+appearance-ui-font = خط الواجهة
+appearance-mono-font = خط الشيفرة والمحرر
+appearance-font-hint = الفارغ يستخدم خط النظام. اختر إعدادًا جاهزًا أو اسم أي خط مثبّت أو مضمّن (انظر shell.css).
+update-check = البحث عن تحديثات
+update-not-configured = التحديثات غير مُعدّة في هذا الإصدار (لا يوجد مفتاح عام للمحدّث).
+update-newest = لديك أحدث إصدار ({ $version }).
+update-check-failed = تعذّر البحث عن تحديثات: { $error }
+dictate-transcribing = جارٍ التفريغ…
+dictate-listening = جارٍ الاستماع…
+
+## Watch folders.
+
+watch-folders = يراقب: { $folders }
+watch-none = لا يراقب شيئًا.
+watch-ingested = أُضيفت { $files } ملفات ({ $chunks } مقاطع)
+watch-ingested-failed = أُضيفت { $files } ملفات ({ $chunks } مقاطع)، وفشل { $failed }
+watch-removed = نُسي { $path }
+watch-error = مشكلة: { $message }
+watch-started = { $count ->
+    [zero] بدأ على لا مجلد
+    [one] بدأ على مجلد واحد
+    [two] بدأ على مجلدين
+    [few] بدأ على { $count } مجلدات
+   *[other] بدأ على { $count } مجلدًا
+}
+
+## Sign-in (OAuth).
+
+oauth-kind-google = Google
+oauth-kind-github = GitHub
+oauth-kind-microsoft = Microsoft
+oauth-kind-oidc = OpenID Connect (أي مزوّد)
+oauth-browser = أكمل تسجيل الدخول في المتصفح…
+oauth-pending = أكمل تسجيل الدخول في المتصفح؛ سيُفتح التطبيق مجددًا عند الانتهاء.
+oauth-revoked = تم تسجيل الخروج وإلغاء الرمز.
+oauth-signed-out = تم تسجيل الخروج على هذا الحاسوب.
+oauth-signed-in = تم تسجيل الدخول.
+oauth-signed-in-as = تم تسجيل الدخول باسم { $who }.
+oauth-not-signed-in = لم يتم تسجيل الدخول.
+oauth-unsaved = احفظ الإعدادات لاستخدام هذا المزوّد.
+oauth-keychain = سلسلة المفاتيح: { $error }
+oauth-secret-saved = حُفظ سر العميل في سلسلة المفاتيح.
+oauth-secret-removed = أُزيل سر العميل.
+oauth-no-deep-link = إضافة الروابط العميقة غير مضمّنة؛ تُستخدم إعادة التوجيه إلى 127.0.0.1.
+oauth-provider = المزوّد
+oauth-id = الاسم (يُستخدم لتسجيل الدخول؛ مثل google)
+oauth-client-id = معرّف العميل
+oauth-scopes = النطاقات (فارغة = النطاقات المعتادة للمزوّد)
+oauth-issuer = رابط المُصدِر، مثل https://id.example.com
+oauth-tenant = المستأجر (common أو organizations أو consumers أو معرّف مستأجر)
+oauth-secret = سر العميل
+oauth-secret-kept = سر العميل محفوظ (اكتب لاستبداله)
+oauth-secret-placeholder = سر العميل، إن كان المزوّد يحتاجه
+oauth-secret-save = حفظ السر
+oauth-secret-remove = إزالة السر
+oauth-sign-out = تسجيل الخروج
+oauth-sign-in-with = تسجيل الدخول عبر { $provider }
+oauth-remove = إزالة المزوّد
+oauth-add = إضافة مزوّد
+oauth-hint = فعّل تسجيل الدخول واحفظ الإعدادات، ثم سجّل الدخول.
+
+## Plugins.
+
+plugins-none = لا توجد إضافات مضمّنة.
+plugins-on = (مفعّلة)
+plugins-off = (معطّلة)
+plugins-methods = الطرق: { $list }.
+json-invalid = (ليس JSON صالحًا بعد)
+
+## Cloud sync (rclone).
+
+rclone-config-saved = حُفظ الإعداد.
+rclone-config-removed = أُزيل الإعداد.
+rclone-synced = تمت المزامنة.
+rclone-ready = rclone جاهز.
+rclone-downloaded = rclone { $version }: تم تنزيله.
+rclone-on-first-sync = rclone { $version }: يُنزَّل عند أول مزامنة.
+rclone-unsupported = rclone { $version }: غير متاح لهذا الحاسوب.
+rclone-remotes = الوجهات البعيدة: { $list }.
+rclone-remotes-none = لا شيء
+rclone-no-config = لا يوجد إعداد بعد.
+rclone-last-ok = آخر مزامنة { $time } إلى { $target }: نجحت.
+rclone-last-failed = آخر مزامنة { $time } إلى { $target }: فشلت.
+rclone-config-label = إعداد الوجهة البعيدة: الصق ما يطبعه `rclone config show` (يُحفظ في ملف خاص)
+rclone-config-save = حفظ الإعداد
+rclone-config-remove = إزالة الإعداد
+rclone-download = تنزيل rclone
+rclone-sync = زامن الآن
+
+## Tailnet (Tailscale).
+
+tailscale-done = تم.
+tailscale-missing = Tailscale غير مثبّت. نزّله من هنا، ثم أعد فتح الإعدادات:
+tailscale-state = { $state }.
+tailscale-state-as = { $state } باسم { $name }.
+tailscale-state-in = { $state } في { $tailnet }.
+tailscale-state-as-in = { $state } باسم { $name } في { $tailnet }.
+tailscale-shared = المنفذ { $port } مُشارَك.
+tailscale-shared-at = المنفذ { $port } مُشارَك على { $url }.
+tailscale-nothing = لا شيء مُشارَك.
+tailscale-apply = تطبيق المشاركة
+
+## The backend as a service.
+
+service-status = { $manager }: { $installed }، { $running }. السجل: { $log }.
+service-installed = مثبّتة
+service-not-installed = غير مثبّتة
+service-running = تعمل
+service-running-pid = تعمل (pid { $pid })
+service-not-running = لا تعمل
+service-done-installed = تم التثبيت.
+service-done-removed = تمت الإزالة.
+service-toggle = تشغيل الخادم الخلفي كخدمة: بلا نافذة، يبدأ عند تسجيل الدخول، ويُعاد تشغيله إذا تعطّل
+service-boot = لتشغيله عند إقلاع الجهاز لجميع المستخدمين بدلًا من ذلك، نفّذ بصلاحيات المسؤول:
+
+## Web views.
+
+webview-message = رسالة من { $host }: { $data }
+webview-opened = فُتحت في { $label }.
+webview-url = صفحة الويب المراد فتحها
+webview-open = فتح
+webview-close = إغلاق
+
+## Key-value store and cache.
+
+kv-empty = لا توجد مفاتيح بعد.
+kv-keys = { $count ->
+    [zero] لا مفاتيح
+    [one] مفتاح واحد
+    [two] مفتاحان
+    [few] { $count } مفاتيح
+   *[other] { $count } مفتاحًا
+}
+kv-encrypted = ، مشفّر
+kv-open-to-window = ، متاح للنافذة
+cache-cleared = تم مسح الذاكرة المؤقتة.
+cache-stats = { $entries } عنصر، { $used } من { $max } · { $hits } إصابة، { $misses } إخفاق (نسبة الإصابة { $rate }%)
+cache-clear = مسح الذاكرة المؤقتة
+
+## Downloads: voice, speech model, local AI model.
+
+download-progress = جارٍ تنزيل { $progress }
+voice-ready = الصوت جاهز.
+voice-download = تنزيل الصوت (25 ميغابايت)
+stt-ready = النموذج جاهز.
+stt-download = تنزيل النموذج المختار (احفظ الإعدادات أولًا)
+stt-download-whisper = تنزيل نموذج Whisper
+model-progress = جارٍ التنزيل: { $progress }
+model-ready = جاهز: { $path }
+model-download = تنزيل النموذج المحلي
+
+## Telemetry.
+
+telemetry-off = لا يُرسل أي شيء ما لم تفعّله أعلاه.
+telemetry-crash-reports = تقارير الأعطال
+telemetry-analytics = إحصاءات الاستخدام
+telemetry-traces = التتبعات
+telemetry-nothing = لا شيء
+telemetry-sending = يُرسل: { $what }. المعرّف المجهول { $id }…، أُرسل { $sent }
+telemetry-pending = { $count ->
+    [one] ، تقرير عطل واحد محفوظ على هذا الحاسوب
+    [two] ، تقريرا عطل محفوظان على هذا الحاسوب
+    [few] ، { $count } تقارير أعطال محفوظة على هذا الحاسوب
+   *[other] ، { $count } تقرير عطل محفوظ على هذا الحاسوب
+}
+telemetry-last-error = . آخر مشكلة: { $error }
+telemetry-promise = . تُرسل أسماء الاستدعاءات والأزمنة والأعداد فقط، ولا تُرسل مستنداتك أو أسئلتك أبدًا.
+
+## MCP server.
+
+mcp-registered = Claude Desktop: { $result }. أعد تشغيل Claude Desktop لتحميله.
+mcp-add-claude = إضافة إلى Claude Desktop
+mcp-claude-code = Claude Code:
+mcp-save-first = احفظ الإعدادات والخادم مفعّل أولًا.
+mcp-turn-on = فعّل هذا في الإعدادات واحفظ، ثم اربط عميلًا:
+mcp-every-other = كل أداة أخرى
+mcp-tool = الأداة { $tool }
+mcp-default-allow = سماح (افتراضي)
+mcp-as-others = مثل كل أداة أخرى
+mcp-allow = سماح
+mcp-ask = اسألني أولًا
+mcp-deny = رفض
+mcp-waiting = { $count ->
+    [one] استدعاء MCP واحد ينتظرك:
+    [two] استدعاءا MCP ينتظرانك:
+    [few] { $count } استدعاءات MCP تنتظرك:
+   *[other] { $count } استدعاء MCP ينتظرك:
+}
+mcp-none-waiting = لا توجد استدعاءات MCP تنتظر الموافقة.
+mcp-approve = موافقة
+mcp-deny-call = رفض
+
+## Updates (release channels).
+
+updates-going-back = جارٍ الرجوع إلى { $version }…
+updates-rollback-failed = تعذّر الرجوع: { $error }
+updates-save-hint = احفظ لتبديل القناة؛ سيستخدم فحص التحديث التالي القناة الجديدة.
+updates-bucket = تصل الإصدارات المرحلية إلى هذا التثبيت عندما تُطرح لأكثر من { $bucket }%.
+updates-previous = الإصدار السابق: { $version }
+updates-kept = { " " }(محفوظ على هذا الحاسوب)
+updates-download-again = { " " }(يُنزَّل مجددًا من إصداره)
+updates-rollback = الرجوع إلى { $version }
+updates-none = لا يوجد إصدار سابق للرجوع إليه بعد.
+
+## About: licences.
+
+licences-title = { $count ->
+    [zero] التراخيص (لا حزم)
+    [one] التراخيص (حزمة واحدة)
+    [two] التراخيص (حزمتان)
+    [few] التراخيص ({ $count } حزم)
+   *[other] التراخيص ({ $count } حزمة)
+}
+licences-filter = التصفية حسب الاسم أو الترخيص
+licences-package = الحزمة
+licences-version = الإصدار
+licences-licence = الترخيص
+licences-show = عرض نصوص التراخيص
+licences-hide = إخفاء نصوص التراخيص
 
 ## غلاف تطبيق الويب: القائمة الأصلية ونافذة التفضيلات.
 

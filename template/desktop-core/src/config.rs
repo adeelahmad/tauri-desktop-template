@@ -107,7 +107,8 @@ pub struct Config {
 {% endif %}{% if release_channels %}    /// Update channel (stable or beta) for the updater.
     #[cfg(feature = "release-channels")]
     pub updates: crate::release::UpdatesConfig,
-{% endif %}{% if i18n %}    /// The interface language (`ui.language`: `system` or a locale code).
+{% endif %}{% if i18n %}    /// The interface language (`ui.language`: `system` or a locale code) and digits
+    /// (`ui.digits`: `latin` or `native`).
     #[cfg(feature = "i18n")]
     pub ui: crate::i18n::UiConfig,
 {% endif %}{% if kv %}    /// The built-in key-value store: namespaces open to the UI, encryption, size caps.
