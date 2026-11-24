@@ -56,6 +56,9 @@ Everything runs on the user's machine.
 {% if stt -%}
 | Speech to text with Whisper (tiny/base/small, multilingual, language detection, translate to English) over ONNX Runtime; mel spectrogram and decoding in Rust. Dictate into search and Ask, or transcribe an audio file. Turn on under Settings → Dictation | `desktop-core/src/stt.rs`, `desktop-core/src/audio.rs` | `stt` |
 {% endif -%}
+{% if email -%}
+| Email over SMTP in Rust (SSL/TLS on 465, STARTTLS on 587, `AUTH PLAIN`/`LOGIN`, HTML, attachments) on the rustls already in the tree; the password stays in an owner-only file. Turn on under Settings → Email | `desktop-core/src/mail.rs` | `mail` |
+{% endif -%}
 {% if telemetry -%}
 | Opt-in telemetry with no SDKs: crash reports to Sentry (always kept locally in `crashes/`), anonymous usage events to PostHog or Aptabase, OpenTelemetry traces over OTLP/HTTP. Off until the user switches it on under Settings → Privacy; keys come from build-time secrets | `desktop-core/src/telemetry.rs` | `telemetry` |
 {% endif -%}
@@ -187,6 +190,10 @@ is off by default; values are clamped to safe ranges.
 | `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
 | `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
 | `backup.intervalHours`, `backup.keep`, `backup.folder`, `backup.encrypt` | 0, 5, app data, off | scheduled backups; a synced folder keeps a copy off the computer |
+{% if email -%}
+| `mail.enabled`, `mail.host`, `mail.port`, `mail.security` | off, empty, 587, `starttls` | SMTP server; `tls` for port 465; `none` only to this computer |
+| `mail.username`, `mail.from`, `mail.maxMb`, `mail.timeoutSecs` | empty, empty, 25, 30 | login (empty = none), sender, largest message, timeout |
+{% endif -%}
 | `net.offline` | false | block every request that leaves the computer (a local model server still works) |
 | `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |
 | `net.proxy`, `net.noProxy` | system | empty = `HTTPS_PROXY`/`ALL_PROXY`, `direct`, or an `http://`/`socks5://` URL |
@@ -201,6 +208,12 @@ With `backup.encrypt` on, backups are sealed with ChaCha20-Poly1305 under a rand
 owner-only in the data folder (ring, already in every build). Settings shows it as a
 recovery key; restoring on another computer asks for it.
 
+{% if email -%}
+Email (`desktop_core::mail::send`) speaks SMTP itself: it refuses a password over an
+unencrypted link, checks certificates against the bundled Mozilla roots (or `net.caFiles` and
+`net.pins`), and rejects line breaks in addresses and headers. The `send_mail` command takes
+`{to, cc, bcc, subject, text, html?, attachments: [path]}`; Settings → Email has a test button.
+{% endif -%}
 Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through
 `desktop-core/src/net.rs` and obeys `net`. Child processes (the Python worker, uv) get the
 proxy, the CA file and offline switches (`HF_HUB_OFFLINE`, `UV_OFFLINE`) in their environment.

@@ -107,6 +107,20 @@ const FIELDS = [
   ['telemetry', 'analyticsHost', 'Analytics host (empty = the service default)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'traces', 'Send traces (OpenTelemetry)', 'bool', { needs: 'telemetry' }],
   ['telemetry', 'otlpEndpoint', 'OTLP endpoint, e.g. http://localhost:4318', 'text', { needs: 'telemetry' }],
+  ['mail', 'enabled', 'Send email (SMTP)', 'bool', { needs: 'mail' }],
+  ['mail', 'host', 'Mail server, e.g. smtp.gmail.com', 'text', { needs: 'mail' }],
+  ['mail', 'port', 'Port (465 for SSL/TLS, 587 for STARTTLS)', 'number', { needs: 'mail', min: 1, max: 65535 }],
+  [
+    'mail',
+    'security',
+    'Encryption',
+    'select',
+    { needs: 'mail', options: ['tls', 'starttls', 'none'], labels: ['SSL/TLS', 'STARTTLS', 'None (this computer only)'] },
+  ],
+  ['mail', 'username', 'Login name (empty = no login)', 'text', { needs: 'mail' }],
+  ['mail', 'from', 'Sender, e.g. Me <me@example.com>', 'text', { needs: 'mail' }],
+  ['mail', 'maxMb', 'Largest message (MB)', 'number', { needs: 'mail', min: 1, max: 100 }],
+  ['mail', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'mail', min: 5, max: 300 }],
   ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
@@ -132,6 +146,7 @@ const TITLES = {
   resources: 'Performance',
   net: 'Network',
   backup: 'Backups',
+  mail: 'Email',
   watch: 'Watch folders',
 };
 
@@ -215,6 +230,64 @@ function WatchStatus() {
         </div>
       ))}
     </div>
+  );
+}
+
+// The SMTP password (kept in an owner-only file, never in settings) and a test send.
+function MailSetup({ from }) {
+  const [password, setPassword] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    invoke('mail_password').then(
+      (r) => setSaved(r.set),
+      () => {},
+    );
+  }, []);
+  const store = async () => {
+    try {
+      setSaved((await invoke('mail_password', { password })).set);
+      setPassword('');
+      setMsg('Password saved.');
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  const test = async (to) => {
+    setBusy(true);
+    setMsg(to ? `Sending to ${to}...` : 'Connecting...');
+    try {
+      await invoke('test_mail', { to });
+      setMsg(to ? `Sent. Check ${to}.` : 'Connected and logged in.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const me = (from || '').match(/<([^>]+)>/)?.[1] || from;
+  return (
+    <>
+      <div className="row">
+        <input
+          type="password"
+          placeholder={saved ? 'Password saved (type to replace)' : 'Password or app password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <button onClick={store}>{password ? 'Save password' : 'Remove password'}</button>
+      </div>
+      <div className="row">
+        <button onClick={() => test(null)} disabled={busy}>
+          Test login
+        </button>
+        <button onClick={() => test(me)} disabled={busy || !me}>
+          Send a test email to myself
+        </button>
+        <span className="hint">{msg || 'Save settings first.'}</span>
+      </div>
+    </>
   );
 }
 
@@ -554,10 +627,22 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', telemetry: 'telemetry' };
-  const sections = ['search', 'ingest', 'llm', 'mcp', 'tts', 'stt', 'resources', 'backup', 'net', 'telemetry', 'log', 'watch'].filter(
-    (s) => !needs[s] || features[needs[s]],
-  );
+  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', mail: 'mail', telemetry: 'telemetry' };
+  const sections = [
+    'search',
+    'ingest',
+    'llm',
+    'mcp',
+    'tts',
+    'stt',
+    'resources',
+    'backup',
+    'mail',
+    'net',
+    'telemetry',
+    'log',
+    'watch',
+  ].filter((s) => !needs[s] || features[needs[s]]);
   return (
     <section>
       <h2>Settings</h2>
@@ -588,6 +673,7 @@ export default function Settings({ features }) {
           {s === 'stt' && <SttDownload />}
           {s === 'telemetry' && <TelemetryStatus />}
           {s === 'backup' && <Backups />}
+          {s === 'mail' && <MailSetup from={cfg.mail?.from} />}
         </details>
       ))}
       <div className="row">

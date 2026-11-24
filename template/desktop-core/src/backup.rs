@@ -70,7 +70,7 @@ impl BackupKey {
     /// Keep this key as the computer's backup key (owner-only `<data>/backup.key`).
     pub fn save(&self, data_dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(data_dir)?;
-        write_private(&data_dir.join("backup.key"), self.to_text().as_bytes())
+        crate::jobs::write_private(&data_dir.join("backup.key"), self.to_text().as_bytes())
     }
 
     /// Read a recovery key: 64 hex digits; spaces and dashes are ignored.
@@ -102,17 +102,6 @@ impl BackupKey {
     }
 }
 
-fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(file)?;
-        f.write_all(bytes)?;
-        f.sync_all()
-    }
-    #[cfg(not(unix))]
-    std::fs::write(file, bytes)
-}
 
 impl BackupConfig {
     pub fn validated(mut self) -> Self {

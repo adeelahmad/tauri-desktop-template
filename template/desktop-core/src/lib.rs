@@ -35,6 +35,8 @@ pub mod local;
 pub mod tts;
 {% endif %}{% if stt %}#[cfg(feature = "stt")]
 pub mod stt;
+{% endif %}{% if email %}#[cfg(feature = "mail")]
+pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
 {% endif %}

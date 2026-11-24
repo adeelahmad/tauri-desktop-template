@@ -55,6 +55,11 @@ type = "bool"
 prompt = "Text to speech with tiny-voca (4.5M params, Apache-2.0, two English voices; ONNX Runtime, model downloads on first use)?"
 default = false
 
+[placeholders.email]
+type = "bool"
+prompt = "Send email over SMTP (native Rust: SSL/TLS on 465, STARTTLS on 587, login, attachments)?"
+default = false
+
 [placeholders.stt]
 type = "bool"
 prompt = "Speech to text with Whisper (tiny/base/small, multilingual, MIT; ONNX Runtime, model downloads on first use): dictate questions or transcribe audio files?"
@@ -174,6 +179,9 @@ ignore = ["desktop-core/src/local.rs"]
 
 [conditional.'!tts']
 ignore = ["desktop-core/src/tts.rs"]
+
+[conditional.'!email']
+ignore = ["desktop-core/src/mail.rs"]
 
 [conditional.'!stt']
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]

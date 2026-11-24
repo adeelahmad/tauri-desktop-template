@@ -31,6 +31,8 @@ pub struct Config {
     pub tts: crate::tts::TtsConfig,
 {% endif %}{% if stt %}    #[cfg(feature = "stt")]
     pub stt: crate::stt::SttConfig,
+{% endif %}{% if email %}    #[cfg(feature = "mail")]
+    pub mail: crate::mail::MailConfig,
 {% endif %}{% if telemetry %}    #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
 {% endif %}}
@@ -217,6 +219,10 @@ impl Config {
 {% endif %}{% if stt %}        #[cfg(feature = "stt")]
         {
             self.stt = self.stt.validated();
+        }
+{% endif %}{% if email %}        #[cfg(feature = "mail")]
+        {
+            self.mail = self.mail.validated();
         }
 {% endif %}{% if telemetry %}        #[cfg(feature = "telemetry")]
         {
