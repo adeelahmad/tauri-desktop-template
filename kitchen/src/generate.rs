@@ -771,7 +771,16 @@ mod tests {
     fn dry_run_and_missing_marker_change_nothing() {
         let t = app();
         let before = read(&t, "desktop-core/src/lib.rs");
-        let r = module(t.path(), "notes", false, &Options { dry_run: true }).unwrap();
+        let r = module(
+            t.path(),
+            "notes",
+            false,
+            &Options {
+                dry_run: true,
+                ..Options::default()
+            },
+        )
+        .unwrap();
         assert!(r.summary.starts_with("Would"));
         assert_eq!(read(&t, "desktop-core/src/lib.rs"), before);
         assert!(!t.path().join("desktop-core/src/notes.rs").exists());

@@ -12,10 +12,11 @@
 //!
 //! // kitchen enable tts --dry-run
 //! let app = Project::find(Path::new("notes"))?;
-//! println!("{}", app.set_features(&["tts"], &[], &Options { dry_run: true })?);
+//! println!("{}", app.set_features(&["tts"], &[], &Options { dry_run: true, ..Options::default() })?);
 //! # Ok::<(), kitchen::Error>(())
 //! ```
 
+use crate::compat::{self, Level};
 use crate::manifest::{Manifest, FILE};
 use crate::merge::{self, Action};
 use crate::template::{Feature, Template};
@@ -93,12 +94,17 @@ impl Project {
                 toml::Value::String(v) => v.clone(),
                 v => v.to_string(),
             };
-            let needs = s
-                .feature
-                .requires
-                .as_ref()
-                .map(|p| format!(" (needs {p})"))
-                .unwrap_or_default();
+            let mut needs = compat::needs_of(&s.feature.name);
+            if let Some(p) = s.feature.requires.as_deref() {
+                if !needs.contains(&p) {
+                    needs.push(p);
+                }
+            }
+            let needs = if needs.is_empty() {
+                String::new()
+            } else {
+                format!(" (needs {})", needs.join(", "))
+            };
             r.lines.push(format!(
                 "{:<18} {:<8} {}{needs}",
                 s.feature.name, value, s.feature.prompt
@@ -108,7 +114,32 @@ impl Project {
             "kitchen enable <feature> / kitchen disable <feature> / kitchen set <name>=<value>"
                 .into(),
         );
+        r.next
+            .push("kitchen features --check   (do the answers work together?)".into());
         Ok(r)
+    }
+
+    /// `kitchen features --check`: check `kitchen.toml` against the rule table
+    /// ([`compat`]). The summary says how many problems there are ("no problems" when
+    /// none); every error comes with the commands that fix it.
+    pub fn check_features(&self) -> Report {
+        let found = compat::check(|n| self.manifest.is_on(n));
+        let errors = found.iter().filter(|f| f.level == Level::Error).count();
+        let mut r = Report::new(if errors == 0 {
+            format!("{FILE}: no problems; these answers work together")
+        } else {
+            format!("{FILE}: {errors} problem(s); these answers do not work together")
+        });
+        for f in &found {
+            r.lines.push(f.to_string());
+            if let (Level::Error, Some(needs)) = (f.level, f.other) {
+                r.next.push(format!(
+                    "kitchen enable {} --with-deps   (turns on {needs}), or kitchen disable {}",
+                    f.feature, f.feature
+                ));
+            }
+        }
+        r
     }
 
     /// Turn features on and off. Turning one on also turns on what it needs; turning one
@@ -121,8 +152,20 @@ impl Project {
     ) -> Result<Report> {
         let features = self.template()?.features()?;
         let mut next = self.manifest.clone();
-        switch(&features, &mut next, enable, disable)?;
-        self.reconfigure(next, None, opts)
+        let deps = if opts.with_deps || opts.dry_run {
+            Deps::Follow
+        } else {
+            Deps::Refuse
+        };
+        let mut notes = switch(&features, &mut next, enable, disable, deps, deps)?;
+        if !opts.with_deps && !notes.is_empty() {
+            notes.push(
+                "(a dry run; add --with-deps to switch the dependencies listed above too, without it this stops)"
+                    .into(),
+            );
+        }
+        gate(&self.manifest, &next, &mut notes)?;
+        self.reconfigure(next, None, opts, notes)
     }
 
     /// Change a text answer, e.g. `frontend=vanilla` or `embedding_model=bge-small-en-v1.5`.
@@ -133,13 +176,20 @@ impl Project {
                 "no question {key:?}; `kitchen features` lists them"
             ))
         })?;
-        let v = if f.is_switch() {
-            toml::Value::Boolean(
-                value
-                    .parse()
-                    .map_err(|_| Error::Usage(format!("{key} takes true or false")))?,
-            )
-        } else {
+        if f.is_switch() {
+            let on: bool = value
+                .parse()
+                .map_err(|_| Error::Usage(format!("{key} takes true or false")))?;
+            let (enable, disable): (&[&str], &[&str]) =
+                if on { (&[key], &[]) } else { (&[], &[key]) };
+            return self.set_features(enable, disable, opts);
+        }
+        if let Some(parent) = f.requires.as_deref().filter(|p| !self.manifest.is_on(p)) {
+            return Err(Error::Usage(format!(
+                "{key} applies only with {parent} on: `kitchen enable {parent}` first"
+            )));
+        }
+        let v = {
             if !f.choices.is_empty() && !f.choices.iter().any(|c| c == value) {
                 return Err(Error::Usage(format!(
                     "{key} is one of: {}",
@@ -150,22 +200,26 @@ impl Project {
         };
         let mut next = self.manifest.clone();
         next.set(key, v);
-        self.reconfigure(next, None, opts)
+        let mut notes = Vec::new();
+        gate(&self.manifest, &next, &mut notes)?;
+        self.reconfigure(next, None, opts, notes)
     }
 
     /// Move to a newer template (`rev`: a commit, tag or branch; `None` for the newest),
     /// keeping the app's own edits.
     pub fn upgrade(&self, rev: Option<&str>, opts: &Options) -> Result<Report> {
         let newer = Template::open(&self.manifest.template.source, Some(rev.unwrap_or("HEAD")))?;
-        self.reconfigure(self.manifest.clone(), Some(newer), opts)
+        self.reconfigure(self.manifest.clone(), Some(newer), opts, Vec::new())
     }
 
     /// Render the template before and after, and merge the difference into the app.
+    /// `notes` (dependencies switched, warnings, licence notices) come first in the report.
     fn reconfigure(
         &self,
         mut next: Manifest,
         newer: Option<Template>,
         opts: &Options,
+        notes: Vec<String>,
     ) -> Result<Report> {
         let before = self.template()?;
         let after = newer.unwrap_or_else(|| before.clone());
@@ -197,6 +251,7 @@ impl Project {
         if self.manifest.template.rev.is_empty() {
             r.next.push("This app does not record its template commit, so more files may show as merged; check them.".into());
         }
+        r.lines.extend(notes);
         for c in &plan.changes {
             let a = serde_json::to_value(c.action)
                 .ok()
@@ -235,13 +290,26 @@ impl Project {
     }
 }
 
-/// Turn features on (with what they need) and off (with what needs them) in `m`.
+/// What to do when a switch needs another one changed ([`compat::REQUIRES`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Deps {
+    /// Change them too, and list them.
+    Follow,
+    /// Refuse, saying what it would take (`--with-deps`).
+    Refuse,
+}
+
+/// Turn features on and off in `m`. What the enabled ones need (`on`) and what needs the
+/// disabled ones (`off`) is switched too or refused, per [`Deps`]. Returns one line per
+/// dependency switched.
 fn switch<S: AsRef<str>>(
     features: &[Feature],
     m: &mut Manifest,
     enable: &[S],
     disable: &[S],
-) -> Result<()> {
+    on: Deps,
+    off: Deps,
+) -> Result<Vec<String>> {
     for name in enable.iter().chain(disable).map(AsRef::as_ref) {
         match features.iter().find(|f| f.name == name) {
             Some(f) if f.is_switch() => {}
@@ -257,37 +325,121 @@ fn switch<S: AsRef<str>>(
             }
         }
     }
-    for name in enable.iter().map(AsRef::as_ref) {
-        let mut cur = Some(name.to_string());
-        while let Some(n) = cur {
-            m.set(&n, toml::Value::Boolean(true));
-            // Questions that only apply under this one start at their defaults.
-            for child in features
-                .iter()
-                .filter(|f| f.requires.as_deref() == Some(&n))
-            {
-                if !m.answers.contains_key(&child.name) {
-                    m.set(&child.name, child.default.clone());
-                }
-            }
-            cur = features
-                .iter()
-                .find(|f| f.name == n)
-                .and_then(|f| f.requires.clone());
+    let enable: Vec<&str> = enable.iter().map(AsRef::as_ref).collect();
+    let disable: Vec<&str> = disable.iter().map(AsRef::as_ref).collect();
+    let needed = compat::missing_needs(&enable, |n| m.is_on(n));
+    let dependents = compat::dependents(&disable, |n| m.is_on(n) && !enable.contains(&n));
+    let why = |a: &str, b: &str| {
+        compat::REQUIRES
+            .iter()
+            .find(|r| r.feature == a && r.needs == b)
+            .map(|r| r.why)
+            .unwrap_or_default()
+    };
+    let mut problems = Vec::new();
+    if on == Deps::Refuse {
+        for (need, by) in &needed {
+            problems.push(format!(
+                "{by} needs {need} ({}), which is off",
+                why(by, need)
+            ));
         }
     }
-    for name in disable.iter().map(AsRef::as_ref) {
-        let mut off = vec![name.to_string()];
-        while let Some(n) = off.pop() {
-            m.set(&n, toml::Value::Boolean(false));
-            off.extend(
-                features
+    if off == Deps::Refuse {
+        for (dep, of) in &dependents {
+            problems.push(format!(
+                "{dep} needs {of} ({}), and {dep} is on",
+                why(dep, of)
+            ));
+        }
+    }
+    if !problems.is_empty() {
+        let mut fix = Vec::new();
+        if on == Deps::Refuse && !needed.is_empty() {
+            fix.push(format!(
+                "kitchen enable {} --with-deps   (also turns on {})",
+                enable.join(" "),
+                needed
                     .iter()
-                    .filter(|f| f.requires.as_deref() == Some(&n) && f.is_switch())
-                    .map(|f| f.name.clone()),
-            );
+                    .map(|(n, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
+        if off == Deps::Refuse && !dependents.is_empty() {
+            fix.push(format!(
+                "kitchen disable {} --with-deps   (also turns off {})",
+                disable.join(" "),
+                dependents
+                    .iter()
+                    .map(|(n, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        return Err(Error::Usage(format!(
+            "these features need others:\n  {}\nTo switch those too:\n  {}\n(add --dry-run to see the files first)",
+            problems.join("\n  "),
+            fix.join("\n  ")
+        )));
     }
+    let mut notes = Vec::new();
+    for name in &enable {
+        m.set(name, toml::Value::Boolean(true));
+    }
+    for (need, by) in &needed {
+        m.set(need, toml::Value::Boolean(true));
+        notes.push(format!(
+            "also on   {need}  ({by} needs it: {})",
+            why(by, need)
+        ));
+    }
+    // Questions that only apply under a feature that is now on start at their defaults
+    // (`kitchen new` leaves them out while that feature is off).
+    let fill: Vec<&Feature> = features
+        .iter()
+        .filter(|f| f.requires.as_ref().is_some_and(|r| m.is_on(r)))
+        .filter(|f| !m.answers.contains_key(&f.name))
+        .collect();
+    for child in fill {
+        m.set(&child.name, child.default.clone());
+    }
+    for name in &disable {
+        m.set(name, toml::Value::Boolean(false));
+    }
+    for (dep, of) in &dependents {
+        m.set(dep, toml::Value::Boolean(false));
+        notes.push(format!(
+            "also off  {dep}  (it needs {of}: {})",
+            why(dep, of)
+        ));
+    }
+    Ok(notes)
+}
+
+/// Check `after` against the rule table before anything is rendered: an error that
+/// `before` did not have is refused; new warnings and licence notices go into `notes`.
+fn gate(before: &Manifest, after: &Manifest, notes: &mut Vec<String>) -> Result<()> {
+    let old = compat::check(|n| before.is_on(n));
+    let new = compat::check(|n| after.is_on(n));
+    let fresh: Vec<_> = new.iter().filter(|f| !old.contains(f)).collect();
+    let errors: Vec<String> = fresh
+        .iter()
+        .filter(|f| f.level == Level::Error)
+        .map(|f| format!("  {}", f.message))
+        .collect();
+    if !errors.is_empty() {
+        return Err(Error::Usage(format!(
+            "these answers do not work together:\n{}\nAdd --with-deps to switch what they need, or see `kitchen features --check`.",
+            errors.join("\n")
+        )));
+    }
+    notes.extend(fresh.iter().map(|f| f.to_string()));
+    notes.extend(
+        new.iter()
+            .filter(|f| f.level == Level::Error)
+            .map(|f| format!("{f} (already in {FILE}; `kitchen features --check`)")),
+    );
     Ok(())
 }
 
@@ -322,6 +474,10 @@ pub struct NewApp {
     pub set: Vec<(String, String)>,
     /// Skip `git init`.
     pub no_git: bool,
+    /// Also turn on what the enabled features need (`--with-deps`). Features only on by
+    /// default that need a disabled one are turned off either way, as cargo-generate
+    /// would not ask them.
+    pub with_deps: bool,
 }
 
 /// Create an app from the template (`kitchen new`).
@@ -387,7 +543,19 @@ pub fn create(req: &NewApp) -> Result<Report> {
         )),
     );
     m.set("github_repo", toml::Value::String(format!("owner/{name}")));
-    switch(&features, &mut m, &req.enable, &req.disable)?;
+    let on = if req.with_deps {
+        Deps::Follow
+    } else {
+        Deps::Refuse
+    };
+    let mut notes = switch(
+        &features,
+        &mut m,
+        &req.enable,
+        &req.disable,
+        on,
+        Deps::Follow,
+    )?;
     for (k, v) in &req.set {
         let f = features
             .iter()
@@ -401,6 +569,7 @@ pub fn create(req: &NewApp) -> Result<Report> {
         m.set(k, value);
     }
     drop_unused_answers(&features, &mut m);
+    gate(&Manifest::default(), &m, &mut notes)?;
     std::fs::create_dir_all(&parent)
         .map_err(|e| Error::Io(format!("create {}", parent.display()), e))?;
     let out = template.render(&m, &parent)?;
@@ -416,6 +585,7 @@ pub fn create(req: &NewApp) -> Result<Report> {
     } else {
         format!("features on: {}", on.join(", "))
     });
+    r.lines.extend(notes);
     let agent: Vec<&str> = crate::doctor::AGENT_FILES
         .iter()
         .copied()
@@ -495,11 +665,28 @@ mod tests {
         }
         drop_unused_answers(&features, &mut m);
         assert!(!m.answers.contains_key("background_agent"));
-        switch(&features, &mut m, &["ipc_worker"], &[] as &[&str]).unwrap();
+        let refuse = Deps::Refuse;
+        switch(
+            &features,
+            &mut m,
+            &["ipc_worker"],
+            &[] as &[&str],
+            refuse,
+            refuse,
+        )
+        .unwrap();
         assert!(m.is_on("ipc_worker") && m.is_on("background_agent"));
         // An explicit answer is kept.
         m.set("background_agent", toml::Value::Boolean(false));
-        switch(&features, &mut m, &["ipc_worker"], &[] as &[&str]).unwrap();
+        switch(
+            &features,
+            &mut m,
+            &["ipc_worker"],
+            &[] as &[&str],
+            refuse,
+            refuse,
+        )
+        .unwrap();
         assert!(!m.is_on("background_agent"));
     }
 
@@ -518,5 +705,105 @@ mod tests {
         );
         let log = crate::template::git(Some(d.path()), &["log", "--format=%s"]).unwrap();
         assert_eq!(log, "New app from Kitchen");
+    }
+
+    fn features() -> Vec<Feature> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../template/cargo-generate.toml");
+        crate::template::parse_features(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn manifest(on: &[&str]) -> Manifest {
+        let mut m = Manifest::default();
+        for f in features().iter().filter(|f| f.is_switch()) {
+            m.set(&f.name, toml::Value::Boolean(on.contains(&f.name.as_str())));
+        }
+        m
+    }
+
+    #[test]
+    fn enable_refuses_missing_needs_unless_with_deps() {
+        let f = features();
+        let mut m = manifest(&[]);
+        let e = switch(&f, &mut m, &["daemon"], &[], Deps::Refuse, Deps::Refuse)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("daemon needs ipc_worker"), "{e}");
+        assert!(e.contains("kitchen enable daemon --with-deps"), "{e}");
+        assert!(!m.is_on("daemon"), "nothing changes when refused");
+
+        let notes = switch(&f, &mut m, &["daemon"], &[], Deps::Follow, Deps::Refuse).unwrap();
+        assert!(m.is_on("daemon") && m.is_on("ipc_worker"));
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].starts_with("also on   ipc_worker"), "{notes:?}");
+
+        // Already there: nothing to add.
+        let mut m = manifest(&["postgres"]);
+        assert!(
+            switch(&f, &mut m, &["bm25"], &[], Deps::Refuse, Deps::Refuse)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn disable_refuses_dependents_unless_with_deps() {
+        let f = features();
+        let mut m = manifest(&["ipc_worker", "daemon", "background_agent"]);
+        let e = switch(&f, &mut m, &[], &["ipc_worker"], Deps::Refuse, Deps::Refuse)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("daemon needs ipc_worker"), "{e}");
+        assert!(e.contains("--with-deps"), "{e}");
+        let notes = switch(&f, &mut m, &[], &["ipc_worker"], Deps::Refuse, Deps::Follow).unwrap();
+        assert!(!m.is_on("daemon") && !m.is_on("background_agent") && !m.is_on("ipc_worker"));
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        // Turning one on and its need off at once is refused, not silently undone.
+        let mut m = manifest(&["ipc_worker"]);
+        switch(
+            &f,
+            &mut m,
+            &["daemon"],
+            &["ipc_worker"],
+            Deps::Follow,
+            Deps::Follow,
+        )
+        .unwrap();
+        assert!(gate(&manifest(&["ipc_worker"]), &m, &mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn gate_refuses_new_errors_and_reports_warnings_and_licences() {
+        let ok = manifest(&["postgres"]);
+        let mut notes = Vec::new();
+        let e = gate(&ok, &manifest(&["postgres", "daemon"]), &mut notes)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("daemon needs ipc_worker"), "{e}");
+
+        let mut notes = Vec::new();
+        gate(&ok, &manifest(&["postgres", "bm25", "mobile"]), &mut notes).unwrap();
+        assert!(
+            notes.iter().any(|n| n.starts_with("licence: bm25")),
+            "{notes:?}"
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.starts_with("warning: postgres is desktop only")),
+            "{notes:?}"
+        );
+        assert!(
+            !notes.iter().any(|n| n.contains("licence: postgres")),
+            "already on: {notes:?}"
+        );
+
+        // A problem the app already had does not block an unrelated change.
+        let bad = manifest(&["daemon"]);
+        let mut notes = Vec::new();
+        gate(&bad, &manifest(&["daemon", "email"]), &mut notes).unwrap();
+        assert!(
+            notes.iter().any(|n| n.contains("already in kitchen.toml")),
+            "{notes:?}"
+        );
     }
 }

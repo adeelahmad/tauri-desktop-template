@@ -113,6 +113,7 @@ fn agent_docs_render_cleanly_and_name_only_enabled_features() {
         &[
             "--enable",
             "email,mcp_server,tts,plugins,tauri_dialog,local_llm,mobile",
+            "--with-deps",
         ],
     );
     let _ = std::fs::remove_dir_all(&work);

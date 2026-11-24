@@ -17,8 +17,8 @@
 //! Main modules: [`engine`] (the facade), [`config`] (every setting, validated),
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
-//! development builds). Feature modules: `embed`, `pdf`, `pgstore`, `watch`, `llm` (feature
-//! `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
+//! development builds). Feature modules: `embed`, `pdf`, `pgstore`, `watch`, `llm` and `meter` (cost
+//! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
 //! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`).
 //!
 //! # Example
@@ -66,6 +66,8 @@ pub mod watch;
 pub mod cache;
 #[cfg(feature = "ai")]
 pub mod llm;
+#[cfg(feature = "ai")]
+pub mod meter;
 {% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
 pub mod mcp;
 {% endif %}{% if local_llm %}#[cfg(feature = "llama")]

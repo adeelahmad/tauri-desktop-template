@@ -2,6 +2,13 @@
 cargo_generate_version = ">=0.22.0"
 # Copied as they are (GitHub Actions uses ${{ }} too, and icons are binary).
 exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", ".github/workflows/mobile.yml", "src-tauri/icons/*"]
+# The pre-hook below runs from the template; it is not part of the app.
+ignore = ["hooks"]
+
+# Refuses answers that do not work together, warns about desktop-only features in a
+# mobile build and prints licence notices (the rules: kitchen/src/compat.rs).
+[hooks]
+pre = ["hooks/compat.rhai"]
 
 [placeholders.app_name]
 type = "string"
@@ -312,7 +319,7 @@ ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256", ".github/
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]
 
 [conditional.'!ai']
-ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs"]
+ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs", "desktop-core/src/meter.rs"]
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]

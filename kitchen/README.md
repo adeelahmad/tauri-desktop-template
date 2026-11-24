@@ -22,6 +22,8 @@ cd notes
 kitchen features                  # every feature, on/off, and what it needs
 kitchen enable tts                # turn on later: a 3-way merge keeps your edits
 kitchen disable tts --dry-run     # see what would change first
+kitchen enable daemon --with-deps # also turn on what it needs (ipc_worker)
+kitchen features --check          # do the answers in kitchen.toml work together?
 kitchen set frontend=vanilla      # change any other answer
 kitchen upgrade                   # move to the newest template, keeping your edits
 
@@ -152,7 +154,8 @@ claude mcp add kitchen -- kitchen mcp
 
 The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
 `start`, `test`, `package`, `publish`, `eject`, `service` and `new`. Each one takes an optional
-`project` folder, and the ones that change files also take `dry_run`. `start` keeps
+`project` folder, and the ones that change files also take `dry_run`; `enable`, `disable`,
+`set` and `new` take `with_deps`, and `features` takes `check`. `start` keeps
 running, so it answers with the command to run in a terminal instead of blocking; `test`
 and `package` run and return the report (the commands, the test results, and the last
 lines of output of a step that failed); `publish` only shows the release unless `yes` is
@@ -160,6 +163,18 @@ true.
 `service` only runs `status` and `logs` by itself; for `install`, `uninstall`,
 `start`, `stop` and `restart` it reports the command it would run unless `allow_changes` is
 true.
+
+## Feature dependencies
+
+Some answers need others (`daemon` needs `ipc_worker`, `bm25` needs `postgres`, ...).
+`new`, `enable`, `disable` and `set` check them before they render anything, using one rule
+table (`src/compat.rs`, listed under "Feature dependencies" in the repository README). A
+change that needs another feature switched is refused with the command that fixes it;
+`--with-deps` switches those too (on for `enable`, off for what needs a feature on
+`disable`), and `--dry-run` lists them. Desktop-only features in a mobile build and
+licences other than MIT / Apache-2.0 are reported, not refused. The template's
+cargo-generate pre-hook applies the same table, so plain `cargo generate` refuses the same
+combinations.
 
 ## Services
 
