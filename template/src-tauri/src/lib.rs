@@ -24,6 +24,43 @@
 //! background agent (the backend runs in this process), the updater (the app stores
 //! update the app), single instance, the stdio MCP server, Python, Claude Desktop,
 //! folder watching and embedded Postgres (the file store is used).
+//!
+//! # Layers
+//!
+//! ```text
+//! UI (ui/ or ui-react/)  --invoke-->  Tauri commands (this file)
+//!                                      |  call(method, params)
+//!                                      v
+//!                          service::Service
+//!                      Local (this process)  |  ipc::Remote --socket--> `<app> --worker` (ipc::serve -> Local)
+//!                                      |
+//!                                      v
+//!                          desktop_core::Engine (store, embedder, config)
+//! ```
+//!
+//! Every command is a thin wrapper: it turns its arguments into a JSON `params` object and
+//! calls the service by method name, so the same backend serves the window, the worker
+//! process, `--mcp` and `--self-test`. Settings live in `<config>/settings.json` (see
+//! `paths` for profiles); `get_config` / `set_config` read and write the `config` part, and
+//! `set_config` also hands it to the running engine (`configure`).
+//!
+//! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
+//! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
+//! `update`, `single`, `python`, `claude`.
+//!
+//! # Example
+//!
+//! The entry points are what `main.rs` calls; opening a window needs a desktop session:
+//!
+//! ```no_run
+//! // `<app>`: the window.
+//! app_lib::run();
+//! ```
+//!
+//! ```no_run
+//! // `<app> --self-test report.json`: index and search a sample with every built-in store.
+//! std::process::exit(app_lib::self_test(Some(std::path::Path::new("report.json"))));
+//! ```
 
 use desktop_core::{Backend, Config, Engine, EngineOptions, Hit, IngestReport, SearchConfig, Status};
 use serde::{Deserialize, Serialize};
@@ -505,8 +542,8 @@ fn clear(state: tauri::State<AppState>) -> Result<Status, String> {
     typed(call(&state, "clear", Value::Null))
 }
 
-/// `<app> --worker`: serve the backend over the local socket until told to stop.
-/// `--mcp`: serve MCP over stdio (feature `mcp`), sharing the worker when there is one.
+/// `<app> --mcp`: serve MCP over stdio (feature `mcp`), sharing the worker when there is
+/// one. Returns the exit code.
 #[cfg(all(desktop, feature = "mcp"))]
 pub fn mcp_main() -> i32 {
     #[cfg(all(desktop, feature = "ipc-worker"))]
@@ -517,6 +554,7 @@ pub fn mcp_main() -> i32 {
     mcp::main(load, service)
 }
 
+/// `<app> --mcp` where there is no MCP server (feature off, or mobile): says so and returns 2.
 #[cfg(not(all(desktop, feature = "mcp")))]
 pub fn mcp_main() -> i32 {
     eprintln!("this build has no MCP server (feature mcp)");
@@ -572,6 +610,8 @@ fn mcp_heartbeat() {
     }
 }
 
+/// `<app> --worker`: serve the backend over the local socket until told to stop.
+/// Returns the exit code.
 #[cfg(all(desktop, feature = "ipc-worker"))]
 pub fn worker_main() -> i32 {
     let (config, data) = paths::app_dirs();
@@ -581,6 +621,7 @@ pub fn worker_main() -> i32 {
     ipc::serve()
 }
 
+/// `<app> --worker` where there is no worker process (feature off, or mobile): says so and returns 2.
 #[cfg(not(all(desktop, feature = "ipc-worker")))]
 pub fn worker_main() -> i32 {
     eprintln!("this build has no worker process (feature ipc-worker)");

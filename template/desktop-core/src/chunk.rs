@@ -1,10 +1,33 @@
 //! Split text into search-sized chunks along paragraph and sentence boundaries.
+//!
+//! Short paragraphs are merged up to the size limit and long ones are cut at sentence ends,
+//! so a chunk is a few sentences that belong together. An optional overlap repeats the end of
+//! one chunk at the start of the next. Every chunk can carry its [`Provenance`] (file hash,
+//! extractor, model, time), which travels into search hits and citations.
+//!
+//! Main items: [`Chunk`], [`Chunking`], [`chunks_from_text`], [`chunks_from_pages`].
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::chunk::{chunks_from_text, chunks_from_text_with, Chunking};
+//!
+//! let chunks = chunks_from_text("notes.md", "First paragraph.\n\nSecond paragraph.");
+//! assert_eq!(chunks.len(), 1); // short paragraphs are merged
+//! assert_eq!(chunks[0].text, "First paragraph. Second paragraph.");
+//!
+//! let long = "One sentence here. ".repeat(50);
+//! let small = chunks_from_text_with("long.txt", &long, Chunking { max_chars: 200, overlap: 40 });
+//! assert!(small.len() > 1);
+//! assert!(small.iter().all(|c| c.text.chars().count() <= 201));
+//! ```
 
 use serde::{Deserialize, Serialize};
 
 /// Chunks aim for at most this many characters (a long sentence can go over it).
 pub const MAX_CHARS: usize = 800;
 
+/// A piece of a document: the unit that is embedded, stored and returned by search.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Chunk {
     /// Where the text came from: a file path or a name the user gave.
@@ -12,6 +35,7 @@ pub struct Chunk {
     /// 1-based page for PDFs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
+    /// The text itself, whitespace collapsed.
     pub text: String,
     /// How this chunk was made; travels with it into every search hit and citation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,7 +67,9 @@ pub struct Provenance {
 /// Chunk size and overlap (from `IngestConfig`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chunking {
+    /// Chunks aim for at most this many characters.
     pub max_chars: usize,
+    /// Characters (whole words) repeated from the end of the previous chunk.
     pub overlap: usize,
 }
 
@@ -64,6 +90,7 @@ pub fn chunks_from_text(source: &str, text: &str) -> Vec<Chunk> {
     chunks_from_text_with(source, text, Chunking::default())
 }
 
+/// [`chunks_from_text`] with a chosen size and overlap.
 pub fn chunks_from_text_with(source: &str, text: &str, c: Chunking) -> Vec<Chunk> {
     split_with(text, c).into_iter().map(|t| Chunk { source: source.into(), page: None, text: t, prov: None }).collect()
 }
@@ -73,6 +100,7 @@ pub fn chunks_from_pages(source: &str, pages: &[(u32, String)]) -> Vec<Chunk> {
     chunks_from_pages_with(source, pages, Chunking::default())
 }
 
+/// [`chunks_from_pages`] with a chosen size and overlap.
 pub fn chunks_from_pages_with(source: &str, pages: &[(u32, String)], c: Chunking) -> Vec<Chunk> {
     pages
         .iter()

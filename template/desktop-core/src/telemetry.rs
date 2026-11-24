@@ -13,6 +13,20 @@
 //! inspected locally; they are sent at the next start only when crash reports are on.
 //! Keys default to the build's environment (`SENTRY_DSN`, `POSTHOG_KEY`, `POSTHOG_HOST`,
 //! `APTABASE_KEY`, `OTEL_EXPORTER_OTLP_ENDPOINT`), so they live in CI secrets, not code.
+//!
+//! Main items: [`init`], [`configure`], [`event`], [`record`], [`span`], [`flush`],
+//! [`status`], [`install_panic_hook`] and [`TelemetryConfig`].
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::telemetry::{sentry_endpoint, TelemetryConfig};
+//!
+//! let (url, key) = sentry_endpoint("https://abc123@o1.ingest.sentry.io/42").unwrap();
+//! assert_eq!(url, "https://o1.ingest.sentry.io/api/42/envelope/");
+//! assert_eq!(key, "abc123");
+//! assert!(!TelemetryConfig::default().any()); // nothing is sent until the user opts in
+//! ```
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -21,22 +35,25 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// Telemetry settings (`telemetry` in settings). Everything is off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TelemetryConfig {
     /// Send crash reports (written locally either way).
     pub crash_reports: bool,
+    /// Where crash reports go (a Sentry DSN).
     pub sentry_dsn: String,
     /// Send anonymous usage events.
     pub analytics: bool,
     /// "posthog" or "aptabase".
     pub analytics_provider: String,
-    /// PostHog: https://us.i.posthog.com (default) or your instance; Aptabase: only for self-hosting.
+    /// PostHog: `https://us.i.posthog.com` (default) or your instance; Aptabase: only for self-hosting.
     pub analytics_host: String,
+    /// The PostHog project key or the Aptabase app key.
     pub analytics_key: String,
     /// Send traces of backend calls over OTLP/HTTP.
     pub traces: bool,
-    /// e.g. https://otel.example.com or http://localhost:4318 (`/v1/traces` is added).
+    /// e.g. `https://otel.example.com` or `http://localhost:4318` (`/v1/traces` is added).
     pub otlp_endpoint: String,
     /// Extra headers, `key=value` pairs separated by commas (e.g. an API key).
     pub otlp_headers: String,
@@ -67,6 +84,7 @@ impl Default for TelemetryConfig {
 }
 
 impl TelemetryConfig {
+    /// Unknown providers become PostHog; text fields are trimmed.
     pub fn validated(mut self) -> Self {
         if !matches!(self.analytics_provider.as_str(), "posthog" | "aptabase") {
             self.analytics_provider = "posthog".into();

@@ -132,27 +132,17 @@ tauri-plugin-os = "2"
 tauri-plugin-log = "2"
 {% endif -%}
 {% endif -%}
-{% assign desktop_table = false -%}
-{% if mobile -%}{% if ipc_worker or updater -%}
-{% assign desktop_table = true -%}
+{% if ipc_worker or updater or tray_menu or tauri_global_shortcut or tauri_autostart or tauri_window_state or tauri_process -%}
 
-# Desktop only: on iOS and Android the backend runs in this process and updates come from the app stores.
+# Desktop only (one table: TOML allows each header once). On iOS and Android the backend
+# runs in this process and updates come from the app stores.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-{% endif -%}{% endif -%}
 {% if ipc_worker -%}
 interprocess = { version = "2", optional = true }
 {% endif -%}
 {% if updater -%}
 tauri-plugin-updater = { version = "2", optional = true }
 {% endif -%}
-{% assign desktop_plugins = tray_menu -%}
-{% if tauri_plugins -%}{% if tauri_global_shortcut or tauri_autostart or tauri_window_state or tauri_process -%}{% assign desktop_plugins = true -%}{% endif -%}{% endif -%}
-{% if desktop_plugins -%}
-{% unless desktop_table -%}
-
-# Desktop-only plugins.
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-{% endunless -%}
 {% if shortcut_plugin -%}
 tauri-plugin-global-shortcut = "2"
 {% elsif tray_menu -%}
