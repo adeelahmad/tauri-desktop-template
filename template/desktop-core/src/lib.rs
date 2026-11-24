@@ -39,7 +39,8 @@ pub mod stt;
 pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
-{% endif %}
+{% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
+
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use logging::LogConfig;
 pub use config::{Config, IngestConfig, KeywordEngine, SearchConfig, SearchMode, WatchConfig};
