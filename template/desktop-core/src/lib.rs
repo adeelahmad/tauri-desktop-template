@@ -47,7 +47,9 @@ pub mod plugin;
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
-{% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
+{% endif %}{% if ipc_worker %}{% if daemon %}#[cfg(feature = "daemon")]
+pub mod daemon;
+{% endif %}{% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};
 pub use logging::LogConfig;

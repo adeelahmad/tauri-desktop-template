@@ -67,6 +67,10 @@ telemetry = []
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
 {% endif -%}
+{% if ipc_worker -%}{% if daemon -%}
+# Service files, the daemon's health file and crash backoff (std only; see daemon.rs).
+daemon = []
+{% endif -%}{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile"]

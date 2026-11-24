@@ -11,7 +11,7 @@
 //! ```
 
 use crate::project::{self, NewApp, Project};
-use crate::{doctor, generate, Error, Options, Report, Result};
+use crate::{doctor, generate, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -30,6 +30,8 @@ Usage:
   kitchen generate command <name>
   kitchen generate page <Name>
   kitchen doctor [--json]              check this machine and this app
+  kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
+                                       the app's daemon as an OS service (feature daemon)
   kitchen dev | build                  cargo tauri dev / build
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
@@ -51,7 +53,9 @@ pub struct Args {
 }
 
 /// Options that take a value (all others are flags).
-const VALUED: &[&str] = &["enable", "disable", "set", "dir", "source", "rev", "label"];
+const VALUED: &[&str] = &[
+    "enable", "disable", "set", "dir", "source", "rev", "label", "lines",
+];
 
 impl Args {
     /// Parse `argv` (without the program name).
@@ -206,6 +210,22 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             }
         }
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
+        "service" => {
+            let lines = args
+                .value("lines")
+                .map(|n| {
+                    n.parse()
+                        .map_err(|_| Error::Usage(format!("--lines {n}: give a number")))
+                })
+                .transpose()?;
+            service::run(
+                &project()?,
+                args.words.get(1).map(String::as_str).unwrap_or("status"),
+                args.flag("system"),
+                lines,
+                &opts,
+            )
+        }
         "help" => Ok(Report::new(HELP.trim_end())),
         other => Err(Error::Usage(format!(
             "unknown command {other:?}; see `kitchen --help`"

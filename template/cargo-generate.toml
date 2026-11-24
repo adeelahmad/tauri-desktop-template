@@ -177,6 +177,11 @@ type = "bool"
 prompt = "Background agent that starts the worker at login (macOS LaunchAgent, Windows Run entry, Linux systemd)?"
 default = true
 
+[conditional.'ipc_worker'.placeholders.daemon]
+type = "bool"
+prompt = "Daemon mode: `<app> --daemon` runs the backend headless, and `<app> --service install [--system]` makes it a launchd / systemd / Windows service that restarts on failure?"
+default = false
+
 [conditional.'claude_mcp'.placeholders.mcp_server_name]
 type = "string"
 prompt = "MCP server name in Claude Desktop's config"
@@ -310,7 +315,10 @@ ignore = ["ui"]
 ignore = ["ui-react"]
 
 [conditional.'!ipc_worker']
-ignore = ["src-tauri/src/ipc.rs", "src-tauri/src/agent.rs"]
+ignore = ["src-tauri/src/ipc.rs", "src-tauri/src/agent.rs", "src-tauri/src/daemon.rs", "desktop-core/src/daemon.rs"]
+
+[conditional.'ipc_worker && !daemon']
+ignore = ["src-tauri/src/daemon.rs", "desktop-core/src/daemon.rs"]
 
 [conditional.'ipc_worker && !background_agent']
 ignore = ["src-tauri/src/agent.rs"]

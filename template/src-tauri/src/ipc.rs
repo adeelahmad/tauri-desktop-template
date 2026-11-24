@@ -8,9 +8,14 @@
 //!   worker → zero or more `{"progress": "..."}`, then `{"result": ...}` or `{"error": "..."}`
 //! `shutdown` stops the worker (used when the app exits without a background agent, and
 //! after an update so the new binary takes over).
+//!
+//! The daemon (feature `daemon`, `<app> --daemon`) serves the same socket through
+//! [`bind`] and [`serve_on`], and says so in its `ping` reply (`"daemon": true`): then the
+//! window leaves it running when it closes, and after an update it waits for the service
+//! manager to start the new binary instead of starting a worker of its own.
 
 use crate::service::{Local, Service};
-use interprocess::local_socket::{prelude::*, GenericFilePath, GenericNamespaced, ListenerOptions, Name, Stream};
+use interprocess::local_socket::{prelude::*, GenericFilePath, GenericNamespaced, Listener, ListenerOptions, Name, Stream};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,7 +60,7 @@ fn handle(conn: Stream, local: &Local) -> std::io::Result<bool> {
         return Ok(true);
     }
     let mut out_err = None;
-    let result = {
+    let mut result = {
         let mut progress = |msg: &str| {
             if out_err.is_none() {
                 out_err = send(conn, &json!({"progress": msg})).err();
@@ -63,6 +68,11 @@ fn handle(conn: Stream, local: &Local) -> std::io::Result<bool> {
         };
         local.call(&method, params, &mut progress)
     };
+    if method == "ping" && DAEMON.load(Ordering::SeqCst) {
+        if let Ok(Value::Object(m)) = &mut result {
+            m.insert("daemon".into(), Value::Bool(true));
+        }
+    }
     let reply = match result {
         Ok(v) => json!({"result": v}),
         Err(e) => json!({"error": e}),
@@ -71,39 +81,68 @@ fn handle(conn: Stream, local: &Local) -> std::io::Result<bool> {
     Ok(false)
 }
 
-/// Run the worker until `shutdown`. Exits 0 at once if another worker already listens.
-pub fn serve() -> i32 {
-    let name = match socket_name() {
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("worker: {e}");
-            return 1;
-        }
-    };
+/// Whether this process serves as the daemon (set once by `--daemon`).
+static DAEMON: AtomicBool = AtomicBool::new(false);
+/// Whether the backend this window talks to is a daemon (from its `ping`).
+static BACKEND_IS_DAEMON: AtomicBool = AtomicBool::new(false);
+
+/// Mark this process as the daemon: `ping` replies say so.
+#[cfg(feature = "daemon")]
+pub fn set_daemon() {
+    DAEMON.store(true, Ordering::SeqCst);
+}
+
+/// Whether the backend this window uses is a daemon (it keeps running when the window closes).
+#[cfg(feature = "daemon")]
+pub fn backend_is_daemon() -> bool {
+    BACKEND_IS_DAEMON.load(Ordering::SeqCst)
+}
+
+/// Listen on this profile's socket; `Ok(None)` when a worker or daemon already listens.
+pub fn bind() -> Result<Option<Listener>, String> {
+    let name = socket_name().map_err(|e| e.to_string())?;
     if Stream::connect(name.clone()).is_ok() {
-        eprintln!("worker: already running");
-        return 0;
+        return Ok(None);
     }
-    let listener = match ListenerOptions::new().name(name).try_overwrite(true).create_sync() {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("worker: cannot listen: {e}");
-            return 1;
-        }
-    };
-    let local = Arc::new(Local::default());
+    ListenerOptions::new().name(name).try_overwrite(true).create_sync().map(Some).map_err(|e| format!("cannot listen: {e}"))
+}
+
+/// Serve requests with `local` (one thread per connection) until the process exits.
+/// `on_shutdown` runs when a client sends `shutdown`.
+pub fn serve_on(listener: Listener, local: Arc<Local>, on_shutdown: fn()) {
     for conn in listener.incoming() {
         let Ok(conn) = conn else { continue };
         let local = local.clone();
         std::thread::spawn(move || {
             if handle(conn, &local).unwrap_or(false) {
-                #[cfg(feature = "postgres")]
-                desktop_core::pgstore::shutdown();
-                std::process::exit(0);
+                on_shutdown();
             }
         });
     }
-    0
+}
+
+fn worker_exit() {
+    #[cfg(feature = "postgres")]
+    desktop_core::pgstore::shutdown();
+    std::process::exit(0);
+}
+
+/// Run the worker until `shutdown`. Exits 0 at once if another worker already listens.
+pub fn serve() -> i32 {
+    match bind() {
+        Ok(Some(listener)) => {
+            serve_on(listener, Arc::new(Local::default()), worker_exit);
+            0
+        }
+        Ok(None) => {
+            eprintln!("worker: already running");
+            0
+        }
+        Err(e) => {
+            eprintln!("worker: {e}");
+            1
+        }
+    }
 }
 
 /// The UI side: forwards every call to the worker, starting it when none is running.
@@ -177,9 +216,21 @@ impl Service for Remote {
         // agent across an update) is replaced once.
         if !self.checked.swap(true, Ordering::SeqCst) {
             let ping = request("ping", Value::Null, true, &mut |_| {})?;
+            let daemon = ping.get("daemon").and_then(Value::as_bool) == Some(true);
+            BACKEND_IS_DAEMON.store(daemon, Ordering::SeqCst);
             if ping.get("version").and_then(Value::as_str) != Some(env!("CARGO_PKG_VERSION")) {
                 shutdown_worker();
-                std::thread::sleep(Duration::from_millis(300));
+                if daemon {
+                    // The service manager starts the new binary in a few seconds; use that
+                    // rather than a worker of our own (which would keep the daemon out).
+                    let deadline = Instant::now() + Duration::from_secs(20);
+                    std::thread::sleep(Duration::from_millis(500));
+                    while connect(false).is_err() && Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(250));
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_millis(300));
+                }
             }
         }
         request(method, params, true, progress)
