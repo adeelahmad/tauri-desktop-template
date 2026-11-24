@@ -10,9 +10,16 @@
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
 //! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}; with feature
 //! `telemetry`: `telemetry_status`; with feature `mail`: `send_mail` {to, cc, bcc, subject, text,
-//! html?, attachments: \[path\]}, `test_mail` {to?}, `mail_password` {password?} (every other call is timed for opt-in traces/analytics).
+//! html?, attachments: \[path\]}, `test_mail` {to?}, `mail_password` {password?};
+//! with feature `plugins`: `plugins` (the list with schemas) and `plugin.<name>.<method>`
+//! {..} for any method a plugin offers; with feature `rclone`: `rclone_status`,
+//! `rclone_config` {text?}, `rclone_install`, `rclone_sync` (rclone's lines stream as
+//! progress); with feature `tailscale`: `tailscale_status`, `tailscale_apply`.
+//! with feature `mcp`:
+//! `mcp_pending` (MCP calls waiting for approval) and `mcp_decide` {id, allow} (every other call
+//! is timed for opt-in traces/analytics).
 //!
-//! Folder watching (feature `watch`) starts with `setup` or `configure` when
+//! Folder watching (feature `watch`, desktop only) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
 //! the UI polls (the same in this process and in the worker).
 //!
@@ -56,7 +63,7 @@ pub trait Service: Send + Sync {
 pub struct Local {
     engine: Mutex<Option<Arc<Engine>>>,
     app_name: Mutex<Option<String>>,
-    #[cfg(feature = "watch")]
+    #[cfg(all(desktop, feature = "watch"))]
     watcher: Mutex<Option<desktop_core::watch::Watcher>>,
     /// The voice model, loaded on first use.
     #[cfg(feature = "tts")]
@@ -95,7 +102,7 @@ impl Local {
     }
 
     /// Start, restart or stop the folder watcher to match the engine's config.
-    #[cfg(feature = "watch")]
+    #[cfg(all(desktop, feature = "watch"))]
     fn rewatch(&self) -> Result<(), String> {
         let engine = self.engine()?;
         let mut slot = self.watcher.lock().map_err(err)?;
@@ -121,22 +128,31 @@ impl Local {
         Ok(())
     }
 
-    #[cfg(not(feature = "watch"))]
+    #[cfg(not(all(desktop, feature = "watch")))]
     fn rewatch(&self) -> Result<(), String> {
         Ok(())
     }
 
     fn watch_status(&self) -> Result<Value, String> {
-        #[cfg(feature = "watch")]
+        #[cfg(all(desktop, feature = "watch"))]
         let folders = self.watcher.lock().map_err(err)?.as_ref().map(|w| w.folders.clone()).unwrap_or_default();
-        #[cfg(not(feature = "watch"))]
+        #[cfg(not(all(desktop, feature = "watch")))]
         let folders: Vec<std::path::PathBuf> = Vec::new();
         let events: Vec<Value> = self.events.lock().map_err(err)?.iter().cloned().collect();
-        Ok(json!({"built": cfg!(feature = "watch"), "folders": folders, "events": events}))
+        Ok(json!({"built": cfg!(all(desktop, feature = "watch")), "folders": folders, "events": events}))
     }
 }
 
-impl Service for Local {
+{% if rclone %}/// The folder cloud sync copies: the backups folder or the data folder, as configured.
+#[cfg(feature = "rclone")]
+fn rclone_folder(e: &Engine) -> std::path::PathBuf {
+    match e.config().rclone.folder {
+        desktop_core::rclone::Folder::Backups => e.backup_dir(),
+        desktop_core::rclone::Folder::Data => e.data_dir().to_path_buf(),
+    }
+}
+
+{% endif %}impl Service for Local {
     fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
         let start = std::time::Instant::now();
         let reply = self.dispatch(method, params, progress);
@@ -146,7 +162,7 @@ impl Service for Local {
         }
         // Only the method name, the time it took and ok/error are recorded (when allowed).
         #[cfg(feature = "telemetry")]
-        if !matches!(method, "ping" | "status" | "config" | "watch_status" | "telemetry_status") {
+        if !matches!(method, "ping" | "status" | "config" | "watch_status" | "telemetry_status" | "mcp_pending") {
             desktop_core::telemetry::record(method, start, reply.is_ok());
         }
         reply
@@ -184,7 +200,25 @@ impl Local {
                         log::info!("resumed ingest: {} files, {} chunks, {} errors", r.files, r.chunks, r.errors.len());
                     });
                 }
-                // Scheduled backups: checked every few minutes while this engine is open.
+{% if rclone %}                // Scheduled cloud sync: checked every minute while this engine is open.
+                #[cfg(feature = "rclone")]
+                {
+                    let weak = weak.clone();
+                    std::thread::Builder::new()
+                        .name("rclone".into())
+                        .spawn(move || loop {
+                            std::thread::sleep(std::time::Duration::from_secs(60));
+                            let Some(e) = weak.upgrade() else { break };
+                            let cfg = e.config().rclone;
+                            if desktop_core::rclone::due(e.data_dir(), &cfg) {
+                                if let Err(err) = desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, &mut |l| log::debug!("rclone: {l}")) {
+                                    log::warn!("scheduled cloud sync failed: {err}");
+                                }
+                            }
+                        })
+                        .map_err(err)?;
+                }
+{% endif %}                // Scheduled backups: checked every few minutes while this engine is open.
                 std::thread::Builder::new()
                     .name("backups".into())
                     .spawn(move || loop {
@@ -390,9 +424,59 @@ impl Local {
                 .map_err(err)?;
                 Ok(json!(dir))
             }
+            #[cfg(feature = "mcp")]
+            "mcp_pending" => to(Ok(desktop_core::mcp::Approvals::new(self.engine()?.data_dir()).pending())),
+            #[cfg(feature = "mcp")]
+            "mcp_decide" => {
+                let q = desktop_core::mcp::Approvals::new(self.engine()?.data_dir());
+                q.decide(&arg::<String>(&params, "id")?, arg(&params, "allow")?)?;
+                to(Ok(q.pending()))
+            }
             #[cfg(feature = "telemetry")]
             "telemetry_status" => Ok(desktop_core::telemetry::status()),
-            // kitchen:methods (`kitchen generate command` adds methods above this line)
+{% if plugins %}            #[cfg(feature = "plugins")]
+            "plugins" => {
+                let e = self.engine()?;
+                to(Ok(e.plugins().list(&e.config().plugins)))
+            }
+            #[cfg(feature = "plugins")]
+            other if other.starts_with("plugin.") => self.engine()?.plugin_call(other, &params).map_err(err),
+{% endif %}{% if rclone %}            #[cfg(feature = "rclone")]
+            "rclone_status" => to(Ok(desktop_core::rclone::status(self.engine()?.data_dir()))),
+            #[cfg(feature = "rclone")]
+            "rclone_config" => {
+                let e = self.engine()?;
+                if let Some(text) = arg::<Option<String>>(&params, "text")? {
+                    desktop_core::rclone::ConfigFile::new(e.data_dir()).set(&text).map_err(err)?;
+                }
+                to(Ok(desktop_core::rclone::status(e.data_dir())))
+            }
+            #[cfg(feature = "rclone")]
+            "rclone_install" => {
+                let e = self.engine()?;
+                let path = desktop_core::rclone::install(e.data_dir(), &mut |done, total| {
+                    progress(&match total {
+                        Some(t) => format!("{} of {} MB", done >> 20, t >> 20),
+                        None => format!("{} MB", done >> 20),
+                    })
+                })
+                .map_err(err)?;
+                Ok(json!(path))
+            }
+            #[cfg(feature = "rclone")]
+            "rclone_sync" => {
+                let e = self.engine()?;
+                let cfg = e.config().rclone;
+                if !cfg.enabled {
+                    return Err("Cloud sync is turned off in Settings".into());
+                }
+                to(Ok(desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, progress).map_err(err)?))
+            }
+{% endif %}{% if tailscale %}            #[cfg(feature = "tailscale")]
+            "tailscale_status" => to(Ok(desktop_core::tailscale::status(&self.engine()?.config().tailscale))),
+            #[cfg(feature = "tailscale")]
+            "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale).map_err(err)?)),
+{% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)
             other => Err(format!("unknown method {other:?}")),
         }
     }

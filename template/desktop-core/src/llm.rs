@@ -189,6 +189,9 @@ pub struct LlmConfig {
     pub prompt_cache: bool,
     /// The built-in llama.cpp model (provider `local`).
     pub local: LocalConfig,
+    /// Reuse answers to the same (or, with embeddings, a near-identical) question while the
+    /// index is unchanged. Off by default.
+    pub cache: crate::cache::CacheConfig,
 }
 
 /// Settings for provider `local` (llama.cpp in the app, feature `llama`).
@@ -241,6 +244,7 @@ impl Default for LlmConfig {
             http_hosts: vec!["127.0.0.1".into(), "localhost".into(), "[::1]".into()],
             prompt_cache: true,
             local: LocalConfig::default(),
+            cache: crate::cache::CacheConfig::default(),
         }
     }
 }
@@ -255,6 +259,7 @@ impl LlmConfig {
         self.fallbacks.truncate(8);
         self.local.context = self.local.context.clamp(512, 131_072);
         self.local.threads = self.local.threads.min(256);
+        self.cache = self.cache.validated();
         self
     }
 }

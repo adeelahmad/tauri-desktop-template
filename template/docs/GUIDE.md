@@ -69,6 +69,10 @@ Four layers, each with one job:
 | `<app> --mcp` | MCP server over stdio for Claude Desktop, Claude Code and other clients (feature `mcp`) | `app_lib::mcp_main` → `mcp::main` |
 | `<app> --self-test [out.json]` | indexes and searches a sample with every built-in store; CI runs it on the installed app | `app_lib::self_test` |
 
+On iOS and Android (the `mobile` option) the same crate is the app, with only the first
+row: the desktop-only parts (worker, agent, updater, single instance, `--mcp`) are compiled
+out with `cfg(desktop)`.
+
 Each process reads the same `settings.json` and data folder (`paths::app_dirs`). Each one
 writes its own log in `<data>/logs/<process>.log`, as JSON lines. A profile (Settings →
 Profiles, or `APP_PROFILE=<id>`) moves both folders to `profiles/<id>/`.
@@ -214,10 +218,14 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`pgstore`](../desktop-core/src/pgstore.rs) | `postgres` (`bm25`) | Embedded Postgres + pgvector (+ BM25) store |
 | [`watch`](../desktop-core/src/watch.rs) | `watch` | Drop folder and watched folders |
 | [`llm`](../desktop-core/src/llm.rs) | `ai` | Chat client for cloud and local models; API keys; RAG prompt |
+| [`cache`](../desktop-core/src/cache.rs) | `ai` | Semantic answer cache for `Engine::ask` |
 | [`local`](../desktop-core/src/local.rs) | `llama` | llama.cpp built in (GGUF) |
 | [`mcp`](../desktop-core/src/mcp.rs) | `mcp` | MCP protocol, tool policy and audit log |
 | [`tts`](../desktop-core/src/tts.rs) | `tts` | Text to speech (tiny-voca) |
 | [`stt`](../desktop-core/src/stt.rs) | `stt` | Speech to text (Whisper) |
+| [`plugin`](../desktop-core/src/plugin.rs) | `plugins` | Compiled-in plugins: ingest hooks, extra methods and settings |
+| [`rclone`](../desktop-core/src/rclone.rs) | `rclone` | Sync backups (or the data folder) to a cloud with rclone |
+| [`tailscale`](../desktop-core/src/tailscale.rs) | `tailscale` | Tailscale status and `tailscale serve` for one local port |
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 

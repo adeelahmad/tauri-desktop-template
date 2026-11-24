@@ -50,8 +50,9 @@
         "installMode": "currentUser"
       }
     }
-  }{% if updater %},
+  }{% if updater or tauri_plugins and tauri_deep_link %},
   "plugins": {
+    {%- if updater %}
     "updater": {
       "pubkey": "",
       "endpoints": [
@@ -60,6 +61,11 @@
       "windows": {
         "installMode": "passive"
       }
-    }
+    }{% if tauri_plugins and tauri_deep_link %},{% endif %}{% endif %}{% if tauri_plugins and tauri_deep_link %}
+    "deep-link": {
+      "desktop": {
+        "schemes": ["{{project-name}}"]
+      }
+    }{% endif %}
   }{% endif %}
 }

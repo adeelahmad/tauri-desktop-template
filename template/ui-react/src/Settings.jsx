@@ -46,12 +46,17 @@ const FIELDS = [
   ['llm', 'promptCache', 'Prompt caching (Anthropic)', 'bool', { needs: 'ai' }],
   ['llm', 'systemPrompt', 'System prompt (empty = built in)', 'text', { needs: 'ai', nullable: true }],
   ['llm', 'httpHosts', 'Hosts allowed over plain HTTP', 'list', { needs: 'ai' }],
+  ['llm', 'cache.enabled', 'Reuse answers to repeated questions (cleared when documents change)', 'bool', { needs: 'ai' }],
+  ['llm', 'cache.ttlHours', 'Keep cached answers for (hours)', 'number', { needs: 'ai', min: 1 }],
+  ['llm', 'cache.maxEntries', 'Most cached answers', 'number', { needs: 'ai', min: 1 }],
+  ['llm', 'cache.similarity', 'Similar question match (cosine, 1 = exact only)', 'number', { needs: 'ai', step: 0.01, min: 0.5, max: 1 }],
   ['mcp', 'enabled', 'Let MCP clients (Claude Desktop, Claude Code, ...) search these documents', 'bool', { needs: 'mcp' }],
   ['mcp', 'allowWrite', 'Also allow tools that change data (add, remove)', 'bool', { needs: 'mcp' }],
   ['mcp', 'tools', 'Only these tools (empty = all allowed)', 'list', { needs: 'mcp' }],
   ['mcp', 'auditLog', 'Keep an audit log of tool calls', 'bool', { needs: 'mcp' }],
   ['mcp', 'auditArguments', 'Log the call arguments too', 'bool', { needs: 'mcp' }],
   ['mcp', 'maxResultChars', 'Longest reply (characters)', 'number', { needs: 'mcp', min: 1000 }],
+  ['mcp', 'approvalTimeoutSecs', 'Wait for approval of "ask" tools (seconds)', 'number', { needs: 'mcp', min: 5, max: 600 }],
   ['tts', 'enabled', 'Read answers aloud (tiny-voca, on this computer)', 'bool', { needs: 'tts' }],
   ['tts', 'voice', 'Voice', 'select', { needs: 'tts', options: [0, 1], labels: ['F2 (female)', 'M2 (male)'], numeric: true }],
   ['tts', 'speed', 'Speed', 'number', { needs: 'tts', step: 0.1, min: 0.25, max: 4 }],
@@ -78,6 +83,20 @@ const FIELDS = [
   ['resources', 'cpuPercent', 'CPU share for indexing (%)', 'number', { min: 10, max: 100 }],
   ['resources', 'backgroundPriority', 'Index at background priority (keeps the computer responsive)', 'bool', {}],
   ['resources', 'resumeInterrupted', 'Finish an interrupted import at the next start', 'bool', {}],
+  ['resources', 'memoryBudgetMb', 'Memory budget for indexing (MB, 0 = none)', 'number', { min: 0 }],
+  ['resources', 'gpuBudget', 'Limit the GPU for the local model', 'bool', { needs: 'llama' }],
+  ['resources', 'gpuLayers', 'GPU layers while limited (0 = CPU only)', 'number', { needs: 'llama', min: 0 }],
+  [
+    'resources',
+    'onnxProvider',
+    'ONNX accelerator (falls back to the CPU)',
+    'select',
+    {
+      needs: 'embed',
+      options: ['cpu', 'auto', 'coreml', 'directml', 'cuda'],
+      labels: ['CPU', 'Best available', 'Core ML (macOS)', 'DirectML (Windows)', 'CUDA (NVIDIA)'],
+    },
+  ],
   ['backup', 'intervalHours', 'Back up every (hours; 0 = only when asked)', 'number', { min: 0 }],
   ['backup', 'keep', 'Backups to keep (0 = all)', 'number', { min: 0 }],
   ['backup', 'encrypt', 'Encrypt backups (keep the recovery key below somewhere safe)', 'bool', {}],
@@ -121,6 +140,35 @@ const FIELDS = [
   ['mail', 'from', 'Sender, e.g. Me <me@example.com>', 'text', { needs: 'mail' }],
   ['mail', 'maxMb', 'Largest message (MB)', 'number', { needs: 'mail', min: 1, max: 100 }],
   ['mail', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'mail', min: 5, max: 300 }],
+  ['plugins', 'enabled', 'Run plugins', 'bool', { needs: 'plugins' }],
+  ['plugins', 'disabled', 'Leave out these plugins (names)', 'list', { needs: 'plugins' }],
+  ['rclone', 'enabled', 'Sync to the cloud with rclone', 'bool', { needs: 'rclone' }],
+  ['rclone', 'remote', 'Remote (its name in the rclone config)', 'text', { needs: 'rclone' }],
+  ['rclone', 'path', 'Folder on the remote (empty = its root)', 'text', { needs: 'rclone' }],
+  [
+    'rclone',
+    'folder',
+    'What to sync',
+    'select',
+    { needs: 'rclone', options: ['backups', 'data'], labels: ['Backups folder', 'Data folder (up only, no secrets)'] },
+  ],
+  [
+    'rclone',
+    'direction',
+    'Direction',
+    'select',
+    {
+      needs: 'rclone',
+      options: ['push', 'pull', 'mirror', 'bisync'],
+      labels: ['Up (copy, never delete)', 'Down (copy, never delete)', 'Mirror up (deletes extra files there)', 'Both ways (bisync)'],
+    },
+  ],
+  ['rclone', 'intervalMinutes', 'Sync every (minutes, 0 = only when asked)', 'number', { needs: 'rclone', min: 0 }],
+  ['rclone', 'bandwidth', 'Bandwidth limit, e.g. 2M or 10M:1M (empty = none)', 'text', { needs: 'rclone' }],
+  ['tailscale', 'enabled', 'Use Tailscale', 'bool', { needs: 'tailscale' }],
+  ['tailscale', 'serve', 'Share a local port with my tailnet (tailscale serve)', 'bool', { needs: 'tailscale' }],
+  ['tailscale', 'port', 'Local port to share (on 127.0.0.1)', 'number', { needs: 'tailscale', min: 0, max: 65535 }],
+  ['tailscale', 'httpsPort', 'HTTPS port on the tailnet', 'select', { needs: 'tailscale', options: [443, 8443, 10000], numeric: true }],
   ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
@@ -148,6 +196,9 @@ const TITLES = {
   net: 'Network',
   backup: 'Backups',
   mail: 'Email',
+  plugins: 'Plugins',
+  rclone: 'Cloud sync',
+  tailscale: 'Tailnet',
   watch: 'Watch folders',
   // kitchen:titles
 };
@@ -286,6 +337,168 @@ function MailSetup({ from }) {
         </button>
         <button onClick={() => test(me)} disabled={busy || !me}>
           Send a test email to myself
+        </button>
+        <span className="hint">{msg || 'Save settings first.'}</span>
+      </div>
+    </>
+  );
+}
+
+const NONE = {};
+
+// Each built-in plugin, with a form drawn from its settings schema (JSON for objects).
+function PluginList({ settings, onChange }) {
+  const [list, setList] = useState([]);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    invoke('plugins_list').then(setList, (e) => setMsg(String(e)));
+  }, []);
+  const put = (name, key, v) => onChange({ ...settings, [name]: { ...(settings[name] || {}), [key]: v } });
+  return (
+    <div className="hint">
+      {list.map((p) => (
+        <div key={p.name}>
+          <div>
+            <b>{p.name}</b> {p.version} {p.active ? '(on)' : '(off)'}: {p.description}
+            {p.methods.length > 0 && ` Methods: ${p.methods.join(', ')}.`}
+          </div>
+          <div className="grid">
+            {Object.entries(p.schema.properties || {}).map(([key, prop]) => {
+              const value = (settings[p.name] || {})[key] ?? prop.default;
+              const label = prop.title || key;
+              if (prop.type === 'boolean')
+                return <Field key={key} kind="bool" label={label} value={value} extra={NONE} onChange={(v) => put(p.name, key, v)} />;
+              if (prop.type === 'number' || prop.type === 'integer')
+                return <Field key={key} kind="optional" label={label} value={value} extra={NONE} onChange={(v) => put(p.name, key, v)} />;
+              if (prop.type === 'string')
+                return <Field key={key} kind="text" label={label} value={value} extra={NONE} onChange={(v) => put(p.name, key, v)} />;
+              return <JsonField key={key} label={label} value={value} onChange={(v) => put(p.name, key, v)} />;
+            })}
+          </div>
+        </div>
+      ))}
+      {msg}
+    </div>
+  );
+}
+
+function JsonField({ label, value, onChange }) {
+  const [text, setText] = useState(JSON.stringify(value ?? {}, null, 2));
+  const [bad, setBad] = useState(false);
+  const change = (t) => {
+    setText(t);
+    try {
+      onChange(JSON.parse(t));
+      setBad(false);
+    } catch {
+      setBad(true);
+    }
+  };
+  return (
+    <label className="field">
+      {label} {bad && '(not valid JSON yet)'}
+      <textarea rows={4} value={text} onChange={(e) => change(e.target.value)} />
+    </label>
+  );
+}
+
+// rclone: the remote config (owner-only file, never in settings), the download, and Sync now.
+function RcloneSetup() {
+  const [st, setSt] = useState(null);
+  const [text, setText] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const refresh = () => invoke('rclone_status').then(setSt, () => {});
+  useEffect(() => {
+    refresh();
+  }, []);
+  const saveConf = async () => {
+    try {
+      setSt(await invoke('rclone_config', { text }));
+      setText('');
+      setMsg(text ? 'Config saved.' : 'Config removed.');
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  const run = async (cmd) => {
+    setBusy(true);
+    const unlisten = await listen('rclone-progress', (e) => setMsg(e.payload));
+    try {
+      await invoke(cmd);
+      setMsg(cmd === 'rclone_sync' ? 'Synced.' : 'rclone is ready.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      unlisten();
+      setBusy(false);
+      refresh();
+    }
+  };
+  return (
+    <>
+      <div className="hint">
+        {st &&
+          `rclone ${st.version}: ${st.installed ? 'downloaded' : st.supported ? 'downloads on first sync' : 'not available for this computer'}. ` +
+            (st.configured ? `Remotes: ${st.remotes.join(', ') || 'none'}. ` : 'No config yet. ') +
+            (st.last ? `Last sync ${st.last.finished} to ${st.last.target}: ${st.last.ok ? 'ok' : 'failed'}.` : '')}
+      </div>
+      <label className="field">
+        Remote config: paste what `rclone config show` prints (kept in a private file)
+        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={'[gdrive]\ntype = drive\n...'} />
+      </label>
+      <div className="row">
+        <button onClick={saveConf}>{text ? 'Save config' : 'Remove config'}</button>
+        {st && !st.installed && st.supported && (
+          <button onClick={() => run('rclone_install')} disabled={busy}>
+            Download rclone
+          </button>
+        )}
+        <button onClick={() => run('rclone_sync')} disabled={busy}>
+          Sync now
+        </button>
+        <span className="hint">{msg || 'Save settings first.'}</span>
+      </div>
+    </>
+  );
+}
+
+// Tailscale: never installed by the app; shows the download link when it is missing.
+function TailscaleStatus() {
+  const [r, setR] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    invoke('tailscale_status').then(setR, (e) => setMsg(String(e)));
+  }, []);
+  const apply = async () => {
+    setBusy(true);
+    try {
+      setR(await invoke('tailscale_apply'));
+      setMsg('Done.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (r && !r.installed)
+    return (
+      <div className="hint">
+        Tailscale is not installed. Get it from <code>{r.installUrl}</code>, then reopen Settings.
+      </div>
+    );
+  const st = r?.status;
+  return (
+    <>
+      <div className="hint">
+        {st && `${st.backendState}${st.dnsName ? ` as ${st.dnsName}` : ''}${st.tailnet ? ` in ${st.tailnet}` : ''}. `}
+        {r?.served ? `Port ${r.served} is shared${r.url ? ` at ${r.url}` : ''}. ` : r && 'Nothing shared. '}
+        {r?.note}
+      </div>
+      <div className="row">
+        <button onClick={apply} disabled={busy || !r}>
+          Apply sharing
         </button>
         <span className="hint">{msg || 'Save settings first.'}</span>
       </div>
@@ -526,6 +739,80 @@ function McpConnect() {
   );
 }
 
+// Allow, ask or deny per MCP tool. "Ask" waits for an answer in the panel below.
+function McpPolicies({ policies, onChange }) {
+  const [tools, setTools] = useState([]);
+  useEffect(() => {
+    invoke('mcp_setup')
+      .then((s) => setTools(['*', ...s.tools]))
+      .catch(() => {});
+  }, []);
+  const map = policies || {};
+  const pick = (tool, v) => {
+    const next = { ...map };
+    if (v === '') delete next[tool];
+    else next[tool] = v;
+    onChange(next);
+  };
+  return (
+    <div className="grid">
+      {tools.map((t) => (
+        <label className="field" key={t}>
+          {t === '*' ? 'Every other tool' : `Tool ${t}`}
+          <select value={map[t] || ''} onChange={(e) => pick(t, e.target.value)}>
+            <option value="">{t === '*' ? 'allow (default)' : 'as every other tool'}</option>
+            <option value="allow">allow</option>
+            <option value="ask">ask me first</option>
+            <option value="deny">deny</option>
+          </select>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// MCP calls waiting for approval (tools set to "ask"), polled while Settings is open.
+function McpPending() {
+  const [calls, setCalls] = useState([]);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    const tick = () =>
+      invoke('mcp_pending')
+        .then(setCalls)
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 2000);
+    return () => clearInterval(t);
+  }, []);
+  const decide = async (id, allow) => {
+    try {
+      setCalls(await invoke('mcp_decide', { id, allow }));
+      setMsg('');
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  return (
+    <div className="hint">
+      <div>{calls.length ? `${calls.length} MCP calls waiting for you:` : 'No MCP calls waiting for approval.'}</div>
+      <ul className="pending">
+        {calls.map((c) => (
+          <li key={c.id}>
+            <code>{c.tool}</code> {c.arguments}{' '}
+            <button className="link" onClick={() => decide(c.id, true)}>
+              Approve
+            </button>
+            <button className="link" onClick={() => decide(c.id, false)}>
+              Deny
+            </button>
+          </li>
+        ))}
+      </ul>
+      {msg}
+    </div>
+  );
+}
+
 function ModelDownload({ onDone }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -629,7 +916,18 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', mail: 'mail', telemetry: 'telemetry' };
+  const needs = {
+    watch: 'watch',
+    llm: 'ai',
+    mcp: 'mcp',
+    tts: 'tts',
+    stt: 'stt',
+    mail: 'mail',
+    plugins: 'plugins',
+    rclone: 'rclone',
+    tailscale: 'tailscale',
+    telemetry: 'telemetry',
+  };
   const sections = [
     'search',
     'ingest',
@@ -639,7 +937,10 @@ export default function Settings({ features }) {
     'stt',
     'resources',
     'backup',
+    'rclone',
     'mail',
+    'tailscale',
+    'plugins',
     'net',
     'telemetry',
     'log',
@@ -671,12 +972,22 @@ export default function Settings({ features }) {
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
           {s === 'llm' && features.llama && <ModelDownload onDone={(p) => set('llm', 'local.modelPath', p)} />}
+          {s === 'mcp' && <McpPolicies policies={cfg.mcp.policies} onChange={(v) => set('mcp', 'policies', v)} />}
+          {s === 'mcp' && cfg.mcp.enabled && <McpPending />}
           {s === 'mcp' && <McpConnect />}
           {s === 'tts' && <VoiceDownload />}
           {s === 'stt' && <SttDownload />}
           {s === 'telemetry' && <TelemetryStatus />}
           {s === 'backup' && <Backups />}
           {s === 'mail' && <MailSetup from={cfg.mail?.from} />}
+          {s === 'plugins' && (
+            <PluginList
+              settings={cfg.plugins?.settings || {}}
+              onChange={(v) => setCfg({ ...cfg, plugins: { ...cfg.plugins, settings: v } })}
+            />
+          )}
+          {s === 'rclone' && <RcloneSetup />}
+          {s === 'tailscale' && <TailscaleStatus />}
         </details>
       ))}
       <div className="row">

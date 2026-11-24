@@ -40,10 +40,25 @@ pub fn app_dirs() -> (PathBuf, PathBuf) {
     }
 }
 
+/// iOS and Android: the app's private folder, from Tauri's path resolver at start.
+#[cfg(mobile)]
+static MOBILE_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// iOS and Android: set the app's private folder (once, before anything reads a path).
+/// There is no home folder to build paths from there, and only this folder is writable.
+#[cfg(mobile)]
+pub fn set_mobile_root(dir: PathBuf) {
+    let _ = MOBILE_ROOT.set(dir);
+}
+
 /// The app's own folders, before any profile.
 pub fn base_dirs() -> (PathBuf, PathBuf) {
     #[cfg(test)]
     if let Some(root) = tests::ROOT.with(|r| r.borrow().clone()) {
+        return (root.join("config"), root.join("data"));
+    }
+    #[cfg(mobile)]
+    if let Some(root) = MOBILE_ROOT.get() {
         return (root.join("config"), root.join("data"));
     }
     let env_dir = |k: &str| std::env::var_os(k).map(PathBuf::from).filter(|p| p.is_absolute());

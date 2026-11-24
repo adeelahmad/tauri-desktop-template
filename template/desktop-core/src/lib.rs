@@ -58,9 +58,11 @@ pub mod embed;
 pub mod pdf;
 {% endif %}{% if postgres %}#[cfg(feature = "postgres")]
 pub mod pgstore;
-{% endif %}{% if watch_folders %}#[cfg(feature = "watch")]
+{% endif %}{% if watch_folders %}{% if mobile %}#[cfg(all(feature = "watch", not(any(target_os = "android", target_os = "ios"))))]{% else %}#[cfg(feature = "watch")]{% endif %}
 pub mod watch;
 {% endif %}{% if ai %}#[cfg(feature = "ai")]
+pub mod cache;
+#[cfg(feature = "ai")]
 pub mod llm;
 {% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
 pub mod mcp;
@@ -74,6 +76,12 @@ pub mod stt;
 pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
+{% endif %}{% if plugins %}#[cfg(feature = "plugins")]
+pub mod plugin;
+{% endif %}{% if rclone %}#[cfg(feature = "rclone")]
+pub mod rclone;
+{% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
+pub mod tailscale;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

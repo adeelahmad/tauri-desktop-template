@@ -1,7 +1,7 @@
 [template]
 cargo_generate_version = ">=0.22.0"
 # Copied as they are (GitHub Actions uses ${{ }} too, and icons are binary).
-exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", "src-tauri/icons/*"]
+exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", ".github/workflows/mobile.yml", "src-tauri/icons/*"]
 
 [placeholders.app_name]
 type = "string"
@@ -60,6 +60,26 @@ type = "bool"
 prompt = "Send email over SMTP (native Rust: SSL/TLS on 465, STARTTLS on 587, login, attachments)?"
 default = false
 
+[placeholders.plugins]
+type = "bool"
+prompt = "Plugin API: compiled-in app extensions (ingest hooks, extra search sources, their own methods and settings), with an example plugin?"
+default = false
+
+[placeholders.rclone]
+type = "bool"
+prompt = "Cloud sync of backups (or the data folder) to any cloud with rclone (pinned, checksummed, downloads on first use)?"
+default = false
+
+[placeholders.tailscale]
+type = "bool"
+prompt = "Tailscale: show status and share a local MCP/HTTP port with your tailnet through `tailscale serve` (uses the user's own Tailscale)?"
+default = false
+
+[placeholders.tauri_plugins]
+type = "bool"
+prompt = "Add official Tauri plugins (dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log)? Asks for each"
+default = false
+
 [placeholders.stt]
 type = "bool"
 prompt = "Speech to text with Whisper (tiny/base/small, multilingual, MIT; ONNX Runtime, model downloads on first use): dictate questions or transcribe audio files?"
@@ -68,6 +88,11 @@ default = false
 [placeholders.telemetry]
 type = "bool"
 prompt = "Opt-in telemetry: crash reports (Sentry), anonymous analytics (PostHog or Aptabase), traces (OpenTelemetry)? Nothing is sent until the user switches it on"
+default = false
+
+[placeholders.mobile]
+type = "bool"
+prompt = "Also build for iOS and Android (Tauri 2 mobile: file store, in-process backend, store updates; desktop-only parts compiled out)?"
 default = false
 
 [placeholders.single_instance]
@@ -162,6 +187,71 @@ type = "string"
 prompt = "Python package uv runs (a PyPI name, or 'name @ https://.../archive.zip')"
 default = "my-mcp-server"
 
+[conditional.'tauri_plugins'.placeholders.tauri_dialog]
+type = "bool"
+prompt = "Tauri plugin Dialog: native open/save file pickers and message boxes?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_fs]
+type = "bool"
+prompt = "Tauri plugin File system: read and write files from the frontend, scoped by capabilities?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_clipboard]
+type = "bool"
+prompt = "Tauri plugin Clipboard manager: read and write the clipboard?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_notification]
+type = "bool"
+prompt = "Tauri plugin Notifications: native system notifications?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_opener]
+type = "bool"
+prompt = "Tauri plugin Opener: open URLs and files with the default app, reveal in the file manager?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_store]
+type = "bool"
+prompt = "Tauri plugin Store: a persistent key-value store for the frontend?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_global_shortcut]
+type = "bool"
+prompt = "Tauri plugin Global shortcut: keyboard shortcuts that work while the app is in the background (desktop)?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_autostart]
+type = "bool"
+prompt = "Tauri plugin Autostart: launch the app at login (desktop)?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_deep_link]
+type = "bool"
+prompt = "Tauri plugin Deep link: open the app from <app-name>:// links?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_window_state]
+type = "bool"
+prompt = "Tauri plugin Window state: remember window size and position (desktop)?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_os]
+type = "bool"
+prompt = "Tauri plugin OS: platform, version, architecture and locale for the frontend?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_process]
+type = "bool"
+prompt = "Tauri plugin Process: exit or restart the app from the frontend?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_log]
+type = "bool"
+prompt = "Tauri plugin Log: frontend logs written to the app's own log files?"
+default = false
+
 [conditional.'!embeddings']
 ignore = ["desktop-core/src/embed.rs"]
 
@@ -172,7 +262,7 @@ ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256", ".github/
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]
 
 [conditional.'!ai']
-ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs"]
+ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs"]
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]
@@ -186,8 +276,23 @@ ignore = ["desktop-core/src/mail.rs"]
 [conditional.'!stt']
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
 
+[conditional.'!plugins']
+ignore = ["desktop-core/src/plugin.rs"]
+
+[conditional.'!rclone']
+ignore = ["desktop-core/src/rclone.rs"]
+
+[conditional.'!tailscale']
+ignore = ["desktop-core/src/tailscale.rs"]
+
+[conditional.'!tauri_plugins || !(tauri_global_shortcut || tauri_autostart || tauri_window_state || tauri_process)']
+ignore = ["src-tauri/capabilities/desktop.json"]
+
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]
+
+[conditional.'!mobile']
+ignore = [".github/workflows/mobile.yml", "src-tauri/capabilities/mobile.json", "src-tauri/tauri.android.conf.json", "src-tauri/tauri.ios.conf.json"]
 
 [conditional.'!single_instance']
 ignore = ["src-tauri/src/single.rs"]
