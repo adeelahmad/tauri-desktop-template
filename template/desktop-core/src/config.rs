@@ -44,6 +44,15 @@ pub struct Config {
 {% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
+{% endif %}{% if tray_menu %}    /// The tray or menu-bar icon and its menu.
+    #[cfg(feature = "tray-menu")]
+    pub tray: crate::actions::TrayConfig,
+    /// Global shortcuts (none by default).
+    #[cfg(feature = "tray-menu")]
+    pub shortcuts: Vec<crate::actions::ShortcutBinding>,
+    /// The app-defined menu in the menu bar.
+    #[cfg(feature = "tray-menu")]
+    pub menu: crate::actions::MenuConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -249,6 +258,12 @@ impl Config {
 {% endif %}{% if tailscale %}        #[cfg(feature = "tailscale")]
         {
             self.tailscale = self.tailscale.validated();
+        }
+{% endif %}{% if tray_menu %}        #[cfg(feature = "tray-menu")]
+        {
+            self.tray = self.tray.validated();
+            self.menu = self.menu.validated();
+            self.shortcuts = crate::actions::validated_shortcuts(self.shortcuts);
         }
 {% endif %}        // kitchen:validate
         self

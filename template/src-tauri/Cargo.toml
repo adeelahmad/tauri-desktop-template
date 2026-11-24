@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 # What you chose when generating; `cargo build --no-default-features --features ...` picks others.
-default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if plugins %}"plugins", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}]
+default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if plugins %}"plugins", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}{% if tray_menu %}"tray-menu", {% endif %}]
 {% if embeddings -%}
 embed = ["desktop-core/embed"]
 {% endif -%}
@@ -89,6 +89,12 @@ python-example = []
 {% if claude_mcp -%}
 # Copies the bundled uv and registers a Python MCP server in Claude Desktop.
 claude-mcp = []
+{% endif -%}
+{% assign shortcut_plugin = false -%}
+{% if tauri_plugins -%}{% if tauri_global_shortcut -%}{% assign shortcut_plugin = true -%}{% endif -%}{% endif -%}
+{% if tray_menu -%}
+# Tray / menu-bar icon, global shortcuts and the app menu, from Settings (desktop only).
+tray-menu = ["tauri/tray-icon", "desktop-core/tray-menu"{% unless shortcut_plugin %}, "dep:tauri-plugin-global-shortcut"{% endunless %}]
 {% endif %}
 [dependencies]
 desktop-core.workspace = true
@@ -96,17 +102,6 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
 log = "0.4"
-{% if mobile -%}{% if ipc_worker or updater -%}
-
-# Desktop only: on iOS and Android the backend runs in this process and updates come from the app stores.
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-{% endif -%}{% endif -%}
-{% if ipc_worker -%}
-interprocess = { version = "2", optional = true }
-{% endif -%}
-{% if updater -%}
-tauri-plugin-updater = { version = "2", optional = true }
-{% endif -%}
 {% if tauri_plugins -%}
 # Official Tauri plugins chosen when the app was generated (each is wired in lib.rs and capabilities/).
 {% if tauri_dialog -%}
@@ -136,13 +131,34 @@ tauri-plugin-os = "2"
 {% if tauri_log -%}
 tauri-plugin-log = "2"
 {% endif -%}
-{% if tauri_global_shortcut or tauri_autostart or tauri_window_state or tauri_process -%}
+{% endif -%}
+{% assign desktop_table = false -%}
+{% if mobile -%}{% if ipc_worker or updater -%}
+{% assign desktop_table = true -%}
+
+# Desktop only: on iOS and Android the backend runs in this process and updates come from the app stores.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+{% endif -%}{% endif -%}
+{% if ipc_worker -%}
+interprocess = { version = "2", optional = true }
+{% endif -%}
+{% if updater -%}
+tauri-plugin-updater = { version = "2", optional = true }
+{% endif -%}
+{% assign desktop_plugins = tray_menu -%}
+{% if tauri_plugins -%}{% if tauri_global_shortcut or tauri_autostart or tauri_window_state or tauri_process -%}{% assign desktop_plugins = true -%}{% endif -%}{% endif -%}
+{% if desktop_plugins -%}
+{% unless desktop_table -%}
 
 # Desktop-only plugins.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-{% if tauri_global_shortcut -%}
+{% endunless -%}
+{% if shortcut_plugin -%}
 tauri-plugin-global-shortcut = "2"
+{% elsif tray_menu -%}
+tauri-plugin-global-shortcut = { version = "2", optional = true }
 {% endif -%}
+{% if tauri_plugins -%}
 {% if tauri_autostart -%}
 tauri-plugin-autostart = "2"
 {% endif -%}

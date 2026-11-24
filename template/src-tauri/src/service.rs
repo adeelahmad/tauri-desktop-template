@@ -15,6 +15,8 @@
 //! {..} for any method a plugin offers; with feature `rclone`: `rclone_status`,
 //! `rclone_config` {text?}, `rclone_install`, `rclone_sync` (rclone's lines stream as
 //! progress); with feature `tailscale`: `tailscale_status`, `tailscale_apply`.
+//! with feature `tray-menu`: `action` {id} (the backend side of the app's own tray, menu and
+//! shortcut actions; `null` when an action has nothing to do here);
 //! with feature `mcp`:
 //! `mcp_pending` (MCP calls waiting for approval) and `mcp_decide` {id, allow} (every other call
 //! is timed for opt-in traces/analytics).
@@ -100,7 +102,20 @@ impl Local {
         Ok(())
     }
 
-    fn watch_status(&self) -> Result<Value, String> {
+{% if tray_menu %}    /// The backend side of the app's own tray, menu and shortcut actions, by id. Runs
+    /// where the engine runs (here, or in the worker process); `null` when there is
+    /// nothing to do here. The window gets the `app-action` event either way.
+    #[cfg(feature = "tray-menu")]
+    #[allow(clippy::match_single_binding)] // `kitchen generate menu` adds arms
+    fn action(&self, id: &str) -> Result<Value, String> {
+        let _ = self;
+        match id {
+            // kitchen:action-methods (`kitchen generate menu` adds actions above this line)
+            _ => Ok(Value::Null),
+        }
+    }
+
+{% endif %}    fn watch_status(&self) -> Result<Value, String> {
         #[cfg(all(desktop, feature = "watch"))]
         let folders = self.watcher.lock().map_err(err)?.as_ref().map(|w| w.folders.clone()).unwrap_or_default();
         #[cfg(not(all(desktop, feature = "watch")))]
@@ -452,6 +467,8 @@ impl Local {
             "tailscale_status" => to(Ok(desktop_core::tailscale::status(&self.engine()?.config().tailscale))),
             #[cfg(feature = "tailscale")]
             "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale).map_err(err)?)),
+{% endif %}{% if tray_menu %}            #[cfg(feature = "tray-menu")]
+            "action" => self.action(&arg::<String>(&params, "id")?),
 {% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)
             other => Err(format!("unknown method {other:?}")),
         }

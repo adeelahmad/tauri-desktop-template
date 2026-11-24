@@ -13,7 +13,8 @@
 //! - `mcp_setup`, `mcp_register_claude`, `mcp_pending` and `mcp_decide` (feature `mcp`).
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
-//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`).
+//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
+//! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -47,6 +48,8 @@ mod service;
 // kitchen:mods (`kitchen generate command` adds modules above this line)
 {% if single_instance %}#[cfg(all(desktop, feature = "single-instance"))]
 mod single;
+{% endif %}{% if tray_menu %}#[cfg(all(desktop, feature = "tray-menu"))]
+mod tray;
 {% endif %}{% if updater %}#[cfg(all(desktop, feature = "updater"))]
 mod update;
 {% endif %}
@@ -136,6 +139,7 @@ fn features() -> Value {
         "backgroundAgent": cfg!(all(desktop, feature = "background-agent")),
         "pythonExample": cfg!(all(desktop, feature = "python-example")),
         "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
+        "trayMenu": cfg!(all(desktop, feature = "tray-menu")),
     })
 }
 
@@ -298,6 +302,9 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
+    // The tray, the menus and the shortcuts change at once.
+    #[cfg(all(desktop, feature = "tray-menu"))]
+    tray::apply(&app, &applied);
     Ok(applied)
 }
 
@@ -720,7 +727,26 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
 {% endif %}{% if tauri_process %}    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_process::init());
-{% endif %}{% endif %}    let builder = builder.setup(move |app| {
+{% endif %}{% endif %}{% if tray_menu %}    // Tray, global shortcuts and app menu: one action registry (see tray.rs).
+{% unless tauri_plugins and tauri_global_shortcut %}    #[cfg(all(desktop, feature = "tray-menu"))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+{% endunless %}    #[cfg(all(desktop, feature = "tray-menu"))]
+    let builder = builder
+        .manage(tray::Tray::default())
+        .on_menu_event(|app, e| {
+            if let Some(action) = desktop_core::actions::action_of(e.id().as_ref()) {
+                tray::run(app, action);
+            }
+        })
+        .on_window_event(|w, e| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                if tray::closes_to_tray(w.app_handle()) {
+                    api.prevent_close();
+                    let _ = w.hide();
+                }
+            }
+        });
+{% endif %}    let builder = builder.setup(move |app| {
         let _ = &app;
 {% if tauri_plugins %}{% if tauri_deep_link %}        // Installers register the URL scheme; this covers development builds on Windows and Linux.
         #[cfg(any(windows, target_os = "linux"))]
@@ -738,6 +764,8 @@ pub fn run() {
         }
         #[cfg(feature = "mcp")]
         mcp_heartbeat();
+        #[cfg(all(desktop, feature = "tray-menu"))]
+        tray::apply(app.handle(), &load_settings(app.handle()).config);
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
         {
@@ -840,6 +868,10 @@ pub fn run() {
             python::python_call,
             #[cfg(all(desktop, feature = "claude-mcp"))]
             claude::register_claude,
+            #[cfg(all(desktop, feature = "tray-menu"))]
+            tray::tray_status,
+            #[cfg(all(desktop, feature = "tray-menu"))]
+            tray::run_action,
             // kitchen:handlers
         ])
         .build(tauri::generate_context!())
