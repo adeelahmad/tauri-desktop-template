@@ -151,6 +151,7 @@ const FIELDS = [
   ['watch', 'ingestExisting', 'Ingest files already there', 'bool', { needs: 'watch' }],
   ['watch', 'removeDeleted', 'Forget deleted files', 'bool', { needs: 'watch' }],
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
+  // kitchen:settings (`kitchen generate setting` adds fields above this line)
 ];
 
 const TITLES = {
@@ -167,6 +168,7 @@ const TITLES = {
   backup: 'Backups',
   mail: 'Email',
   watch: 'Watch folders',
+  // kitchen:titles
 };
 
 function Field({ kind, label, value, extra, onChange }) {
@@ -735,6 +737,7 @@ export default function Settings({ features }) {
     'telemetry',
     'log',
     'watch',
+    // kitchen:sections
   ].filter((s) => !needs[s] || features[needs[s]]);
   return (
     <section>

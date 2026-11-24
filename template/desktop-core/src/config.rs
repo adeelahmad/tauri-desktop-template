@@ -35,7 +35,8 @@ pub struct Config {
     pub mail: crate::mail::MailConfig,
 {% endif %}{% if telemetry %}    #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
-{% endif %}}
+{% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -228,7 +229,8 @@ impl Config {
         {
             self.telemetry = self.telemetry.validated();
         }
-{% endif %}        self
+{% endif %}        // kitchen:validate
+        self
     }
 
     /// Ingest workers to run: `workers`, or one per core when it is 0.

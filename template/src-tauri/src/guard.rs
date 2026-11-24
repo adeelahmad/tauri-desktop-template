@@ -7,7 +7,7 @@
 //!
 //! The content security policy is in `tauri.conf.json` (`app.security.csp`).
 
-use tauri::Runtime;
+use tauri::{Manager, Runtime};
 
 /// Whether `url` is one of the app's own pages.
 pub fn allowed(url: &tauri::Url) -> bool {
@@ -24,8 +24,11 @@ pub fn allowed(url: &tauri::Url) -> bool {
 
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("guard")
-        .on_navigation(|_, url| {
-            let ok = allowed(url);
+        .on_navigation(|webview, url| {
+            // A debug build may also show the dev server, which on iOS and Android is this
+            // computer's address on the local network rather than `localhost`.
+            let dev = cfg!(debug_assertions) && webview.config().build.dev_url.as_ref().is_some_and(|d| d.origin() == url.origin());
+            let ok = allowed(url) || dev;
             if !ok {
                 log::warn!("blocked navigation to {}", url.origin().ascii_serialization());
             }

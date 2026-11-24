@@ -1,0 +1,46 @@
+# Kitchen project file: the answers this app was generated with. The `kitchen` CLI reads it
+# to turn features on and off (`kitchen enable email`) and to upgrade from the template.
+# Edit it through `kitchen`, not by hand.
+
+[app]
+# The crate and folder name (`cargo generate --name`).
+name = "{{project-name}}"
+
+[template]
+# Where the template came from and at which commit (`kitchen new` fills these in).
+source = ""
+rev = ""
+
+[answers]
+app_name = "{{app_name}}"
+identifier = "{{identifier}}"
+description = "{{description}}"
+github_repo = "{{github_repo}}"
+frontend = "{{frontend}}"
+{% if embeddings %}embedding_model = "{{embedding_model}}"
+{% endif %}{% if claude_mcp %}mcp_server_name = "{{mcp_server_name}}"
+mcp_package = "{{mcp_package}}"
+{% endif %}embeddings = {% if embeddings %}true{% else %}false{% endif %}
+postgres = {% if postgres %}true{% else %}false{% endif %}
+bm25 = {% if bm25 %}true{% else %}false{% endif %}
+watch_folders = {% if watch_folders %}true{% else %}false{% endif %}
+ai = {% if ai %}true{% else %}false{% endif %}
+local_llm = {% if local_llm %}true{% else %}false{% endif %}
+tts = {% if tts %}true{% else %}false{% endif %}
+email = {% if email %}true{% else %}false{% endif %}
+stt = {% if stt %}true{% else %}false{% endif %}
+telemetry = {% if telemetry %}true{% else %}false{% endif %}
+single_instance = {% if single_instance %}true{% else %}false{% endif %}
+mcp_server = {% if mcp_server %}true{% else %}false{% endif %}
+pdf = {% if pdf %}true{% else %}false{% endif %}
+wizard = {% if wizard %}true{% else %}false{% endif %}
+ipc_worker = {% if ipc_worker %}true{% else %}false{% endif %}
+background_agent = {% if background_agent %}true{% else %}false{% endif %}
+python_example = {% if python_example %}true{% else %}false{% endif %}
+updater = {% if updater %}true{% else %}false{% endif %}
+installers = {% if installers %}true{% else %}false{% endif %}
+macos_pkg = {% if macos_pkg %}true{% else %}false{% endif %}
+install_scripts = {% if install_scripts %}true{% else %}false{% endif %}
+linux = {% if linux %}true{% else %}false{% endif %}
+claude_mcp = {% if claude_mcp %}true{% else %}false{% endif %}
+mobile = {% if mobile %}true{% else %}false{% endif %}
