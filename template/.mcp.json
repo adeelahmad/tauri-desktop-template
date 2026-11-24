@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "kitchen": {
+      "command": "kitchen",
+      "args": ["mcp"]
+    }{% if mcp_server %},
+    "{{project-name}}": {
+      "command": "cargo",
+      "args": ["run", "--quiet", "-p", "{{project-name}}", "--", "--mcp"]
+    }{% endif %}
+  }
+}

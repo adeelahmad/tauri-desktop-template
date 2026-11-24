@@ -381,6 +381,14 @@ pub fn create(req: &NewApp) -> Result<Report> {
         .map(|f| f.name.as_str())
         .collect();
     r.lines.push(format!("features on: {}", on.join(", ")));
+    let agent: Vec<&str> = crate::doctor::AGENT_FILES
+        .iter()
+        .copied()
+        .filter(|f| out.join(f).exists())
+        .collect();
+    if !agent.is_empty() {
+        r.lines.push(format!("for AI agents: {}", agent.join(", ")));
+    }
     if !req.no_git && crate::template::git(Some(&out), &["init", "--quiet"]).is_ok() {
         r.lines.push("git repository initialised".into());
     }
@@ -389,5 +397,9 @@ pub fn create(req: &NewApp) -> Result<Report> {
         "kitchen doctor     # check this machine".into(),
         "kitchen dev        # run it".into(),
     ];
+    if out.join("AGENTS.md").is_file() {
+        r.next
+            .push("cat AGENTS.md      # what agents (and people) read first".into());
+    }
     Ok(r)
 }
