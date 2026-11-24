@@ -75,6 +75,7 @@
 //! in [`headless_tasks`]. The daemon starts each with a [`Context`] (the backend, the
 //! folders, a stop flag) and stops them in reverse order when it stops.
 
+use crate::error::CommandError;
 use crate::paths;
 use crate::service::{Local, Service};
 use desktop_core::daemon::{backoff, elevated_command, now_secs, Health, Level, RunAs, ServiceSpec, HEARTBEAT_SECS, STABLE_SECS};
@@ -1012,7 +1013,7 @@ pub fn service_status() -> ServiceStatus {
 
 /// Settings: install (`true`) or remove (`false`) the user-level service.
 #[tauri::command(async)]
-pub fn set_service(enabled: bool) -> Result<ServiceStatus, String> {
+pub fn set_service(enabled: bool) -> Result<ServiceStatus, CommandError> {
     if enabled {
         install(Level::User)?;
     } else {

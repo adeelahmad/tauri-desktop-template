@@ -16,7 +16,7 @@ async function save(config) {
   try {
     show(await invoke('set_config', { config }));
     say('Saved.');
-  } catch (e) { say(`Not saved: ${e}`, true); }
+  } catch (e) { say(`Not saved: ${errorText(e)}`, true); }
 }
 
 $('save').onclick = () => {
@@ -27,4 +27,4 @@ $('save').onclick = () => {
   save({ ...rest, appearance });
 };
 $('reset').onclick = () => save({});
-invoke('get_config').then(show).catch((e) => say(String(e), true));
+invoke('get_config').then(show).catch((e) => say(errorText(e), true));

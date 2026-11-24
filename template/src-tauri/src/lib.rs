@@ -50,7 +50,8 @@
 //!
 //! Every command is a thin wrapper: it turns its arguments into a JSON `params` object and
 //! calls the service by method name, so the same backend serves the window, the worker
-//! process, `--mcp` and `--self-test`. Settings live in `<config>/settings.json` (see
+//! process, `--mcp` and `--self-test`. A failed command rejects with an [`error::CommandError`]
+//! (`{code, message, details?}`, stable codes in docs/GUIDE.md). Settings live in `<config>/settings.json` (see
 //! `paths` for profiles); `get_config` / `set_config` read and write the `config` part, and
 //! `set_config` also hands it to the running engine (`configure`).
 //!
@@ -76,6 +77,7 @@
 //! std::process::exit(app_lib::self_test(Some(std::path::Path::new("report.json"))));
 //! ```
 
+use crate::error::CommandError;
 use desktop_core::{Backend, Config, Engine, EngineOptions, Hit, IngestReport, SearchConfig, Status};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -327,7 +329,7 @@ fn store_for(chosen: Backend) -> Backend {
     chosen
 }
 
-fn call(state: &tauri::State<AppState>, method: &str, params: Value) -> Result<Value, String> {
+fn call(state: &tauri::State<AppState>, method: &str, params: Value) -> Result<Value, CommandError> {
     state.service.call(method, params, &mut |_| {})
 }
 
@@ -353,7 +355,7 @@ struct AppInfo {
 
 /// The app, the parts built in, the saved settings and the open store's status.
 #[tauri::command(async)]
-fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<AppInfo, String> {
+fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<AppInfo, CommandError> {
     let status = call(&state, "status", Value::Null).ok().filter(|s| !s.is_null()).and_then(|s| serde_json::from_value(s).ok());
     Ok(AppInfo {
         name: app.package_info().name.clone(),
@@ -383,24 +385,24 @@ fn list_profiles() -> ProfileList {
 }
 
 #[tauri::command]
-fn create_profile(name: String) -> Result<paths::Profile, String> {
-    paths::create(&name)
+fn create_profile(name: String) -> Result<paths::Profile, CommandError> {
+    Ok(paths::create(&name)?)
 }
 
 #[tauri::command]
-fn rename_profile(id: String, name: String) -> Result<(), String> {
-    paths::rename(&id, &name)
+fn rename_profile(id: String, name: String) -> Result<(), CommandError> {
+    Ok(paths::rename(&id, &name)?)
 }
 
 /// Remove a profile; its documents and settings are deleted only with `delete_data`.
 #[tauri::command]
-fn remove_profile(id: String, delete_data: bool) -> Result<(), String> {
-    paths::remove(&id, delete_data)
+fn remove_profile(id: String, delete_data: bool) -> Result<(), CommandError> {
+    Ok(paths::remove(&id, delete_data)?)
 }
 
 /// Open another profile: it becomes the active one and the app restarts into it.
 #[tauri::command]
-fn switch_profile(app: tauri::AppHandle, id: String) -> Result<(), String> {
+fn switch_profile(app: tauri::AppHandle, id: String) -> Result<(), CommandError> {
     paths::set_active(&id)?;
     log::info!("switching to profile {id}");
     // The same orderly stop as quitting; this profile's worker goes too (the new one starts its own).
@@ -455,7 +457,7 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         let mut progress = |msg: &str| {
             let _ = app.emit("setup-progress", msg.to_string());
         };
-        let done = match serde_json::to_value(&opts).map_err(err).and_then(|o| service.call("setup", o, &mut progress)) {
+        let done = match serde_json::to_value(&opts).map_err(CommandError::from).and_then(|o| service.call("setup", o, &mut progress)) {
             Ok(status) => match save_settings(&app, &settings) {
                 Ok(()) => {
                     #[cfg(all(desktop, feature = "http-api"))]
@@ -464,35 +466,35 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
                 }
                 Err(e) => Done { ok: false, status: Some(status), error: Some(e) },
             },
-            Err(e) => Done { ok: false, status: None, error: Some(e) },
+            Err(e) => Done { ok: false, status: None, error: Some(e.message) },
         };
         let _ = app.emit("setup-done", done);
     });
     Ok(())
 }
 
-fn typed<T: serde::de::DeserializeOwned>(v: Result<Value, String>) -> Result<T, String> {
-    serde_json::from_value(v?).map_err(err)
+fn typed<T: serde::de::DeserializeOwned>(v: Result<Value, CommandError>) -> Result<T, CommandError> {
+    Ok(serde_json::from_value(v?).map_err(err)?)
 }
 
 #[tauri::command(async)]
-fn ingest_text(state: tauri::State<AppState>, source: String, text: String) -> Result<usize, String> {
+fn ingest_text(state: tauri::State<AppState>, source: String, text: String) -> Result<usize, CommandError> {
     typed(call(&state, "ingest_text", json!({"source": source, "text": text})))
 }
 
 #[tauri::command(async)]
-fn ingest_file(state: tauri::State<AppState>, path: String) -> Result<usize, String> {
+fn ingest_file(state: tauri::State<AppState>, path: String) -> Result<usize, CommandError> {
     typed(call(&state, "ingest_file", json!({"path": path})))
 }
 
 /// `search` overrides the saved search settings for this query (the UI's tuning panel).
 #[tauri::command(async)]
-fn search(state: tauri::State<AppState>, query: String, k: Option<usize>, search: Option<SearchConfig>) -> Result<Vec<Hit>, String> {
+fn search(state: tauri::State<AppState>, query: String, k: Option<usize>, search: Option<SearchConfig>) -> Result<Vec<Hit>, CommandError> {
     typed(call(&state, "search", json!({"query": query, "k": k, "search": search})))
 }
 
 #[tauri::command(async)]
-fn ingest_folder(state: tauri::State<AppState>, path: String, recursive: Option<bool>) -> Result<IngestReport, String> {
+fn ingest_folder(state: tauri::State<AppState>, path: String, recursive: Option<bool>) -> Result<IngestReport, CommandError> {
     typed(call(&state, "ingest_folder", json!({"path": path, "recursive": recursive})))
 }
 
@@ -503,12 +505,12 @@ fn get_config(app: tauri::AppHandle) -> Config {
 
 /// Validate, apply to the running engine (restarting the watcher if needed), and save.
 #[tauri::command(async)]
-fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Config) -> Result<Config, String> {
+fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Config) -> Result<Config, CommandError> {
     let config = config.validated();
     let applied: Config = match call(&state, "configure", json!({"config": config})) {
         Ok(v) => serde_json::from_value(v).map_err(err)?,
         // Not set up yet: the saved config applies at the next setup.
-        Err(e) if e.starts_with("Still starting") => config,
+        Err(e) if e.code == error::codes::NOT_READY => config,
         Err(e) => return Err(e),
     };
     // Every open window switches theme and fonts at once.
@@ -527,37 +529,37 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
 
 /// Back up the index now.
 #[tauri::command(async)]
-fn backup_now(state: tauri::State<AppState>) -> Result<Value, String> {
+fn backup_now(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "backup", Value::Null)
 }
 
 /// Backups in the backup folder, newest first.
 #[tauri::command(async)]
-fn list_backups(state: tauri::State<AppState>) -> Result<Value, String> {
+fn list_backups(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "backups", Value::Null)
 }
 
 /// Replace the index with a backup (the current one is backed up first).
 #[tauri::command(async)]
-fn restore_backup(state: tauri::State<AppState>, path: String, key: Option<String>) -> Result<Status, String> {
+fn restore_backup(state: tauri::State<AppState>, path: String, key: Option<String>) -> Result<Status, CommandError> {
     typed(call(&state, "restore", json!({ "path": path, "key": key })))
 }
 
 /// The recovery key for encrypted backups (shown so it can be kept somewhere safe).
 #[tauri::command(async)]
-fn backup_recovery_key(state: tauri::State<AppState>) -> Result<Value, String> {
+fn backup_recovery_key(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "backup_key", Value::Null)
 }
 
 #[tauri::command(async)]
-fn watch_status(state: tauri::State<AppState>) -> Result<Value, String> {
+fn watch_status(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "watch_status", Value::Null)
 }
 
 /// Answer from the documents with the configured LLM; the text streams as `ask-token`.
 #[cfg(feature = "ai")]
 #[tauri::command(async)]
-fn ask(app: tauri::AppHandle, state: tauri::State<AppState>, question: String) -> Result<Value, String> {
+fn ask(app: tauri::AppHandle, state: tauri::State<AppState>, question: String) -> Result<Value, CommandError> {
     state.service.call("ask", json!({"question": question}), &mut |t| {
         let _ = app.emit("ask-token", t.to_string());
     })
@@ -566,7 +568,7 @@ fn ask(app: tauri::AppHandle, state: tauri::State<AppState>, question: String) -
 /// Download a GGUF model for the built-in llama.cpp and select it (`model-progress` events).
 #[cfg(feature = "llama")]
 #[tauri::command(async)]
-fn download_model(app: tauri::AppHandle, state: tauri::State<AppState>, url: Option<String>) -> Result<Value, String> {
+fn download_model(app: tauri::AppHandle, state: tauri::State<AppState>, url: Option<String>) -> Result<Value, CommandError> {
     let path = state.service.call("download_model", json!({"url": url}), &mut |p| {
         let _ = app.emit("model-progress", p.to_string());
     })?;
@@ -580,56 +582,56 @@ fn download_model(app: tauri::AppHandle, state: tauri::State<AppState>, url: Opt
 /// Send an email (feature `mail`): `{to, cc, bcc, subject, text, html?, attachments: [path]}`.
 #[cfg(feature = "mail")]
 #[tauri::command(async)]
-fn send_mail(state: tauri::State<AppState>, message: Value) -> Result<Value, String> {
+fn send_mail(state: tauri::State<AppState>, message: Value) -> Result<Value, CommandError> {
     call(&state, "send_mail", message)
 }
 
 /// Check the mail settings: log in only, or with `to`, send a short test message.
 #[cfg(feature = "mail")]
 #[tauri::command(async)]
-fn test_mail(state: tauri::State<AppState>, to: Option<String>) -> Result<Value, String> {
+fn test_mail(state: tauri::State<AppState>, to: Option<String>) -> Result<Value, CommandError> {
     call(&state, "test_mail", json!({ "to": to }))
 }
 
 /// Save the SMTP password (empty removes it), or with none, say whether one is saved.
 #[cfg(feature = "mail")]
 #[tauri::command(async)]
-fn mail_password(state: tauri::State<AppState>, password: Option<String>) -> Result<Value, String> {
+fn mail_password(state: tauri::State<AppState>, password: Option<String>) -> Result<Value, CommandError> {
     call(&state, "mail_password", json!({ "password": password }))
 }
 
 /// The built-in plugins: name, version, methods, settings schema and whether each runs.
 #[cfg(feature = "plugins")]
 #[tauri::command(async)]
-fn plugins_list(state: tauri::State<AppState>) -> Result<Value, String> {
+fn plugins_list(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "plugins", Value::Null)
 }
 
 /// Call a plugin's method (`plugin.<name>.<method>` in the backend).
 #[cfg(feature = "plugins")]
 #[tauri::command(async)]
-fn plugin_call(state: tauri::State<AppState>, name: String, method: String, params: Option<Value>) -> Result<Value, String> {
+fn plugin_call(state: tauri::State<AppState>, name: String, method: String, params: Option<Value>) -> Result<Value, CommandError> {
     call(&state, &format!("plugin.{name}.{method}"), params.unwrap_or(Value::Null))
 }
 
 /// rclone: installed or not, the remotes in its config, and the last sync.
 #[cfg(feature = "rclone")]
 #[tauri::command(async)]
-fn rclone_status(state: tauri::State<AppState>) -> Result<Value, String> {
+fn rclone_status(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "rclone_status", Value::Null)
 }
 
 /// Replace the rclone config (kept in an owner-only file; empty removes it).
 #[cfg(feature = "rclone")]
 #[tauri::command(async)]
-fn rclone_config(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
+fn rclone_config(state: tauri::State<AppState>, text: String) -> Result<Value, CommandError> {
     call(&state, "rclone_config", json!({ "text": text }))
 }
 
 /// Download the pinned rclone now (`rclone-progress` events).
 #[cfg(feature = "rclone")]
 #[tauri::command(async)]
-fn rclone_install(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+fn rclone_install(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, CommandError> {
     state.service.call("rclone_install", Value::Null, &mut |p| {
         let _ = app.emit("rclone-progress", p.to_string());
     })
@@ -638,7 +640,7 @@ fn rclone_install(app: tauri::AppHandle, state: tauri::State<AppState>) -> Resul
 /// Sync now; rclone's output arrives as `rclone-progress` events.
 #[cfg(feature = "rclone")]
 #[tauri::command(async)]
-fn rclone_sync(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+fn rclone_sync(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, CommandError> {
     state.service.call("rclone_sync", Value::Null, &mut |p| {
         let _ = app.emit("rclone-progress", p.to_string());
     })
@@ -647,14 +649,14 @@ fn rclone_sync(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<V
 /// Tailscale: installed or not (with the download link), this machine and what is shared.
 #[cfg(feature = "tailscale")]
 #[tauri::command(async)]
-fn tailscale_status(state: tauri::State<AppState>) -> Result<Value, String> {
+fn tailscale_status(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "tailscale_status", Value::Null)
 }
 
 /// Start or stop sharing the configured port with the tailnet, as the saved settings say.
 #[cfg(feature = "tailscale")]
 #[tauri::command(async)]
-fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, String> {
+fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "tailscale_apply", Value::Null)
 }
 
@@ -665,7 +667,7 @@ const OAUTH_DEEP_LINK: &str = "{{project-name}}://oauth/callback";
 /// Sign-in: providers, who is signed in, and the redirect in use (feature `oauth`).
 #[cfg(feature = "oauth")]
 #[tauri::command(async)]
-fn oauth_status(state: tauri::State<AppState>) -> Result<Value, String> {
+fn oauth_status(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "oauth_status", Value::Null)
 }
 
@@ -675,7 +677,7 @@ fn oauth_status(state: tauri::State<AppState>) -> Result<Value, String> {
 /// `oauth-changed` carries the provider's new status.
 #[cfg(feature = "oauth")]
 #[tauri::command(async)]
-fn oauth_login(app: tauri::AppHandle, state: tauri::State<AppState>, provider: String) -> Result<Value, String> {
+fn oauth_login(app: tauri::AppHandle, state: tauri::State<AppState>, provider: String) -> Result<Value, CommandError> {
     use desktop_core::oauth::{open_browser, Loopback, RedirectMode};
     let status = call(&state, "oauth_status", Value::Null)?;
     let redirect: RedirectMode = serde_json::from_value(status["redirect"].clone()).unwrap_or_default();
@@ -702,7 +704,7 @@ fn oauth_login(app: tauri::AppHandle, state: tauri::State<AppState>, provider: S
 /// removed from the keychain. Returns `{revoked}`.
 #[cfg(feature = "oauth")]
 #[tauri::command(async)]
-fn oauth_logout(app: tauri::AppHandle, state: tauri::State<AppState>, provider: String) -> Result<Value, String> {
+fn oauth_logout(app: tauri::AppHandle, state: tauri::State<AppState>, provider: String) -> Result<Value, CommandError> {
     let done = call(&state, "oauth_logout", json!({ "provider": provider }))?;
     let _ = app.emit("oauth-changed", &done);
     Ok(done)
@@ -712,21 +714,21 @@ fn oauth_logout(app: tauri::AppHandle, state: tauri::State<AppState>, provider: 
 /// whether one is saved. Secrets never go into settings.
 #[cfg(feature = "oauth")]
 #[tauri::command(async)]
-fn oauth_client_secret(state: tauri::State<AppState>, provider: String, secret: Option<String>) -> Result<Value, String> {
+fn oauth_client_secret(state: tauri::State<AppState>, provider: String, secret: Option<String>) -> Result<Value, CommandError> {
     call(&state, "oauth_client_secret", json!({ "provider": provider, "secret": secret }))
 }
 
 {% endif %}{% if background_jobs %}/// The job queue: waiting and running jobs, dead letters, recent runs and the job types.
 #[cfg(feature = "jobs-queue")]
 #[tauri::command(async)]
-fn jobs_list(state: tauri::State<AppState>) -> Result<Value, String> {
+fn jobs_list(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "jobs_list", Value::Null)
 }
 
 /// Add a job: `kind`, its `payload`, and optionally `options` {delaySecs, runAt, maxAttempts, timeoutSecs}.
 #[cfg(feature = "jobs-queue")]
 #[tauri::command(async)]
-fn jobs_enqueue(state: tauri::State<AppState>, kind: String, payload: Option<Value>, options: Option<Value>) -> Result<Value, String> {
+fn jobs_enqueue(state: tauri::State<AppState>, kind: String, payload: Option<Value>, options: Option<Value>) -> Result<Value, CommandError> {
     let mut params = options.filter(Value::is_object).unwrap_or_else(|| json!({}));
     params["kind"] = json!(kind);
     params["payload"] = payload.unwrap_or_else(|| json!({}));
@@ -736,28 +738,28 @@ fn jobs_enqueue(state: tauri::State<AppState>, kind: String, payload: Option<Val
 /// Cancel a job (a running one is told to stop).
 #[cfg(feature = "jobs-queue")]
 #[tauri::command(async)]
-fn jobs_cancel(state: tauri::State<AppState>, id: String) -> Result<Value, String> {
+fn jobs_cancel(state: tauri::State<AppState>, id: String) -> Result<Value, CommandError> {
     call(&state, "jobs_cancel", json!({ "id": id }))
 }
 
 /// Run a dead or waiting job again now.
 #[cfg(feature = "jobs-queue")]
 #[tauri::command(async)]
-fn jobs_retry(state: tauri::State<AppState>, id: String) -> Result<Value, String> {
+fn jobs_retry(state: tauri::State<AppState>, id: String) -> Result<Value, CommandError> {
     call(&state, "jobs_retry", json!({ "id": id }))
 }
 
 /// The schedules (cron or interval), paused or not, with their next run.
 #[cfg(feature = "jobs-queue")]
 #[tauri::command(async)]
-fn jobs_schedules(state: tauri::State<AppState>) -> Result<Value, String> {
+fn jobs_schedules(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "jobs_schedules", Value::Null)
 }
 
 /// Add, change, pause, resume or remove a schedule: `{id, kind?, payload?, cron? | everySecs?, paused?, remove?}`.
 #[cfg(feature = "jobs-queue")]
 #[tauri::command(async)]
-fn jobs_set_schedule(state: tauri::State<AppState>, schedule: Value) -> Result<Value, String> {
+fn jobs_set_schedule(state: tauri::State<AppState>, schedule: Value) -> Result<Value, CommandError> {
     call(&state, "jobs_set_schedule", schedule)
 }
 
@@ -791,14 +793,14 @@ pub(crate) fn jobs_autostart(local: &Arc<service::Local>) {
 {% endif %}/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
 #[cfg(feature = "tts")]
 #[tauri::command(async)]
-fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
+fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, CommandError> {
     call(&state, "speak", json!({"text": text}))
 }
 
 /// Fetch the voice model (about 25 MB, checksummed) with `voice-progress` events.
 #[cfg(feature = "tts")]
 #[tauri::command(async)]
-fn download_voice(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+fn download_voice(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, CommandError> {
     state.service.call("download_voice", Value::Null, &mut |p| {
         let _ = app.emit("voice-progress", p.to_string());
     })
@@ -808,14 +810,14 @@ fn download_voice(app: tauri::AppHandle, state: tauri::State<AppState>) -> Resul
 /// records); returns `{text, language, seconds}`.
 #[cfg(feature = "stt")]
 #[tauri::command(async)]
-fn transcribe(state: tauri::State<AppState>, audio: String) -> Result<Value, String> {
+fn transcribe(state: tauri::State<AppState>, audio: String) -> Result<Value, CommandError> {
     call(&state, "transcribe", json!({"pcm16": audio}))
 }
 
 /// Fetch the chosen Whisper model (checksummed) with `stt-progress` events.
 #[cfg(feature = "stt")]
 #[tauri::command(async)]
-fn download_stt(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+fn download_stt(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, CommandError> {
     state.service.call("download_stt", Value::Null, &mut |p| {
         let _ = app.emit("stt-progress", p.to_string());
     })
@@ -824,38 +826,38 @@ fn download_stt(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<
 /// What telemetry is on, the anonymous install id and the last send problem.
 #[cfg(feature = "telemetry")]
 #[tauri::command(async)]
-fn telemetry_status(state: tauri::State<AppState>) -> Result<Value, String> {
+fn telemetry_status(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "telemetry_status", Value::Null)
 }
 
 /// AI usage and cost: today, this month, recent days and months, and the budgets.
 #[cfg(feature = "ai")]
 #[tauri::command(async)]
-fn ai_usage(state: tauri::State<AppState>) -> Result<Value, String> {
+fn ai_usage(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "ai_usage", Value::Null)
 }
 
 /// Providers that have a key (the keys never leave the backend).
 #[cfg(feature = "ai")]
 #[tauri::command(async)]
-fn ai_keys(state: tauri::State<AppState>) -> Result<Value, String> {
+fn ai_keys(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "ai_keys", Value::Null)
 }
 
 /// Store a provider's key (an empty key forgets it).
 #[cfg(feature = "ai")]
 #[tauri::command(async)]
-fn set_ai_key(state: tauri::State<AppState>, provider: String, key: Option<String>) -> Result<Value, String> {
+fn set_ai_key(state: tauri::State<AppState>, provider: String, key: Option<String>) -> Result<Value, CommandError> {
     call(&state, "set_ai_key", json!({"provider": provider, "key": key}))
 }
 
 #[tauri::command(async)]
-fn remove_source(state: tauri::State<AppState>, source: String) -> Result<usize, String> {
+fn remove_source(state: tauri::State<AppState>, source: String) -> Result<usize, CommandError> {
     typed(call(&state, "remove_source", json!({"source": source})))
 }
 
 #[tauri::command(async)]
-fn clear(state: tauri::State<AppState>) -> Result<Status, String> {
+fn clear(state: tauri::State<AppState>) -> Result<Status, CommandError> {
     typed(call(&state, "clear", Value::Null))
 }
 
@@ -881,28 +883,28 @@ pub fn mcp_main() -> i32 {
 /// How to connect an MCP client to this app (the entry, and the Claude Code command).
 #[cfg(all(desktop, feature = "mcp"))]
 #[tauri::command(async)]
-fn mcp_setup() -> Result<mcp::Setup, String> {
-    mcp::setup()
+fn mcp_setup() -> Result<mcp::Setup, CommandError> {
+    Ok(mcp::setup()?)
 }
 
 /// Add this app to Claude Desktop's MCP servers (the old config is kept as `.bak`).
 #[cfg(all(desktop, feature = "mcp"))]
 #[tauri::command(async)]
-fn mcp_register_claude() -> Result<&'static str, String> {
-    mcp::register(&mcp::claude_desktop_config(), mcp::entry()?)
+fn mcp_register_claude() -> Result<&'static str, CommandError> {
+    Ok(mcp::register(&mcp::claude_desktop_config(), mcp::entry()?)?)
 }
 
 /// MCP calls waiting for approval (tools set to "ask"), oldest first.
 #[cfg(feature = "mcp")]
 #[tauri::command(async)]
-fn mcp_pending(state: tauri::State<AppState>) -> Result<Value, String> {
+fn mcp_pending(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "mcp_pending", Value::Null)
 }
 
 /// Approve or refuse a waiting MCP call; returns the calls still waiting.
 #[cfg(feature = "mcp")]
 #[tauri::command(async)]
-fn mcp_decide(state: tauri::State<AppState>, id: String, allow: bool) -> Result<Value, String> {
+fn mcp_decide(state: tauri::State<AppState>, id: String, allow: bool) -> Result<Value, CommandError> {
     call(&state, "mcp_decide", json!({"id": id, "allow": allow}))
 }
 
@@ -1224,7 +1226,7 @@ pub fn run() {
                     let handle = handle.clone();
                     std::thread::spawn(move || {
                         let Some(state) = handle.try_state::<AppState>() else { return };
-                        let reply = state.service.call("oauth_complete", json!({ "url": url }), &mut |_| {}).unwrap_or_else(|e| json!({ "error": e }));
+                        let reply = state.service.call("oauth_complete", json!({ "url": url }), &mut |_| {}).unwrap_or_else(|e| json!({ "error": e.message }));
                         let _ = handle.emit("oauth-changed", reply);
                     });
                 }
@@ -1481,6 +1483,8 @@ mod tests {
         b.add::<AppInfo>("AppInfo").add::<ProfileList>("ProfileList").add::<paths::Profile>("paths::Profile");
         b.add::<Backend>("Backend").add::<Config>("Config").add::<SearchConfig>("SearchConfig");
         b.add::<Hit>("Hit").add::<IngestReport>("IngestReport").add::<Status>("Status");
+        // What every command rejects with (`{code, message, details?}`).
+        b.add::<error::CommandError>("error::CommandError");
 {% if mcp_server %}        #[cfg(all(desktop, feature = "mcp"))]
         b.add::<mcp::Setup>("mcp::Setup");
 {% endif %}{% if ipc_worker %}{% if background_agent %}        #[cfg(all(desktop, feature = "background-agent"))]

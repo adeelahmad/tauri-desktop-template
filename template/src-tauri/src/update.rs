@@ -23,6 +23,7 @@
 //! assert_eq!(info["available"], true);
 //! ```
 
+use crate::error::CommandError;
 use serde::Serialize;
 use tauri::Emitter;
 use tauri_plugin_updater::UpdaterExt;
@@ -122,7 +123,7 @@ fn prepare_rollback(app: &tauri::AppHandle) {
 {% endif %}
 /// Tauri command: is there a newer release? Never installs.
 #[tauri::command]
-pub async fn check_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
+pub async fn check_update(app: tauri::AppHandle) -> Result<UpdateInfo, CommandError> {
     let current = app.package_info().version.to_string();
     if !configured(&app) {
         return Ok(UpdateInfo { configured: false, available: false, current, version: None, notes: None, staged: false });
@@ -143,7 +144,7 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
 
 /// Download (with `update-progress` events: bytes so far, total), install, restart.
 #[tauri::command]
-pub async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn install_update(app: tauri::AppHandle) -> Result<(), CommandError> {
     {% if release_channels %}#[cfg(feature = "release-channels")]
     let update = find(&app).await?.0;
     #[cfg(not(feature = "release-channels"))]
@@ -153,7 +154,7 @@ pub async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     };
     {% if release_channels %}#[cfg(feature = "release-channels")]
     prepare_rollback(&app);
-    {% endif %}install(&app, update).await
+    {% endif %}Ok(install(&app, update).await?)
 }
 
 async fn install(app: &tauri::AppHandle, update: tauri_plugin_updater::Update) -> Result<(), String> {
@@ -221,7 +222,7 @@ pub fn update_channel_status(app: tauri::AppHandle) -> ChannelStatus {
 /// version's signed update bundle from its GitHub release and installs it (Windows).
 #[cfg(feature = "release-channels")]
 #[tauri::command]
-pub async fn rollback_update(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn rollback_update(app: tauri::AppHandle) -> Result<(), CommandError> {
     let dir = data_dir();
     let record = release::load_record(&dir).ok_or("No earlier version is recorded: the app has not been updated from here.")?;
     if let Some(backup) = record.backup.as_deref().filter(|b| b.exists()) {
@@ -251,6 +252,6 @@ pub async fn rollback_update(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Could not reach the release of {}: {e}", record.previous))?
         .ok_or_else(|| format!("The release of {} has no update bundle for this platform.", record.previous))?;
     let _ = release::clear(&dir);
-    install(&app, update).await
+    Ok(install(&app, update).await?)
 }
 {% endif %}

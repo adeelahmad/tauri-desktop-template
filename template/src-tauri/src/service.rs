@@ -53,6 +53,7 @@
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 
+use crate::error::CommandError;
 use desktop_core::{Config, Engine, EngineOptions, SearchConfig};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -63,7 +64,7 @@ use std::sync::{Arc, Mutex};
 /// worker process. Commands, the MCP server and the self-test only use this.
 pub trait Service: Send + Sync {
     /// Run `method`; `progress` gets human-readable lines while it works.
-    fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String>;
+    fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, CommandError>;
 }
 
 /// The backend in this process.
@@ -98,8 +99,8 @@ struct Jobs {
     runtime: Option<desktop_core::queue::Runtime>,
 }
 
-fn arg<T: DeserializeOwned>(params: &Value, key: &str) -> Result<T, String> {
-    serde_json::from_value(params.get(key).cloned().unwrap_or(Value::Null)).map_err(|e| format!("{key}: {e}"))
+fn arg<T: DeserializeOwned>(params: &Value, key: &str) -> Result<T, CommandError> {
+    serde_json::from_value(params.get(key).cloned().unwrap_or(Value::Null)).map_err(|e| CommandError::invalid(format!("{key}: {e}")))
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -115,18 +116,18 @@ fn megabytes(done: u64, total: Option<u64>) -> String {
     }
 }
 
-fn to<T: serde::Serialize>(v: Result<T, desktop_core::Error>) -> Result<Value, String> {
-    v.map_err(err).and_then(|v| serde_json::to_value(v).map_err(err))
+fn to<T: serde::Serialize>(v: Result<T, desktop_core::Error>) -> Result<Value, CommandError> {
+    Ok(serde_json::to_value(v?)?)
 }
 
 impl Local {
-    fn engine(&self) -> Result<Arc<Engine>, String> {
-        self.engine.lock().map_err(err)?.clone().ok_or_else(|| "Still starting; try again in a moment.".into())
+    fn engine(&self) -> Result<Arc<Engine>, CommandError> {
+        self.engine.lock().map_err(err)?.clone().ok_or_else(CommandError::not_ready)
     }
 
     /// Start, restart or stop the folder watcher to match the engine's config.
     #[cfg(all(desktop, feature = "watch"))]
-    fn rewatch(&self) -> Result<(), String> {
+    fn rewatch(&self) -> Result<(), CommandError> {
         let engine = self.engine()?;
         let mut slot = self.watcher.lock().map_err(err)?;
         *slot = None;
@@ -146,20 +147,20 @@ impl Local {
                 }
             }
         })
-        .map_err(err)?;
+        ?;
         *slot = Some(watcher);
         Ok(())
     }
 
     #[cfg(not(all(desktop, feature = "watch")))]
-    fn rewatch(&self) -> Result<(), String> {
+    fn rewatch(&self) -> Result<(), CommandError> {
         Ok(())
     }
 
     /// Open the job queue in the engine's data folder (once), apply the settings, and start or
     /// stop its runtime to match `jobs.enabled`.
     #[cfg(feature = "jobs-queue")]
-    fn rejobs(&self) -> Result<(), String> {
+    fn rejobs(&self) -> Result<(), CommandError> {
         use desktop_core::queue::{Queue, Runtime};
         let engine = self.engine()?;
         let cfg = engine.config();
@@ -167,13 +168,13 @@ impl Local {
         if j.queue.as_ref().is_none_or(|q| q.dir() != engine.data_dir().join("queue")) {
             j.runtime = None;
             j.queue = None;
-            j.queue = Some(Queue::open(engine.data_dir(), desktop_core::job_types::registry(), cfg.jobs.clone()).map_err(err)?);
+            j.queue = Some(Queue::open(engine.data_dir(), desktop_core::job_types::registry(), cfg.jobs.clone())?);
         }
         let queue = j.queue.clone().ok_or("no queue")?;
         queue.set_engine(Arc::downgrade(&engine));
         queue.configure(cfg.jobs.clone(), cfg.resources.clone());
         match (cfg.jobs.enabled, j.runtime.is_some()) {
-            (true, false) if queue.is_owner() => j.runtime = Some(Runtime::start(queue).map_err(err)?),
+            (true, false) if queue.is_owner() => j.runtime = Some(Runtime::start(queue)?),
             (false, true) => j.runtime = None,
             _ => {}
         }
@@ -181,7 +182,7 @@ impl Local {
     }
 
     #[cfg(not(feature = "jobs-queue"))]
-    fn rejobs(&self) -> Result<(), String> {
+    fn rejobs(&self) -> Result<(), CommandError> {
         Ok(())
     }
 
@@ -200,8 +201,8 @@ impl Local {
     }
 
     #[cfg(feature = "jobs-queue")]
-    fn queue(&self) -> Result<desktop_core::queue::Queue, String> {
-        self.jobs.lock().map_err(err)?.queue.clone().ok_or_else(|| "Still starting; try again in a moment.".into())
+    fn queue(&self) -> Result<desktop_core::queue::Queue, CommandError> {
+        self.jobs.lock().map_err(err)?.queue.clone().ok_or_else(CommandError::not_ready)
     }
 
 {% if tray_menu %}    /// The backend side of the app's own tray, menu and shortcut actions, by id. Runs
@@ -209,7 +210,7 @@ impl Local {
     /// nothing to do here. The window gets the `app-action` event either way.
     #[cfg(feature = "tray-menu")]
     #[allow(clippy::match_single_binding)] // `kitchen generate menu` adds arms
-    fn action(&self, id: &str) -> Result<Value, String> {
+    fn action(&self, id: &str) -> Result<Value, CommandError> {
         let _ = self;
         match id {
             // kitchen:action-methods (`kitchen generate menu` adds actions above this line)
@@ -217,7 +218,7 @@ impl Local {
         }
     }
 
-{% endif %}    fn watch_status(&self) -> Result<Value, String> {
+{% endif %}    fn watch_status(&self) -> Result<Value, CommandError> {
         #[cfg(all(desktop, feature = "watch"))]
         let folders = self.watcher.lock().map_err(err)?.as_ref().map(|w| w.folders.clone()).unwrap_or_default();
         #[cfg(not(all(desktop, feature = "watch")))]
@@ -245,7 +246,7 @@ fn rclone_folder(e: &Engine) -> std::path::PathBuf {
 }
 
 {% endif %}impl Service for Local {
-    fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
+    fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, CommandError> {
         let start = std::time::Instant::now();
         let reply = self.dispatch(method, params, progress);
         match &reply {
@@ -263,10 +264,10 @@ fn rclone_folder(e: &Engine) -> std::path::PathBuf {
 
 impl Local {
     /// Open the engine (`setup`), then start what runs beside it.
-    fn setup(&self, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
-        let opts: EngineOptions = serde_json::from_value(params).map_err(err)?;
-        let engine = Engine::open(&opts, progress).map_err(err)?;
-        let status = engine.status().map_err(err)?;
+    fn setup(&self, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, CommandError> {
+        let opts: EngineOptions = serde_json::from_value(params)?;
+        let engine = Engine::open(&opts, progress)?;
+        let status = engine.status()?;
         *self.engine.lock().map_err(err)? = Some(Arc::new(engine));
         *self.app_name.lock().map_err(err)? = opts.app_name.clone();
         #[cfg(feature = "telemetry")]
@@ -306,7 +307,7 @@ impl Local {
                         }
                     }
                 })
-                .map_err(err)?;
+                ?;
         }
 {% endif %}{% if oauth %}        // Access tokens are refreshed shortly before they expire, while this engine is open.
         #[cfg(feature = "oauth")]
@@ -326,7 +327,7 @@ impl Local {
                         }
                     }
                 })
-                .map_err(err)?;
+                ?;
         }
 {% endif %}        // Scheduled backups: checked every few minutes while this engine is open.
         std::thread::Builder::new()
@@ -338,26 +339,26 @@ impl Local {
                     log::warn!("scheduled backup failed: {err}");
                 }
             })
-            .map_err(err)?;
+            ?;
         // Background jobs: the queue opens with the engine; its runtime runs while `jobs.enabled`.
         if let Err(e) = self.rejobs() {
             progress(&format!("Background jobs are off: {e}"));
         }
-        serde_json::to_value(status).map_err(err)
+        Ok(serde_json::to_value(status)?)
     }
 
     /// `setup` from the saved settings, unless the window already did it (the worker that
     /// the background agent starts at login has no window to ask it).
     #[cfg(all(desktop, feature = "background-agent", feature = "jobs-queue"))]
-    pub fn setup_unless_open(&self, opts: &EngineOptions) -> Result<(), String> {
+    pub fn setup_unless_open(&self, opts: &EngineOptions) -> Result<(), CommandError> {
         let _one_at_a_time = self.setup_lock.lock().map_err(err)?;
         if self.engine.lock().map_err(err)?.is_some() {
             return Ok(());
         }
-        self.setup(serde_json::to_value(opts).map_err(err)?, &mut |p| log::debug!("setup: {p}")).map(|_| ())
+        self.setup(serde_json::to_value(opts)?, &mut |p| log::debug!("setup: {p}")).map(|_| ())
     }
 
-    fn dispatch(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
+    fn dispatch(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, CommandError> {
         match method {
             "ping" => Ok(json!({"pid": std::process::id(), "version": env!("CARGO_PKG_VERSION")})),
             "setup" => {
@@ -388,7 +389,7 @@ impl Local {
             }
             "configure" => {
                 let e = self.engine()?;
-                e.configure(arg::<Config>(&params, "config")?).map_err(err)?;
+                e.configure(arg::<Config>(&params, "config")?)?;
                 self.rewatch()?;
                 self.rejobs()?;
                 desktop_core::logging::configure(e.config().log);
@@ -408,16 +409,16 @@ impl Local {
             }
             "backup" => to(self.engine()?.backup()),
             "backups" => to(Ok(self.engine()?.backups())),
-            "backup_key" => Ok(json!({ "key": self.engine()?.backup_key().map_err(err)?.to_text() })),
+            "backup_key" => Ok(json!({ "key": self.engine()?.backup_key()?.to_text() })),
             "restore" => {
                 let e = self.engine()?;
-                e.restore(Path::new(&arg::<String>(&params, "path")?), arg::<Option<String>>(&params, "key")?.as_deref()).map_err(err)?;
+                e.restore(Path::new(&arg::<String>(&params, "path")?), arg::<Option<String>>(&params, "key")?.as_deref())?;
                 to(e.status())
             }
             "remove_source" => to(self.engine()?.remove_source(&arg::<String>(&params, "source")?)),
             "clear" => {
                 let e = self.engine()?;
-                e.clear().map_err(err)?;
+                e.clear()?;
                 to(e.status())
             }
             #[cfg(feature = "ai")]
@@ -434,7 +435,7 @@ impl Local {
             #[cfg(feature = "ai")]
             "set_ai_key" => {
                 let keys = desktop_core::llm::KeyFile::new(self.engine()?.data_dir().join("keys.json"));
-                keys.set(arg(&params, "provider")?, arg::<Option<String>>(&params, "key")?.as_deref()).map_err(err)?;
+                keys.set(arg(&params, "provider")?, arg::<Option<String>>(&params, "key")?.as_deref())?;
                 to(Ok(keys.present()))
             }
             #[cfg(feature = "llama")]
@@ -449,12 +450,12 @@ impl Local {
             "send_mail" => {
                 use desktop_core::mail;
                 let e = self.engine()?;
-                let mut msg: mail::Message = serde_json::from_value(params.clone()).map_err(err)?;
+                let mut msg: mail::Message = serde_json::from_value(params.clone())?;
                 for path in arg::<Option<Vec<std::path::PathBuf>>>(&params, "attachments")?.unwrap_or_default() {
-                    msg.attachments.push(mail::Attachment::from_path(&path).map_err(err)?);
+                    msg.attachments.push(mail::Attachment::from_path(&path)?);
                 }
                 let password = mail::PasswordFile::new(e.data_dir()).get();
-                Ok(json!(mail::send(&e.config().mail, password.as_deref(), &msg).map_err(err)?))
+                Ok(json!(mail::send(&e.config().mail, password.as_deref(), &msg)?))
             }
             #[cfg(feature = "mail")]
             "test_mail" => {
@@ -466,16 +467,16 @@ impl Local {
                 match arg::<Option<String>>(&params, "to")? {
                     Some(to) => {
                         let msg = mail::Message { to: vec![to], subject: "Test email".into(), text: "Email from this app works.".into(), ..Default::default() };
-                        Ok(json!(mail::send(&cfg, password.as_deref(), &msg).map_err(err)?))
+                        Ok(json!(mail::send(&cfg, password.as_deref(), &msg)?))
                     }
-                    None => mail::test(&cfg, password.as_deref()).map(|()| json!(true)).map_err(err),
+                    None => Ok(mail::test(&cfg, password.as_deref()).map(|()| json!(true))?),
                 }
             }
             #[cfg(feature = "mail")]
             "mail_password" => {
                 let file = desktop_core::mail::PasswordFile::new(self.engine()?.data_dir());
                 if let Some(p) = arg::<Option<String>>(&params, "password")? {
-                    file.set(&p).map_err(err)?;
+                    file.set(&p)?;
                 }
                 Ok(json!({ "set": file.get().is_some() }))
             }
@@ -485,20 +486,20 @@ impl Local {
                 let e = self.engine()?;
                 let cfg = e.config().tts;
                 if !cfg.enabled {
-                    return Err("Speech is turned off in Settings".into());
+                    return Err(CommandError::unavailable("Speech is turned off in Settings"));
                 }
                 let voice = {
                     let mut v = self.voice.lock().map_err(err)?;
                     if v.is_none() {
                         let dir = tts::model_dir(e.data_dir());
                         if !dir.join("model.onnx").is_file() {
-                            return Err("Download the voice first (Settings → Speech)".into());
+                            return Err(CommandError::unavailable("Download the voice first (Settings → Speech)"));
                         }
-                        *v = Some(Arc::new(tts::Tts::load(&dir, cfg.threads).map_err(err)?));
+                        *v = Some(Arc::new(tts::Tts::load(&dir, cfg.threads)?));
                     }
                     v.clone().ok_or("no voice")?
                 };
-                let audio = voice.speak(&arg::<String>(&params, "text")?, &cfg).map_err(err)?;
+                let audio = voice.speak(&arg::<String>(&params, "text")?, &cfg)?;
                 Ok(
                     json!({"wav": desktop_core::audio::base64(&desktop_core::audio::wav(&audio, tts::SAMPLE_RATE)), "seconds": audio.len() as f32 / tts::SAMPLE_RATE as f32}),
                 )
@@ -509,7 +510,7 @@ impl Local {
                 desktop_core::tts::download(&dir, &mut |name, done, total| {
                     progress(&format!("{name}: {}", megabytes(done, total)))
                 })
-                .map_err(err)?;
+                ?;
                 Ok(json!(dir))
             }
             #[cfg(feature = "stt")]
@@ -518,26 +519,26 @@ impl Local {
                 let e = self.engine()?;
                 let cfg = e.config().stt;
                 if !cfg.enabled {
-                    return Err("Speech to text is turned off in Settings".into());
+                    return Err(CommandError::unavailable("Speech to text is turned off in Settings"));
                 }
                 let text = |k: &str| params.get(k).and_then(Value::as_str);
                 let samples = if let Some(b) = text("pcm16") {
-                    audio::from_pcm16(&audio::base64_decode(b).map_err(err)?)
+                    audio::from_pcm16(&audio::base64_decode(b)?)
                 } else {
                     let bytes = match (text("wav"), text("path")) {
-                        (Some(b), _) => audio::base64_decode(b).map_err(err)?,
-                        (None, Some(p)) => desktop_core::untrusted::read_capped(p.as_ref(), desktop_core::untrusted::limits::WAV_BYTES).map_err(err)?,
-                        _ => return Err("send pcm16, wav or path".into()),
+                        (Some(b), _) => audio::base64_decode(b)?,
+                        (None, Some(p)) => desktop_core::untrusted::read_capped(p.as_ref(), desktop_core::untrusted::limits::WAV_BYTES)?,
+                        _ => return Err(CommandError::invalid("send pcm16, wav or path")),
                     };
-                    let (s, rate) = audio::read_wav(&bytes).map_err(err)?;
+                    let (s, rate) = audio::read_wav(&bytes)?;
                     // Check the length before resampling, which allocates in proportion to it.
                     if s.len() / rate as usize > cfg.max_seconds as usize {
-                        return Err(format!("Recordings longer than {} s are turned off in Settings", cfg.max_seconds));
+                        return Err(CommandError::invalid(format!("Recordings longer than {} s are turned off in Settings", cfg.max_seconds)));
                     }
                     audio::resample(&s, rate, stt::SAMPLE_RATE)
                 };
                 if samples.len() > cfg.max_seconds as usize * stt::SAMPLE_RATE as usize {
-                    return Err(format!("Recordings longer than {} s are turned off in Settings", cfg.max_seconds));
+                    return Err(CommandError::invalid(format!("Recordings longer than {} s are turned off in Settings", cfg.max_seconds)));
                 }
                 let model = {
                     let mut m = self.whisper.lock().map_err(err)?;
@@ -545,9 +546,9 @@ impl Local {
                         *m = None;
                         let dir = stt::model_dir(e.data_dir(), &cfg.model);
                         if !stt::is_downloaded(&dir) {
-                            return Err(format!("Download the {} model first (Settings → Dictation)", cfg.model));
+                            return Err(CommandError::unavailable(format!("Download the {} model first (Settings → Dictation)", cfg.model)));
                         }
-                        *m = Some(Arc::new(stt::Stt::load(&dir, &cfg.model, cfg.threads).map_err(err)?));
+                        *m = Some(Arc::new(stt::Stt::load(&dir, &cfg.model, cfg.threads)?));
                     }
                     m.clone().ok_or("no model")?
                 };
@@ -561,7 +562,7 @@ impl Local {
                 desktop_core::stt::download(&dir, &model, &mut |name, done, total| {
                     progress(&format!("{name}: {}", megabytes(done, total)))
                 })
-                .map_err(err)?;
+                ?;
                 Ok(json!(dir))
             }
             #[cfg(feature = "mcp")]
@@ -580,14 +581,14 @@ impl Local {
                 to(Ok(e.plugins().list(&e.config().plugins)))
             }
             #[cfg(feature = "plugins")]
-            other if other.starts_with("plugin.") => self.engine()?.plugin_call(other, &params).map_err(err),
+            other if other.starts_with("plugin.") => Ok(self.engine()?.plugin_call(other, &params)?),
 {% endif %}{% if rclone %}            #[cfg(feature = "rclone")]
             "rclone_status" => to(Ok(desktop_core::rclone::status(self.engine()?.data_dir()))),
             #[cfg(feature = "rclone")]
             "rclone_config" => {
                 let e = self.engine()?;
                 if let Some(text) = arg::<Option<String>>(&params, "text")? {
-                    desktop_core::rclone::ConfigFile::new(e.data_dir()).set(&text).map_err(err)?;
+                    desktop_core::rclone::ConfigFile::new(e.data_dir()).set(&text)?;
                 }
                 to(Ok(desktop_core::rclone::status(e.data_dir())))
             }
@@ -600,7 +601,7 @@ impl Local {
                         None => format!("{} MB", done >> 20),
                     })
                 })
-                .map_err(err)?;
+                ?;
                 Ok(json!(path))
             }
             #[cfg(feature = "rclone")]
@@ -608,14 +609,14 @@ impl Local {
                 let e = self.engine()?;
                 let cfg = e.config().rclone;
                 if !cfg.enabled {
-                    return Err("Cloud sync is turned off in Settings".into());
+                    return Err(CommandError::unavailable("Cloud sync is turned off in Settings"));
                 }
-                to(Ok(desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, progress).map_err(err)?))
+                to(Ok(desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, progress)?))
             }
 {% endif %}{% if tailscale %}            #[cfg(feature = "tailscale")]
             "tailscale_status" => to(Ok(desktop_core::tailscale::status(&self.engine()?.config().tailscale))),
             #[cfg(feature = "tailscale")]
-            "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale).map_err(err)?)),
+            "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale)?)),
 {% endif %}{% if oauth %}            #[cfg(feature = "oauth")]
             "oauth_status" => {
                 let e = self.engine()?;
@@ -626,7 +627,7 @@ impl Local {
             "oauth_begin" => {
                 let e = self.engine()?;
                 let o = oauth(&e);
-                let (url, pending) = o.begin(&arg::<String>(&params, "provider")?, &arg::<String>(&params, "redirectUri")?).map_err(err)?;
+                let (url, pending) = o.begin(&arg::<String>(&params, "provider")?, &arg::<String>(&params, "redirectUri")?)?;
                 let state = pending.state.clone();
                 let timeout = std::time::Duration::from_secs(o.config().timeout_secs);
                 let mut list = self.oauth_pending.lock().map_err(err)?;
@@ -644,29 +645,29 @@ impl Local {
                     list.remove(i)
                 };
                 let e = self.engine()?;
-                to(Ok(oauth(&e).complete(&pending, &url).map_err(err)?))
+                to(Ok(oauth(&e).complete(&pending, &url)?))
             }
             #[cfg(feature = "oauth")]
             "oauth_logout" => {
                 let e = self.engine()?;
-                Ok(json!({"revoked": oauth(&e).logout(&arg::<String>(&params, "provider")?).map_err(err)?}))
+                Ok(json!({"revoked": oauth(&e).logout(&arg::<String>(&params, "provider")?)?}))
             }
             #[cfg(feature = "oauth")]
             "oauth_client_secret" => {
                 let e = self.engine()?;
                 let o = oauth(&e);
                 let provider = arg::<String>(&params, "provider")?;
-                o.provider(&provider).map_err(err)?;
+                o.provider(&provider)?;
                 if let Some(secret) = arg::<Option<String>>(&params, "secret")? {
-                    o.set_client_secret(&provider, Some(&secret)).map_err(err)?;
+                    o.set_client_secret(&provider, Some(&secret))?;
                 }
-                Ok(json!({"set": o.client_secret(&provider).map_err(err)?.is_some()}))
+                Ok(json!({"set": o.client_secret(&provider)?.is_some()}))
             }
 {% endif %}{% if background_jobs %}            #[cfg(feature = "jobs-queue")]
             "jobs_list" => to(Ok(self.queue()?.list())),
             #[cfg(feature = "jobs-queue")]
             "jobs_enqueue" => {
-                let opts: desktop_core::queue::Enqueue = serde_json::from_value(params.clone()).map_err(err)?;
+                let opts: desktop_core::queue::Enqueue = serde_json::from_value(params.clone())?;
                 let payload = params.get("payload").cloned().filter(|p| !p.is_null()).unwrap_or_else(|| json!({}));
                 to(self.queue()?.enqueue(&arg::<String>(&params, "kind")?, payload, opts))
             }
@@ -677,11 +678,11 @@ impl Local {
             #[cfg(feature = "jobs-queue")]
             "jobs_schedules" => to(Ok(self.queue()?.schedules())),
             #[cfg(feature = "jobs-queue")]
-            "jobs_set_schedule" => to(self.queue()?.set_schedule(serde_json::from_value(params).map_err(err)?)),
+            "jobs_set_schedule" => to(self.queue()?.set_schedule(serde_json::from_value(params)?)),
 {% endif %}{% if tray_menu %}            #[cfg(feature = "tray-menu")]
             "action" => self.action(&arg::<String>(&params, "id")?),
 {% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)
-            other => Err(format!("unknown method {other:?}")),
+            other => Err(CommandError::invalid(format!("unknown method {other:?}"))),
         }
     }
 }

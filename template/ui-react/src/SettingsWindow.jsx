@@ -11,7 +11,8 @@ export default function SettingsWindow() {
   const [error, setError] = useState('');
   useAppearance();
   useEffect(() => {
-    api.app_info()
+    api
+      .app_info()
       .then((i) => setFeatures(i.features))
       .catch((e) => setError(String(e)));
   }, []);

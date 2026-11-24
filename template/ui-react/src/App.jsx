@@ -1,11 +1,10 @@
 // React frontend talking to the Rust commands in src-tauri/src/lib.rs.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useRef, useState } from 'react';
-import { api } from './ipc.js';
+import { api, errorText } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, DESCRIPTION, configGet, setConfig } from './config.js';
-import { errorText } from './errors.js';
 import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
 import Dictate from './Dictate.jsx';
@@ -104,7 +103,7 @@ function UpdateBanner() {
     try {
       await api.install_update();
     } catch (e) {
-      setText(`Update failed: ${e}`);
+      setText(`Update failed: ${errorText(e)}`);
       off();
     }
   };
@@ -129,7 +128,7 @@ function AddDocuments({ onChange, mobile }) {
       setMsg({ text: `Added ${await api.ingest_file({ path: p })} chunks from ${p}.` });
       onChange();
     } catch (e) {
-      setMsg({ text: String(e), error: true });
+      setMsg({ text: errorText(e), error: true });
     }
   };
   const addFileRef = useRef(addFile);
@@ -152,7 +151,7 @@ function AddDocuments({ onChange, mobile }) {
       setMsg({ text: `Added ${r.files} files (${r.chunks} chunks)${failed}.`, error: r.errors.length > 0 });
       onChange();
     } catch (e) {
-      setMsg({ text: String(e), error: true });
+      setMsg({ text: errorText(e), error: true });
     }
   };
   const addText = async () => {
@@ -162,7 +161,7 @@ function AddDocuments({ onChange, mobile }) {
       setText('');
       onChange();
     } catch (e) {
-      setMsg({ text: String(e), error: true });
+      setMsg({ text: errorText(e), error: true });
     }
   };
   return (
@@ -204,7 +203,7 @@ function Search({ features }) {
       setHits(await api.search({ query }));
     } catch (e) {
       setHits(null);
-      setError(String(e));
+      setError(errorText(e));
     }
   };
   return (
@@ -250,14 +249,14 @@ function BackgroundAgent() {
     api
       .agent_status()
       .then(setAgent)
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errorText(e)));
   }, []);
   const toggle = async (enabled) => {
     try {
       setAgent(await api.set_agent({ enabled }));
       setError('');
     } catch (e) {
-      setError(String(e));
+      setError(errorText(e));
     }
   };
   return (
@@ -282,7 +281,7 @@ function PythonExample() {
     try {
       setOut(JSON.stringify(await api.python_call({ method: 'stats', params: { text } }), null, 2));
     } catch (e) {
-      setOut(String(e));
+      setOut(errorText(e));
     }
   };
   return (
@@ -315,7 +314,7 @@ function ClaudeDesktop() {
         off();
       });
     } catch (e) {
-      setMsg({ text: String(e), error: true });
+      setMsg({ text: errorText(e), error: true });
     }
   };
   return (
@@ -365,7 +364,7 @@ export default function App() {
     ];
     api.run_setup({ backend, embeddings, pgUpgrade }).catch((e) => {
       setBusy(false);
-      setMessage({ text: String(e), error: true });
+      setMessage({ text: errorText(e), error: true });
     });
   };
 

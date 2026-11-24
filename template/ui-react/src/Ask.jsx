@@ -2,7 +2,7 @@
 // `ask-token` events, and the passages it was given are listed under it as citations.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useState } from 'react';
-import { api } from './ipc.js';
+import { api, errorText } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 import Speak from './Speak.jsx';
 import Dictate from './Dictate.jsx';
@@ -26,7 +26,7 @@ export default function Ask({ features }) {
       setAnswer(r.reply.text);
       setResult(r);
     } catch (e) {
-      setError(String(e));
+      setError(errorText(e));
     } finally {
       unlisten();
       setBusy(false);

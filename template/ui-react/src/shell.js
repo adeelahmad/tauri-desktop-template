@@ -21,7 +21,8 @@ export function useAppearance() {
   useEffect(() => {
     if (!hasShell()) return;
     const off = listen('appearance', (e) => window.__appearance.apply(e.payload));
-    api.get_appearance()
+    api
+      .get_appearance()
       .then((a) => window.__appearance.apply(a))
       .catch(() => {});
     return () => {

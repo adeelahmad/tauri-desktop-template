@@ -80,7 +80,7 @@ function setup(backend, embeddings, statusArea, pgUpgrade) {
     $('about').textContent = `${info.name} ${info.version} · ${s.chunks} chunks · ${s.backend} store` +
       (s.embedder ? ` · ${s.embedder}` : ' · keyword search');
   }).then((u) => offs.push(u));
-  invoke('run_setup', { backend, embeddings, pgUpgrade }).catch((e) => line(String(e), true));
+  invoke('run_setup', { backend, embeddings, pgUpgrade }).catch((e) => line(errorText(e), true));
 }
 
 $('w-go').onclick = () => {
@@ -102,7 +102,7 @@ async function addFile(path) {
     const n = await invoke('ingest_file', { path });
     say('add-status', `Added ${n} chunks from ${path}.`);
     refreshAbout();
-  } catch (e) { say('add-status', String(e), true); }
+  } catch (e) { say('add-status', errorText(e), true); }
 }
 
 $('add-file').onclick = () => { const p = $('file-path').value.trim(); if (p) addFile(p); };
@@ -114,7 +114,7 @@ $('add-folder').onclick = async () => {
     const r = await invoke('ingest_folder', { path, recursive: true });
     say('add-status', `Added ${r.files} files (${r.chunks} chunks)${r.errors.length ? `, ${r.errors.length} failed: ${r.errors[0]}` : ''}.`, r.errors.length > 0);
     refreshAbout();
-  } catch (e) { say('add-status', String(e), true); }
+  } catch (e) { say('add-status', errorText(e), true); }
 };
 
 // ---- settings (desktop-core Config) ----
@@ -123,7 +123,7 @@ async function saveConfig(config) {
   try {
     $('config').value = JSON.stringify(await invoke('set_config', { config }), null, 2);
     say('config-status', 'Saved.');
-  } catch (e) { say('config-status', `Not saved: ${e}`, true); }
+  } catch (e) { say('config-status', `Not saved: ${errorText(e)}`, true); }
 }
 $('config-save').onclick = () => {
   let config;
@@ -139,7 +139,7 @@ $('add-text').onclick = async () => {
     say('add-status', `Added ${n} chunks.`);
     $('paste').value = '';
     refreshAbout();
-  } catch (e) { say('add-status', String(e), true); }
+  } catch (e) { say('add-status', errorText(e), true); }
 };
 listen('tauri://drag-drop', async (e) => { for (const p of e.payload.paths || []) await addFile(p); });
 
@@ -163,7 +163,7 @@ async function runSearch() {
       li.append(meta, body);
       list.append(li);
     }
-  } catch (e) { list.innerHTML = ''; const li = document.createElement('li'); li.className = 'status error'; li.textContent = String(e); list.append(li); }
+  } catch (e) { list.innerHTML = ''; const li = document.createElement('li'); li.className = 'status error'; li.textContent = errorText(e); list.append(li); }
 }
 $('search').onclick = runSearch;
 $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
@@ -184,7 +184,7 @@ async function checkUpdate(quiet) {
       $('update-text').textContent = `Version ${u.version} is available (you have ${u.current}).`;
       show('update-banner');
     } else if (!quiet) say('add-status', `You have the newest version (${u.current}).`);
-  } catch (e) { if (!quiet) say('add-status', `Update check failed: ${e}`, true); }
+  } catch (e) { if (!quiet) say('add-status', `Update check failed: ${errorText(e)}`, true); }
 }
 $('check-update').onclick = () => checkUpdate(false);
 $('update-install').onclick = async () => {
@@ -193,7 +193,7 @@ $('update-install').onclick = async () => {
     const [done, total] = e.payload;
     $('update-text').textContent = total ? `Downloading… ${Math.round((100 * done) / total)}%` : 'Downloading…';
   });
-  try { await invoke('install_update'); } catch (e) { $('update-text').textContent = `Update failed: ${e}`; $('update-install').disabled = false; }
+  try { await invoke('install_update'); } catch (e) { $('update-text').textContent = `Update failed: ${errorText(e)}`; $('update-install').disabled = false; }
 };
 
 // ---- background agent (feature `background-agent`) ----
@@ -202,7 +202,7 @@ async function refreshAgent(set) {
     const a = set === undefined ? await invoke('agent_status') : await invoke('set_agent', { enabled: set });
     $('agent-on').checked = a.installed;
     say('agent-status', a.installed ? `On: ${a.kind} at ${a.location}` : `Off (${a.kind})`);
-  } catch (e) { say('agent-status', String(e), true); }
+  } catch (e) { say('agent-status', errorText(e), true); }
 }
 $('agent-on').onchange = () => refreshAgent($('agent-on').checked);
 
@@ -213,7 +213,7 @@ async function refreshService(set) {
     $('service-on').checked = s.installed;
     const run = s.running ? `running${s.pid ? ` (pid ${s.pid})` : ''}` : 'not running';
     say('service-status', `${s.manager}: ${s.installed ? 'installed' : 'not installed'}, ${run}. Log: ${s.log}. ${s.note || ''}`);
-  } catch (e) { say('service-status', String(e), true); }
+  } catch (e) { say('service-status', errorText(e), true); }
 }
 $('service-on').onchange = () => refreshService($('service-on').checked);
 
@@ -222,7 +222,7 @@ $('python-go').onclick = async () => {
   try {
     const r = await invoke('python_call', { method: 'stats', params: { text: $('paste').value || 'Type some text in the box above.' } });
     $('python-out').textContent = JSON.stringify(r, null, 2);
-  } catch (e) { say('python-out', String(e), true); }
+  } catch (e) { say('python-out', errorText(e), true); }
 };
 
 // ---- Claude Desktop (feature `claude-mcp`) ----
@@ -232,11 +232,11 @@ $('claude-go').onclick = async () => {
     const r = await invoke('register_claude');
     say('claude-status', `Claude Desktop config ${r.status}${r.backup ? ` (backup: ${r.backup})` : ''}. Preparing the tools once…`);
     listen('warmup-done', (e) => say('claude-status', e.payload ? 'Ready. Restart Claude Desktop to use it.' : 'Connected, but the first start failed; it will retry when Claude starts.', !e.payload));
-  } catch (e) { say('claude-status', String(e), true); }
+  } catch (e) { say('claude-status', errorText(e), true); }
   $('claude-go').disabled = false;
 };
 
-start().catch((e) => say('loading', String(e), true));
+start().catch((e) => say('loading', errorText(e), true));
 
 // AI answers (feature `ai`): the reply streams in as `ask-token` events.
 async function ask() {
@@ -255,25 +255,25 @@ async function ask() {
       li.title = provenance(h.prov);
       $('sources').append(li);
     });
-  } catch (e) { $('answer').textContent = String(e); } finally { off(); }
+  } catch (e) { $('answer').textContent = errorText(e); } finally { off(); }
 }
 $('ask-go').onclick = ask;
 $('question').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
 const keysText = (have) => { $('key-status').textContent = have.length ? `Keys set: ${have.join(', ')}` : 'No keys set.'; };
 $('key-save').onclick = async () => {
   try { keysText(await invoke('set_ai_key', { provider: $('key-provider').value, key: $('key').value })); $('key').value = ''; }
-  catch (e) { $('key-status').textContent = String(e); }
+  catch (e) { $('key-status').textContent = errorText(e); }
 };
 
 $('mcp-claude').onclick = async () => {
   try { $('mcp-status').textContent = `Claude Desktop: ${await invoke('mcp_register_claude')}. Restart it to load the server.`; }
-  catch (e) { $('mcp-status').textContent = String(e); }
+  catch (e) { $('mcp-status').textContent = errorText(e); }
 };
 
 $('model-go').onclick = async () => {
   const off = await listen('model-progress', (e) => { $('model-status').textContent = `Downloading: ${e.payload}`; });
   try { $('model-status').textContent = `Ready: ${await invoke('download_model', {})}`; }
-  catch (e) { $('model-status').textContent = String(e); } finally { off(); }
+  catch (e) { $('model-status').textContent = errorText(e); } finally { off(); }
 };
 
 // Speech (feature `tts`): reads the last answer aloud.
@@ -281,12 +281,12 @@ let playing = null;
 $('speak-go').onclick = async () => {
   if (playing) playing.pause();
   try { const r = await invoke('speak', { text: $('answer').textContent }); playing = new Audio(`data:audio/wav;base64,${r.wav}`); await playing.play(); }
-  catch (e) { $('voice-status').textContent = String(e); }
+  catch (e) { $('voice-status').textContent = errorText(e); }
 };
 $('voice-go').onclick = async () => {
   const off = await listen('voice-progress', (e) => { $('voice-status').textContent = `Downloading ${e.payload}`; });
   try { await invoke('download_voice'); $('voice-status').textContent = 'Voice ready.'; }
-  catch (e) { $('voice-status').textContent = String(e); } finally { off(); }
+  catch (e) { $('voice-status').textContent = errorText(e); } finally { off(); }
 };
 
 // Dictation (feature `stt`): Whisper turns the microphone or an audio file into the query.
@@ -312,7 +312,7 @@ async function transcribe(blob) {
     const r = await invoke('transcribe', { audio: await toPcm16(blob) });
     $('query').value = r.text;
     say('stt-status', r.text ? `${r.language}, ${r.seconds.toFixed(1)} s` : 'No speech heard.');
-  } catch (e) { say('stt-status', String(e), true); }
+  } catch (e) { say('stt-status', errorText(e), true); }
 }
 let recorder = null;
 $('dictate').onclick = async () => {
@@ -331,5 +331,5 @@ $('stt-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = 
 $('stt-download').onclick = async () => {
   const off = await listen('stt-progress', (e) => say('stt-status', `Downloading ${e.payload}`));
   try { await invoke('download_stt'); say('stt-status', 'Model ready.'); }
-  catch (e) { say('stt-status', String(e), true); } finally { off(); }
+  catch (e) { say('stt-status', errorText(e), true); } finally { off(); }
 };

@@ -5,7 +5,9 @@
 //!
 //! Protocol, one request per connection, newline-delimited JSON:
 //!   client → `{"method": "...", "params": {...}}`
-//!   worker → zero or more `{"progress": "..."}`, then `{"result": ...}` or `{"error": "..."}`
+//!   worker → zero or more `{"progress": "..."}`, then `{"result": ...}` or
+//!   `{"error": {"code": "...", "message": "..."}}` (a [`CommandError`], so its code reaches
+//!   the UI; a plain string error from an older worker is read as code `failed`)
 //! `shutdown` stops the worker (used when the app exits without a background agent, and
 //! after an update so the new binary takes over).
 //!
@@ -29,6 +31,7 @@
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 
+use crate::error::CommandError;
 use crate::service::{Local, Service};
 use interprocess::local_socket::{prelude::*, GenericFilePath, GenericNamespaced, Listener, ListenerOptions, Name, Stream};
 use serde_json::{json, Value};
@@ -202,7 +205,7 @@ fn connect(start: bool) -> Result<Stream, String> {
 }
 
 /// One request over a fresh connection.
-pub fn request(method: &str, params: Value, start: bool, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
+pub fn request(method: &str, params: Value, start: bool, progress: &mut dyn FnMut(&str)) -> Result<Value, CommandError> {
     let mut stream = connect(start)?;
     send(&mut stream, &json!({"method": method, "params": params})).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream);
@@ -216,7 +219,11 @@ pub fn request(method: &str, params: Value, start: bool, progress: &mut dyn FnMu
         if let Some(p) = msg.get("progress").and_then(Value::as_str) {
             progress(p);
         } else if let Some(e) = msg.get("error") {
-            return Err(e.as_str().map(String::from).unwrap_or_else(|| e.to_string()));
+            // `{code, message, details?}`; a plain string from an older worker is `failed`.
+            return Err(match e {
+                Value::String(m) => CommandError::from(m.as_str()),
+                e => serde_json::from_value(e.clone()).unwrap_or_else(|_| CommandError::from(e.to_string())),
+            });
         } else {
             return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
         }
@@ -229,7 +236,7 @@ pub fn shutdown_worker() {
 }
 
 impl Service for Remote {
-    fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String> {
+    fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, CommandError> {
         // A worker left over from an older version (e.g. kept alive by the background
         // agent across an update) is replaced once.
         if !self.checked.swap(true, Ordering::SeqCst) {
