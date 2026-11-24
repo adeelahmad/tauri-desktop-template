@@ -47,6 +47,7 @@ kitchen test --unit               # cargo test --workspace (nextest + doc tests 
 kitchen test --feature            # e2e/: tauri-driver on Linux/Windows; --self-test on macOS
 kitchen package --release         # this OS's installers (dmg/app, nsis/msi, appimage/deb) into ./packages
 kitchen publish                   # the `gh release create` it would run; --yes runs it
+kitchen audit                     # cargo-deny (deny.toml), cargo-audit, npm audit, pip-audit; missing tools skipped with a hint
 kitchen eject vite|tauri|cargo    # where that tool's own config lives, and what Kitchen adds
 kitchen service install           # the app's daemon as a user service (template feature `daemon`)
 kitchen service status            # installed? running? pid, log file

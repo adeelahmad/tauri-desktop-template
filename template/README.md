@@ -127,6 +127,12 @@ Everything runs on the user's machine.
 {% endif -%}
 {% if updater -%}
 | Auto-update from GitHub releases (signed) | `src-tauri/src/update.rs` | `updater` |
+{% if release_channels -%}
+| Release channels: stable and beta picked in Settings → Updates, staged rollout by percentage (a stable random bucket per install), rollback to the previous version; arm64 installers on every OS | `desktop-core/src/release.rs`, `src-tauri/src/update.rs`, `.github/workflows/rollout.yml` | `release-channels` |
+{% endif -%}
+{% endif -%}
+{% if supply_chain -%}
+| Supply chain: cargo-deny, cargo-audit, `npm audit` and CycloneDX SBOMs in CI, build attestations on releases, and the licences of everything shipped under Settings → About (made at build time) | `.github/workflows/supply-chain.yml`, `src-tauri/build.rs`, `desktop-core/src/notices.rs` | `supply-chain` |
 {% endif -%}
 {% if claude_mcp -%}
 | Bundled uv + Claude Desktop MCP registration | `src-tauri/src/claude.rs` | `claude-mcp` |
@@ -135,6 +141,7 @@ Everything runs on the user's machine.
 | iOS and Android from the same code (Tauri 2 mobile): file store, backend in the app, store updates; `Mobile` workflow builds an unsigned APK/AAB and an iOS simulator app | `src-tauri/tauri.{android,ios}.conf.json`, `src-tauri/capabilities/mobile.json`, `.github/workflows/mobile.yml` | always |
 {% endif -%}
 | `--self-test` (CI runs it on every installed build) | `self_test` in `src-tauri/src/lib.rs` | always |
+| Dependency policy (licences, advisories, bans, sources) and `make audit`: cargo-deny, cargo-audit{% if frontend == "react" %}, `npm audit`{% endif %}{% if python_example %}, pip-audit{% endif %}, each skipped with an install hint when missing | `deny.toml`, `Makefile` | always |
 {% if installers -%}
 | Release workflow: unsigned .dmg{% if macos_pkg %}, .pkg{% endif %}, .exe{% if linux %}, .AppImage, .deb{% endif %}, tested after install | `.github/workflows/release.yml` | |
 {% endif -%}
@@ -434,6 +441,9 @@ is off by default; values are clamped to safe ranges.
 | `tray.leftClickOpens`, `tray.closeToTray`, `tray.showInMenuBarOnly` | on, off, off | left click shows the window; closing hides it; macOS: no Dock icon |
 | `shortcuts` | none | `[{accelerator, action}]`, e.g. `CmdOrCtrl+Shift+K`; an empty accelerator turns off a code default |
 | `menu.title`, `menu.extra` | `Actions`, none | items added after the ones the code defines |
+{% endif -%}
+{% if release_channels -%}
+| `updates.channel` | `stable` | `beta` also takes pre-releases (`v1.2.0-beta.1`); the rollout bucket and rollback are under Settings → Updates |
 {% endif -%}
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
@@ -744,6 +754,53 @@ Tagged releases then carry signed update bundles and `latest.json`; installed ap
 `https://github.com/{{github_repo}}/releases/latest/download/latest.json` on start and
 offer **Install and restart**. Without a key, builds still work and the app says updates
 are not set up.
+{% if release_channels %}
+### Channels, staged rollout and rollback
+
+The endpoint in `tauri.conf.json` is
+`https://github.com/{{github_repo}}/releases/download/channel-{channel}/latest.json`; the app
+fills in `{channel}` from Settings → Updates (`stable` or `beta`).
+
+- **Channels.** Tag `v1.2.0` for a stable release, `v1.2.0-beta.1` (any `-` suffix) for a
+  beta, which is published as a GitHub pre-release. The Release workflow uploads
+  `latest.json` to the `channel-stable` and `channel-beta` releases (a stable release goes
+  to both, a beta only to beta). Keep those two releases; they are the update feeds.
+- **Staged rollout.** `latest.json` carries `"rollout"` (from `rollout` in
+  `.github/release.json`, 100 by default). Each install draws a random id once and maps it
+  to a bucket 0–99; it takes the update when its bucket is below the percentage. Run the
+  **Rollout** workflow to change it later (10 → 50 → 100, or 0 to pause). The id never
+  leaves the computer.
+- **Rollback.** Before an update installs, the app records the version it is leaving and,
+  where it can, keeps a copy of itself. Settings → Updates → **Roll back** goes back:
+
+| OS | What is kept | Rollback |
+|---|---|---|
+| macOS | the whole `.app` | puts the copy back and restarts (offline) |
+| Linux, AppImage | the `.AppImage` file | puts the copy back and restarts (offline) |
+| Linux, `.deb` | nothing: the package manager owns the files, and the updater does not replace them | not offered; `sudo apt install ./<older>.deb` |
+| Windows (NSIS) | nothing: the installer replaces the files in place | downloads the previous release's signed update bundle and installs it (online; the release must still exist) |
+
+Only one step back is kept, and a rollback clears it. A rollback does not migrate data
+back: a newer version that changed the format of its files must keep reading the old one.
+{% if installers %}
+With channels on, the Release workflow also builds arm64 installers: macOS on Apple
+Silicon (as before), Windows on ARM (`aarch64-pc-windows-msvc`, cross-built on an x64
+runner, so its self-test is skipped){% if linux %} and Linux on `ubuntu-24.04-arm`{% endif %}.
+{% endif %}{% endif %}{% endif -%}
+{% if supply_chain %}
+## Supply chain
+
+- **CI** (`.github/workflows/supply-chain.yml`, on pushes to main, pull requests and
+  weekly): `cargo deny check` against `deny.toml`, `cargo audit`, `npm audit --omit=dev`
+  for the UI, and CycloneDX SBOMs (cargo-cyclonedx, `@cyclonedx/cyclonedx-npm`) as an
+  artifact.
+- **Releases**{% if installers %} (`.github/workflows/release.yml`){% endif %} attach the SBOMs and a GitHub build provenance
+  attestation for every file: `gh attestation verify <file> --repo {{github_repo}}`.
+- **Licences in the app.** `src-tauri/build.rs` runs `cargo metadata` for the target being
+  built (with its features){% if frontend == "react" %} and reads `ui-react/package-lock.json`{% endif %}, and writes the notices
+  (each package, its licence, each distinct licence text once) into the binary. Users see
+  them under Settings → About → Licences (command `third_party_notices`).
+- **Locally**: `make audit` (or `kitchen audit`).
 {% endif -%}
 {% if claude_mcp %}
 ## Claude Desktop

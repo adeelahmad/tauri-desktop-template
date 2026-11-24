@@ -388,3 +388,22 @@ footer button.link {
   padding: 12px;
   background: color-mix(in srgb, var(--surface, #8881) 50%, transparent);
 }
+
+/* Settings → About → Licences */
+table.licences {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+table.licences th,
+table.licences td {
+  text-align: left;
+  padding: 2px 6px;
+  border-bottom: 1px solid #8883;
+}
+pre.notices {
+  max-height: 24em;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.8em;
+}

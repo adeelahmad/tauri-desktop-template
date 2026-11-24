@@ -97,6 +97,11 @@ pub const REQUIRES: &[Requires] = &[
         why: "llama.cpp is the local provider of AI chat",
     },
     Requires {
+        feature: "release_channels",
+        needs: "updater",
+        why: "channels, staged rollout and rollback steer the updater",
+    },
+    Requires {
         feature: "tauri_dialog",
         needs: "tauri_plugins",
         why: "each Tauri plugin is wired in only with tauri_plugins",
@@ -218,6 +223,10 @@ pub const DESKTOP_ONLY: &[DesktopOnly] = &[
     DesktopOnly {
         feature: "updater",
         on_mobile: "the app stores update the app",
+    },
+    DesktopOnly {
+        feature: "release_channels",
+        on_mobile: "the app stores update the app (use their test tracks)",
     },
     DesktopOnly {
         feature: "single_instance",

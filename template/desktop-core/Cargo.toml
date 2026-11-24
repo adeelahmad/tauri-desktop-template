@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+# An app, not a library: never published to crates.io (cargo-deny treats it as private).
+publish = false
 
 [lints]
 workspace = true
@@ -94,6 +96,14 @@ daemon = []
 {% if tray_menu -%}
 # The action registry for the tray, global shortcuts and the app menu (no extra crates).
 tray-menu = []
+{% endif -%}
+{% if supply_chain -%}
+# Third-party licence notices (notices.rs; the app's build script includes it too). No new crates.
+supply-chain = []
+{% endif -%}
+{% if release_channels -%}
+# Update channels, staged rollout buckets and rollback bookkeeping (sha2 and ring are in the tree).
+release-channels = []
 {% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).

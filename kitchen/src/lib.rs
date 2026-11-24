@@ -19,6 +19,7 @@
 //! kitchen test                             # unit tests + the real app over WebDriver
 //! kitchen package --release                # installers for this OS, in ./packages
 //! kitchen publish --yes                    # a GitHub release with them
+//! kitchen audit                            # cargo-deny, cargo-audit, npm audit, pip-audit
 //! kitchen service install                  # run the app's daemon as a user service
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
@@ -47,10 +48,11 @@
 //!
 //! Modules: [`compat`] (which features need which: the rule table), [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
-//! generators), [`lifecycle`] (start, test, package, publish, eject), [`doctor`] (machine
+//! generators), [`lifecycle`] (start, test, package, publish, eject), [`audit`] (supply-chain checks), [`doctor`] (machine
 //! checks), [`hooks`] (the app's git hooks), [`service`] (the app's daemon as a service),
 //! [`mcp`] (the MCP server), [`cli`] (arguments).
 
+pub mod audit;
 pub mod cli;
 pub mod compat;
 pub mod doctor;
