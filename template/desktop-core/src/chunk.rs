@@ -145,17 +145,21 @@ fn tail_words(text: &str, n: usize) -> String {
 
 fn split(text: &str, max: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut cur = String::new();
+    let (mut cur, mut cur_len) = (String::new(), 0usize);
     let paragraphs = text.split("\n\n").map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|p| !p.is_empty());
     for para in paragraphs {
         for piece in sentences_within(&para, max) {
-            if !cur.is_empty() && cur.chars().count() + 1 + piece.chars().count() > max {
+            let len = piece.chars().count();
+            if !cur.is_empty() && cur_len + 1 + len > max {
                 out.push(std::mem::take(&mut cur));
+                cur_len = 0;
             }
             if !cur.is_empty() {
                 cur.push(' ');
+                cur_len += 1;
             }
             cur.push_str(&piece);
+            cur_len += len;
         }
     }
     if !cur.is_empty() {
@@ -165,23 +169,42 @@ fn split(text: &str, max: usize) -> Vec<String> {
 }
 
 /// `para` as pieces of at most `max` characters, cut after `.`, `!` or `?` where possible.
+/// A word longer than `max` (a hostile file with no spaces) is cut into `max`-character parts.
+/// Linear in the length of `para`: lengths are counted once per word.
 fn sentences_within(para: &str, max: usize) -> Vec<String> {
-    if para.chars().count() <= max {
+    let max = max.max(1);
+    if para.len() <= max || para.chars().count() <= max {
         return vec![para.to_string()];
     }
     let mut pieces = Vec::new();
-    let mut cur = String::new();
+    let (mut cur, mut cur_len) = (String::new(), 0usize);
     for word in para.split(' ') {
         let ends_sentence = word.ends_with(['.', '!', '?']);
-        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > max {
+        let mut word = word;
+        let mut len = word.chars().count();
+        while len > max {
+            if !cur.is_empty() {
+                pieces.push(std::mem::take(&mut cur));
+                cur_len = 0;
+            }
+            let cut = word.char_indices().nth(max).map_or(word.len(), |(i, _)| i);
+            pieces.push(word[..cut].to_string());
+            word = &word[cut..];
+            len -= max;
+        }
+        if !cur.is_empty() && cur_len + 1 + len > max {
             pieces.push(std::mem::take(&mut cur));
+            cur_len = 0;
         }
         if !cur.is_empty() {
             cur.push(' ');
+            cur_len += 1;
         }
         cur.push_str(word);
-        if ends_sentence && cur.chars().count() > max / 2 {
+        cur_len += len;
+        if ends_sentence && cur_len > max / 2 {
             pieces.push(std::mem::take(&mut cur));
+            cur_len = 0;
         }
     }
     if !cur.is_empty() {
@@ -224,5 +247,28 @@ mod tests {
         let chunks = chunks_from_pages("p.pdf", &[(1, "first".into()), (2, String::new()), (3, "third".into())]);
         let pages: Vec<_> = chunks.iter().map(|c| c.page).collect();
         assert_eq!(pages, vec![Some(1), Some(3)]);
+    }
+
+    #[test]
+    fn a_long_word_is_cut_to_the_chunk_size() {
+        // A file with no spaces used to come back as one chunk the size of the file.
+        let text = "é".repeat(5000);
+        let chunks = chunks_from_text_with("w", &text, Chunking { max_chars: 300, overlap: 40 });
+        assert!(
+            chunks.iter().all(|c| c.text.chars().count() <= 300 + 40 + 1),
+            "{:?}",
+            chunks.iter().map(|c| c.text.len()).collect::<Vec<_>>()
+        );
+        assert!(chunks.iter().map(|c| c.text.chars().filter(|&ch| ch == 'é').count()).sum::<usize>() >= 5000);
+    }
+
+    #[test]
+    fn many_tiny_words_stay_linear() {
+        // Counting the current chunk's characters for every word was quadratic in the chunk size.
+        let text = "a ".repeat(2_000_000);
+        let started = std::time::Instant::now();
+        let chunks = chunks_from_text_with("t", &text, Chunking { max_chars: 20_000, overlap: 0 });
+        assert!(chunks.len() >= 199);
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
     }
 }

@@ -9,6 +9,9 @@
 //! my-app --self-test [out.json]   index and search a sample, print a JSON report
 //! my-app --eval [dataset] [--baseline file]   search evals, JSON report (feature evals)
 //! my-app --pg-upgrade [--check]   upgrade the embedded Postgres data now (feature postgres)
+{%- if pdf %}
+//! my-app --parse                  parse one PDF from stdin, JSON on stdout (feature pdf)
+{%- endif %}
 //! ```
 //!
 //! Development builds first load `.env` and `.env.local` from the project folder (see
@@ -23,6 +26,14 @@ fn main() {
     #[cfg(debug_assertions)]
     desktop_core::dotenv::load_dev(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
     let args: Vec<String> = std::env::args().collect();
+{%- if pdf %}
+    #[cfg(feature = "pdf")]
+    if args.get(1).map(String::as_str) == Some(desktop_core::pdf::PARSE_FLAG) {
+        // The PDF parser child (desktop_core::pdf::pdf_pages_isolated): untrusted bytes on
+        // stdin, one JSON reply on stdout, under the time and memory limits its parent set.
+        std::process::exit(desktop_core::pdf::serve_parse(std::io::stdin().lock(), std::io::stdout().lock()));
+    }
+{%- endif %}
     if args.get(1).map(String::as_str) == Some("--self-test") {
         // `--self-test [report.json]`: CI runs this on the installed app. Release builds have
         // no console on Windows, so the report can also go to a file.

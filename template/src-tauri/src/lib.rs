@@ -166,7 +166,10 @@ fn load_settings(app: &tauri::AppHandle) -> Settings {
 
 /// The saved settings, read without a window (they are optional: defaults when missing).
 fn settings_at(file: &Path) -> Settings {
-    std::fs::read(file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    desktop_core::untrusted::read_capped(file, desktop_core::untrusted::limits::CONFIG_BYTES)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
 }
 
 /// Written to a temporary file and renamed, so a crash never leaves half a settings file.

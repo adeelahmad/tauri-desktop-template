@@ -203,7 +203,10 @@ pub struct IngestConfig {
     pub max_file_mb: u64,
     /// File types ingested from folders (lower case, no dot).
     pub extensions: Vec<String>,
-}
+{% if pdf %}    /// How PDFs are parsed: in a separate, limited process by default (feature `pdf`).
+    #[cfg(feature = "pdf")]
+    pub pdf: crate::pdf::PdfConfig,
+{% endif %}}
 
 impl Default for IngestConfig {
     fn default() -> Self {
@@ -214,7 +217,9 @@ impl Default for IngestConfig {
             embed_batch: 64,
             max_file_mb: 64,
             extensions: ["txt", "md", "markdown", "pdf", "csv", "json", "html", "htm", "rst", "org"].map(String::from).to_vec(),
-        }
+{% if pdf %}            #[cfg(feature = "pdf")]
+            pdf: crate::pdf::PdfConfig::default(),
+{% endif %}        }
     }
 }
 
@@ -289,7 +294,11 @@ impl Config {
         i.embed_batch = i.embed_batch.clamp(1, 1024);
         i.max_file_mb = i.max_file_mb.clamp(1, 4096);
         i.extensions = i.extensions.iter().map(|e| e.trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()).collect();
-        let w = &mut self.watch;
+{% if pdf %}        #[cfg(feature = "pdf")]
+        {
+            i.pdf = std::mem::take(&mut i.pdf).validated();
+        }
+{% endif %}        let w = &mut self.watch;
         w.debounce_ms = w.debounce_ms.clamp(100, 600_000);
 {% if ai %}        #[cfg(feature = "ai")]
         {

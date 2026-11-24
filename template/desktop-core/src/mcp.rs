@@ -369,19 +369,16 @@ impl Server<'_> {
     }
 
     /// Serve line-delimited JSON-RPC from `input` to `output`.
-    pub fn serve(&self, input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
-        for line in input.lines() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let reply = match serde_json::from_str::<Value>(&line) {
-                Ok(Value::Array(batch)) => {
-                    let replies: Vec<Value> = batch.iter().filter_map(|m| self.handle(m)).collect();
-                    (!replies.is_empty()).then_some(Value::Array(replies))
-                }
-                Ok(msg) => self.handle(&msg),
-                Err(e) => Some(error(Value::Null, -32700, &format!("parse error: {e}"))),
+    ///
+    /// The input is untrusted: a line over
+    /// [`limits::MCP_LINE_BYTES`](crate::untrusted::limits::MCP_LINE_BYTES) is dropped with a
+    /// parse error, and a panic while answering a message becomes an internal error reply.
+    pub fn serve(&self, mut input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
+        let max = crate::untrusted::limits::MCP_LINE_BYTES;
+        while let Some(line) = crate::untrusted::read_line_capped(&mut input, max)? {
+            let reply = match line {
+                Ok(line) => self.reply(&line),
+                Err(len) => Some(error(Value::Null, -32700, &format!("parse error: the message is {len} bytes; the limit is {max}"))),
             };
             if let Some(r) = reply {
                 serde_json::to_writer(&mut output, &r)?;
@@ -390,6 +387,28 @@ impl Server<'_> {
             }
         }
         Ok(())
+    }
+
+    /// The reply to one line of input (`None` for blank lines and notifications).
+    pub fn reply(&self, line: &[u8]) -> Option<Value> {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if line.trim_ascii().is_empty() {
+            return None;
+        }
+        match serde_json::from_slice::<Value>(line) {
+            Ok(Value::Array(batch)) => {
+                let replies: Vec<Value> = batch.iter().filter_map(|m| self.handle_guarded(m)).collect();
+                (!replies.is_empty()).then_some(Value::Array(replies))
+            }
+            Ok(msg) => self.handle_guarded(&msg),
+            Err(e) => Some(error(Value::Null, -32700, &format!("parse error: {e}"))),
+        }
+    }
+
+    /// [`Server::handle`], with a panic (in a tool, say) answered as an internal error.
+    fn handle_guarded(&self, msg: &Value) -> Option<Value> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle(msg)))
+            .unwrap_or_else(|_| msg.get("id").cloned().map(|id| error(id, -32603, "internal error: the server failed on this message")))
     }
 
     /// One message; `None` for notifications (no id) and replies.
@@ -645,5 +664,26 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["name"], "wipe");
         assert_eq!(r[1]["result"]["isError"], true);
+    }
+
+    #[test]
+    fn oversized_lines_and_panics_are_answered_not_fatal() {
+        struct Panics;
+        impl Handler for Panics {
+            fn tools(&self) -> Vec<Tool> {
+                vec![tool("boom", true)]
+            }
+            fn call(&self, _: &str, _: Value) -> Result<Value, String> {
+                panic!("tool bug")
+            }
+        }
+        let s = Server { handler: &Panics, ..server(McpConfig::default(), None) };
+        let big = String::from(r#"{"pad": ""#) + &"x".repeat(crate::untrusted::limits::MCP_LINE_BYTES) + r#""}"#;
+        let input = format!("{big}\n{}\n{}\n", r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params": {"name": "boom"} }"#, r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#);
+        let replies = run(&s, &input);
+        assert_eq!(replies.len(), 3);
+        assert_eq!(replies[0]["error"]["code"], -32700);
+        assert_eq!(replies[1]["error"]["code"], -32603);
+        assert_eq!(replies[2]["id"], 2);
     }
 }

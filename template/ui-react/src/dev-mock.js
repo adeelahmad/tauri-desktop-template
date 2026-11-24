@@ -74,6 +74,7 @@ const DEFAULTS = {
     embedBatch: 64,
     maxFileMb: 64,
     extensions: ['txt', 'md', 'pdf', 'csv', 'json', 'html'],
+    pdf: { isolate: true, timeoutSecs: 120, memoryMb: 2048 },
   },
   watch: { enabled: false, dropFolder: true, dropFolderPath: null, paths: [], recursive: true, debounceMs: 2000, ignore: ['.*', '*.tmp'] },
   resources: { cpuPercent: 100, backgroundPriority: true, resumeInterrupted: true, memoryBudgetMb: 0, gpuBudget: false, gpuLayers: 0 },

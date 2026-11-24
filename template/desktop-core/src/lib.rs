@@ -17,7 +17,8 @@
 //! Main modules: [`engine`] (the facade), [`config`] (every setting, validated),
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
-//! development builds). Feature modules: `embed`, `pdf`, `pgstore`, `watch`, `llm` and `meter` (cost
+//! development builds), [`untrusted`] (size caps and panic guards for outside input). Feature
+//! modules: `embed`, `pdf` (with `sandbox`, its child-process limits), `pgstore`, `watch`, `llm` and `meter` (cost
 //! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
 //! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`),
 //! `notices` (licence notices, feature `supply-chain`), `release` (update channels, feature
@@ -58,11 +59,14 @@ pub mod jobs;
 pub mod logging;
 pub mod net;
 pub mod store;
+pub mod untrusted;
 
 {% if embeddings %}#[cfg(feature = "embed")]
 pub mod embed;
 {% endif %}{% if pdf %}#[cfg(feature = "pdf")]
 pub mod pdf;
+#[cfg(feature = "pdf")]
+pub mod sandbox;
 {% endif %}{% if postgres %}#[cfg(feature = "postgres")]
 pub mod pgstore;
 #[cfg(feature = "postgres")]
@@ -195,19 +199,33 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// File-name match with `*` (any run) and `?` (one character), case-insensitive.
+///
+/// Linear-time backtracking over the last `*` (the usual wildcard algorithm), so a hostile
+/// file name or pattern such as `*a*a*a*a*b` cannot make it take exponential time.
 pub fn watch_glob(pattern: &str, name: &str) -> bool {
-    fn go(p: &[char], n: &[char]) -> bool {
-        match (p.first(), n.first()) {
-            (None, None) => true,
-            (Some('*'), _) => go(&p[1..], n) || (!n.is_empty() && go(p, &n[1..])),
-            (Some('?'), Some(_)) => go(&p[1..], &n[1..]),
-            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b) && go(&p[1..], &n[1..]),
-            _ => false,
-        }
-    }
     let p: Vec<char> = pattern.chars().collect();
     let n: Vec<char> = name.chars().collect();
-    go(&p, &n)
+    let (mut pi, mut ni) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while ni < n.len() {
+        match p.get(pi) {
+            Some('*') => {
+                star = Some((pi, ni));
+                pi += 1;
+            }
+            Some('?') => (pi, ni) = (pi + 1, ni + 1),
+            Some(c) if c.eq_ignore_ascii_case(&n[ni]) => (pi, ni) = (pi + 1, ni + 1),
+            _ => match star {
+                // Let the last `*` take one more character and try again from there.
+                Some((sp, sn)) => {
+                    star = Some((sp, sn + 1));
+                    (pi, ni) = (sp + 1, sn + 1);
+                }
+                None => return false,
+            },
+        }
+    }
+    p[pi..].iter().all(|&c| c == '*')
 }
 
 #[cfg(test)]
@@ -218,5 +236,19 @@ mod glob_tests {
         assert!(super::watch_glob("~$*", "~$report.docx"));
         assert!(super::watch_glob("*.TMP", "a.tmp"));
         assert!(!super::watch_glob("*.tmp", "notes.md"));
+        assert!(super::watch_glob("a?c*", "abcdef"));
+        assert!(super::watch_glob("*", ""));
+        assert!(!super::watch_glob("?", ""));
+        assert!(super::watch_glob("**x", "abx"));
+        assert!(!super::watch_glob("a*b", "acbd"));
+    }
+
+    #[test]
+    fn hostile_patterns_are_not_exponential() {
+        // The recursive matcher took exponential time on these (a hang on one file name).
+        let started = std::time::Instant::now();
+        let name = "a".repeat(200);
+        assert!(!super::watch_glob(&format!("{}b", "*a".repeat(30)), &name));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 }

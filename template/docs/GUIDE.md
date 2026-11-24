@@ -24,6 +24,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [How settings work](#how-settings-work)
 - [Build-time app config](#build-time-app-config)
 - [Command errors](#command-errors)
+- [Untrusted input](#untrusted-input)
 - [Typed IPC](#typed-ipc)
 - [Accessibility](#accessibility)
 - [Tests](#tests)
@@ -421,6 +422,38 @@ into code `failed`, and `CommandError::new("invalid", "...")` sets a code. In th
 `errorText(e)` and `errorCode(e)` from `ui-react/src/errors.js` read it (and the plain
 strings that older commands still return).
 
+## Untrusted input
+
+Files the user drops in, watched folders, recordings from the web view, MCP clients, HTTP
+requests, backups picked for restore and downloads are all untrusted: a parser must never
+panic, hang or allocate without bound on them. The rules:
+
+1. **Cap the size first.** Each kind of input has a cap in `desktop_core::untrusted::limits`
+   (`WAV_BYTES`, `PDF_BYTES`, `CONFIG_BYTES`, `MCP_LINE_BYTES`, `ZIP_UNPACKED_BYTES`, ...).
+   Read files with `untrusted::read_capped`, and lines with `untrusted::read_line_capped`,
+   never `std::fs::read` or `BufRead::lines` on outside data. Ingest also refuses files over
+   `ingest.maxFileMb` before reading them.
+2. **Never trust a length in the input.** Clamp a header's length to the bytes really there,
+   use `get` and checked or saturating arithmetic, and count what a decompressor really
+   produces (`pgstore::unzip_into`), not what the header claims.
+3. **No super-linear work on input.** Globs, chunking and resampling are linear in their
+   input; a sample rate or a count from a file is range-checked before it sizes an allocation.
+4. **Panics become errors.** `untrusted::guard` wraps a parser in `catch_unwind`, so one bad
+   file fails alone. The MCP server answers a panicking message with error -32603 and goes on;
+   the HTTP API's backend calls run in `spawn_blocking`, whose panic becomes a 500.
+{%- if pdf %}
+5. **Parse risky formats in a child.** With `ingest.pdf.isolate` (on by default) a PDF is
+   parsed by `<app> --parse` (`pdf::serve_parse`): the bytes go in on stdin, JSON comes out on
+   stdout, and the child is killed after `ingest.pdf.timeoutSecs` and limited to
+   `ingest.pdf.memoryMb` (`setrlimit` on Linux and macOS, a Job Object on Windows; see
+   `desktop_core::sandbox`). macOS does not enforce the memory limit, so the time limit
+   and the output cap are the bounds there.
+{%- endif %}
+
+Every parser has a fuzz target in `fuzz/` (`make fuzz`, [TESTING.md](../TESTING.md#fuzzing)).
+When you add a parser of outside input, add its cap, a fuzz target, and a unit test for
+each bug the fuzzer finds.
+
 ## Typed IPC
 
 The UI calls the Rust commands with `invoke`. Their argument and result types are generated
@@ -683,8 +716,10 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`bindings`](../desktop-core/src/bindings.rs) | `ts` (tests only) | Typed IPC: TypeScript types for the Tauri commands ([Typed IPC](#typed-ipc)) |
 | [`governor`](../desktop-core/src/governor.rs) | always | CPU share and background priority for ingest |
 | [`audio`](../desktop-core/src/audio.rs) | always | WAV, PCM, resampling, base64 |
+| [`untrusted`](../desktop-core/src/untrusted.rs) | always | Size caps for outside input, capped reads, panic guard ([Untrusted input](#untrusted-input)) |
 | [`embed`](../desktop-core/src/embed.rs) | `embed` | Local ONNX embeddings (fastembed) |
-| [`pdf`](../desktop-core/src/pdf.rs) | `pdf` | PDF text, with OCR for pages without text |
+| [`pdf`](../desktop-core/src/pdf.rs) | `pdf` | PDF text, with OCR for pages without text; parsed in `<app> --parse` |
+| [`sandbox`](../desktop-core/src/sandbox.rs) | `pdf` | Run a parser in a child process with a time and memory limit |
 | [`pgstore`](../desktop-core/src/pgstore.rs) | `postgres` (`bm25`) | Embedded Postgres + pgvector (+ BM25) store |
 | [`pgupgrade`](../desktop-core/src/pgupgrade.rs) | `postgres` | Upgrading the data folder to a new major Postgres with `pg_upgrade` ([Postgres upgrades](#postgres-upgrades)) |
 | [`watch`](../desktop-core/src/watch.rs) | `watch` | Drop folder and watched folders |

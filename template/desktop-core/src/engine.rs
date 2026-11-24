@@ -352,15 +352,18 @@ impl Engine {
     /// Read and chunk a file without touching the store (the parallel part of ingest).
     fn read_file(&self, path: &Path) -> Result<(String, Vec<Chunk>)> {
         let source = path.to_string_lossy().to_string();
-        let chunking = Chunking::from(&self.config().ingest);
+        let cfg = self.config();
+        let chunking = Chunking::from(&cfg.ingest);
         let is_pdf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
         let failed = |e: std::io::Error| Error::Source(format!("{}: {e}", path.display()));
         let meta = std::fs::metadata(path).map_err(failed)?;
-        let bytes = std::fs::read(path).map_err(failed)?;
+        // Every file is untrusted: refuse one over the size limit before reading it.
+        let max = usize::try_from(cfg.ingest.max_file_mb.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX);
+        let bytes = crate::untrusted::read_capped(path, max)?;
         if is_pdf {
             #[cfg(feature = "pdf")]
             {
-                let mut chunks = crate::pdf::chunks_from_pdf_with(path, chunking)?;
+                let mut chunks = crate::pdf::chunks_from_pdf_config(path, chunking, &cfg.ingest.pdf)?;
                 self.stamp(&mut chunks, Some((&bytes, &meta)), "pdf-text");
                 self.plugin_hooks(&source, &mut chunks)?;
                 return Ok((source, chunks));
@@ -369,7 +372,7 @@ impl Engine {
             return Err(Error::NotBuilt("PDF reading"));
         }
         let text = String::from_utf8(bytes).map_err(|_| Error::Source(format!("{}: not UTF-8 text", path.display())))?;
-        let mut chunks = chunks_from_text_with(&source, &text, chunking);
+        let mut chunks = crate::untrusted::guard(&source, || Ok(chunks_from_text_with(&source, &text, chunking)))?;
         self.stamp(&mut chunks, Some((text.as_bytes(), &meta)), "text");
         self.plugin_hooks(&source, &mut chunks)?;
         Ok((source, chunks))

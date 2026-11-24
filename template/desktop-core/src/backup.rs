@@ -41,7 +41,7 @@
 use crate::chunk::Chunk;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -248,9 +248,11 @@ pub fn write(dir: &Path, chunks: &[Chunk], model: &str, key: Option<&BackupKey>)
 }
 
 fn manifest_of(path: &Path) -> std::io::Result<Manifest> {
-    let mut line = String::new();
-    std::io::BufReader::new(std::fs::File::open(path)?).read_line(&mut line)?;
-    let m: Manifest = serde_json::from_str(&line).map_err(|e| bad(format!("not a backup ({e})")))?;
+    // Only the first line, and only so much of it: a file without newlines is not read whole.
+    let mut line = Vec::new();
+    let max = crate::untrusted::limits::BACKUP_HEADER_BYTES as u64;
+    std::io::BufReader::new(std::fs::File::open(path)?).take(max).read_until(b'\n', &mut line)?;
+    let m: Manifest = serde_json::from_slice(&line).map_err(|e| bad(format!("not a backup ({e})")))?;
     if m.format != FORMAT {
         return Err(bad("not a backup from this app"));
     }
@@ -414,5 +416,13 @@ mod tests {
         std::fs::write(&info.path, &tampered).unwrap();
         assert!(read(&info.path, &[key]).unwrap_err().to_string().contains("decrypt"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_huge_first_line_is_not_read_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("x.backup");
+        std::fs::write(&file, vec![b'{'; 4 * crate::untrusted::limits::BACKUP_HEADER_BYTES]).unwrap();
+        assert!(read(&file, &[]).unwrap_err().to_string().contains("not a backup"));
     }
 }
