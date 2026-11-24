@@ -34,7 +34,14 @@ use crate::paths::home;
 
 struct Tools {
     service: Arc<dyn Service>,
+    /// The policy, for the opt-in tools ([`OPT_IN`]).
+    config: desktop_core::mcp::McpConfig,
 }
+
+/// Tools offered only when the MCP settings name them (`mcp.tools`, or their own entry in
+/// `mcp.policies`): the key-value store's, even though they only reach the namespaces in
+/// `kv.uiNamespaces`.
+pub const OPT_IN: &[&str] = &["kv_get", "kv_set", "kv_list"];
 
 fn schema(props: Value, required: &[&str]) -> Value {
     json!({"type": "object", "properties": props, "required": required, "additionalProperties": false})
@@ -63,6 +70,27 @@ pub fn tool_list() -> Vec<Tool> {
             read_only: false,
         },
     ];
+    if cfg!(feature = "kv") {
+        let ns = json!({"type": "string", "description": "A namespace listed in the app's kv.uiNamespaces setting"});
+        t.push(Tool {
+            name: "kv_get".into(),
+            description: "Read a JSON value from the app's key-value store.".into(),
+            input_schema: schema(json!({"ns": ns, "key": {"type": "string"}}), &["ns", "key"]),
+            read_only: true,
+        });
+        t.push(Tool {
+            name: "kv_list".into(),
+            description: "List the keys (with values) of a namespace of the app's key-value store, optionally under a prefix.".into(),
+            input_schema: schema(json!({"ns": ns, "prefix": {"type": "string"}}), &["ns"]),
+            read_only: true,
+        });
+        t.push(Tool {
+            name: "kv_set".into(),
+            description: "Write a JSON value to the app's key-value store, optionally expiring after ttlSecs.".into(),
+            input_schema: schema(json!({"ns": ns, "key": {"type": "string"}, "value": {}, "ttlSecs": {"type": "integer", "minimum": 1}}), &["ns", "key", "value"]),
+            read_only: false,
+        });
+    }
     if cfg!(feature = "ai") {
         t.push(Tool {
             name: "ask".into(),
@@ -76,12 +104,12 @@ pub fn tool_list() -> Vec<Tool> {
 
 impl Handler for Tools {
     fn tools(&self) -> Vec<Tool> {
-        tool_list()
+        tool_list().into_iter().filter(|t| !OPT_IN.contains(&t.name.as_str()) || self.config.names(&t.name)).collect()
     }
 
     fn call(&self, name: &str, args: Value) -> Result<Value, String> {
         let method = match name {
-            "search" | "status" | "ingest_text" | "remove_source" | "ask" => name,
+            "search" | "status" | "ingest_text" | "remove_source" | "ask" | "kv_get" | "kv_set" | "kv_list" => name,
             other => return Err(format!("unknown tool {other}")),
         };
         let reply = self.service.call(method, args, &mut |_| {})?;
@@ -125,7 +153,7 @@ pub fn main(load: impl Fn(&Path) -> Settings, service: Arc<dyn Service>) -> i32 
             return 1;
         }
     }
-    let tools = Tools { service };
+    let tools = Tools { service, config: settings.config.mcp.clone() };
     let approvals = desktop_core::mcp::Approvals::new(&data_dir);
     let server = Server {
         name: NAME.into(),
@@ -226,6 +254,25 @@ pub fn register(file: &Path, value: Value) -> Result<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Nothing;
+    impl Service for Nothing {
+        fn call(&self, _: &str, _: Value, _: &mut dyn FnMut(&str)) -> Result<Value, crate::error::CommandError> {
+            Ok(Value::Null)
+        }
+    }
+
+    #[test]
+    fn opt_in_tools_are_offered_only_when_named() {
+        let names = |config| Tools { service: Arc::new(Nothing), config }.tools().into_iter().map(|t| t.name).collect::<Vec<_>>();
+        let off = names(desktop_core::mcp::McpConfig::default());
+        assert!(OPT_IN.iter().all(|t| !off.iter().any(|n| n == t)));
+        let mut cfg = desktop_core::mcp::McpConfig::default();
+        cfg.policies.insert("kv_get".into(), desktop_core::mcp::ToolPolicy::Allow);
+        let on = names(cfg);
+        assert_eq!(on.iter().any(|n| n == "kv_get"), cfg!(feature = "kv"));
+        assert!(!on.iter().any(|n| n == "kv_set"));
+    }
 
     #[test]
     fn register_keeps_other_servers() {

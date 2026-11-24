@@ -44,6 +44,10 @@ pub mod limits {
     pub const MCP_LINE_BYTES: usize = 16 * MB;
     /// The manifest (first line) of a backup file.
     pub const BACKUP_HEADER_BYTES: usize = 64 * 1024;
+    /// A key in the key-value store (`kv`).
+    pub const KV_KEY_BYTES: usize = 1024;
+    /// A value in the key-value store (`kv`); `kv.maxValueKb` can lower it.
+    pub const KV_VALUE_BYTES: usize = 16 * MB;
     /// Entries in a zip bundle.
     pub const ZIP_ENTRIES: usize = 10_000;
     /// Bytes unpacked from one zip bundle (all entries together).

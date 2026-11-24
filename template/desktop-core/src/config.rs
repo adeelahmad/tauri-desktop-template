@@ -103,6 +103,12 @@ pub struct Config {
 {% endif %}{% if release_channels %}    /// Update channel (stable or beta) for the updater.
     #[cfg(feature = "release-channels")]
     pub updates: crate::release::UpdatesConfig,
+{% endif %}{% if kv %}    /// The built-in key-value store: namespaces open to the UI, encryption, size caps.
+    #[cfg(feature = "kv")]
+    pub kv: crate::kv::KvConfig,
+{% endif %}{% if cache %}    /// The app's in-memory cache: size, TTL and time to idle, persistence.
+    #[cfg(feature = "cache")]
+    pub cache: crate::cache::MemoryCacheConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -365,6 +371,14 @@ impl Config {
 {% endif %}{% if release_channels %}        #[cfg(feature = "release-channels")]
         {
             self.updates = self.updates.validated();
+        }
+{% endif %}{% if kv %}        #[cfg(feature = "kv")]
+        {
+            self.kv = self.kv.validated();
+        }
+{% endif %}{% if cache %}        #[cfg(feature = "cache")]
+        {
+            self.cache = self.cache.validated();
         }
 {% endif %}        // kitchen:validate
         self

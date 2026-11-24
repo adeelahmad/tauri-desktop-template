@@ -293,6 +293,23 @@ const FIELDS = [
     'select',
     { needs: 'releaseChannels', options: ['stable', 'beta'], labels: ['Stable', 'Beta (pre-releases as well)'] },
   ],
+  ['kv', 'uiNamespaces', 'Namespaces the window, HTTP API and MCP tools may use', 'list', { needs: 'kv' }],
+  ['kv', 'encryptedNamespaces', 'Namespaces encrypted at rest', 'list', { needs: 'kv' }],
+  [
+    'kv',
+    'keySource',
+    'Encryption key kept in',
+    'select',
+    { needs: 'kv', options: ['file', 'keychain'], labels: ['A key file in the data folder', 'The OS keychain (needs sign-in support)'] },
+  ],
+  ['kv', 'maxSizeMb', 'Largest store (MB)', 'number', { needs: 'kv', min: 16, max: 65536 }],
+  ['kv', 'maxValueKb', 'Largest value (KB)', 'number', { needs: 'kv', min: 1, max: 16384 }],
+  ['kv', 'sweepMinutes', 'Delete expired keys every (minutes)', 'number', { needs: 'kv', min: 1, max: 1440 }],
+  ['kv', 'backup', 'Include the store in backups', 'bool', { needs: 'kv' }],
+  ['cache', 'maxMb', 'Largest cache (MB)', 'number', { needs: 'cache', min: 1, max: 4096 }],
+  ['cache', 'ttlSecs', 'Keep entries for (seconds, 0 = until evicted)', 'number', { needs: 'cache', min: 0 }],
+  ['cache', 'ttiSecs', 'Drop entries unused for (seconds, 0 = never)', 'number', { needs: 'cache', min: 0 }],
+  ['cache', 'persist', 'Keep entries across restarts (in the key-value store)', 'bool', { needs: 'kv' }],
   // kitchen:settings (`kitchen generate setting` adds fields above this line)
 ];
 
@@ -323,6 +340,8 @@ const TITLES = {
   tray: 'Tray & shortcuts',
   updates: 'Updates',
   about: 'About',
+  kv: 'Key-value store',
+  cache: 'Cache',
   // kitchen:titles
 };
 
@@ -1003,6 +1022,71 @@ function HttpApiInfo() {
         </div>
       )}
       <span className="hint">{msg || 'Send the token as Authorization: Bearer <token>. Keep it secret.'}</span>
+    </>
+  );
+}
+
+const megabytes = (bytes) => `${(bytes / 1048576).toFixed(1)} MB`;
+
+// The key-value store: where it is, how big, and its namespaces.
+function KvInfo() {
+  const [r, setR] = useState(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    api.kv_info().then(setR, (e) => setMsg(errorText(e)));
+  }, []);
+  if (!r) return <div className="hint">{msg}</div>;
+  return (
+    <>
+      <div className="hint">
+        <code>{r.path}</code> · {megabytes(r.bytes)}
+      </div>
+      {r.namespaces.length === 0 ? (
+        <div className="hint">No keys yet.</div>
+      ) : (
+        <ul className="hint">
+          {r.namespaces.map((n) => (
+            <li key={n.name}>
+              <code>{n.name}</code>: {n.keys} keys
+              {n.encrypted ? ', encrypted' : ''}
+              {r.uiNamespaces.includes(n.name) ? ', open to the window' : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+// The app cache: hits, misses and size, and a button to empty it.
+function CacheStats() {
+  const [s, setS] = useState(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    api.cache_stats().then(setS, (e) => setMsg(errorText(e)));
+  }, []);
+  const clear = async () => {
+    try {
+      setS(await api.cache_clear());
+      setMsg('Cache cleared.');
+    } catch (e) {
+      setMsg(errorText(e));
+    }
+  };
+  return (
+    <>
+      {s && (
+        <div className="hint">
+          {s.entries} entries, {megabytes(s.weight)} of {megabytes(s.maxWeight)} · {s.hits} hits, {s.misses} misses (
+          {Math.round(s.hitRate * 100)}% hit rate)
+        </div>
+      )}
+      <div className="row">
+        <button className="link" onClick={clear}>
+          Clear the cache
+        </button>
+        <span className="hint">{msg}</span>
+      </div>
     </>
   );
 }
@@ -1800,6 +1884,8 @@ export default function Settings({ features }) {
     tray: 'trayMenu',
     updates: 'releaseChannels',
     about: 'supplyChain',
+    kv: 'kv',
+    cache: 'cache',
   };
   const sections = [
     'appearance',
@@ -1818,6 +1904,8 @@ export default function Settings({ features }) {
     'oauth',
     'tailscale',
     'httpApi',
+    'kv',
+    'cache',
     'webview',
     'plugins',
     'net',
@@ -1893,6 +1981,8 @@ export default function Settings({ features }) {
           {s === 'tailscale' && <TailscaleStatus />}
           {s === 'service' && <ServiceSetup />}
           {s === 'httpApi' && <HttpApiInfo />}
+          {s === 'kv' && <KvInfo />}
+          {s === 'cache' && <CacheStats />}
           {s === 'webview' && <WebviewTry />}
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}
           {s === 'updates' && <UpdateChannel />}

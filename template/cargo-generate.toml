@@ -147,6 +147,16 @@ type = "bool"
 prompt = "PDF text extraction (docling.rs, tesseract OCR fallback)?"
 default = false
 
+[placeholders.kv]
+type = "bool"
+prompt = "Built-in key-value store (redb: one file, ACID, TTLs, optional encryption per namespace) for settings, state and small data without Postgres?"
+default = false
+
+[placeholders.cache]
+type = "bool"
+prompt = "Built-in in-memory cache (moka: TTL, size cap, hit/miss stats, single-flight loading), optionally persisted to the key-value store?"
+default = false
+
 [placeholders.evals]
 type = "bool"
 prompt = "Search and RAG evals: recall@k, MRR, nDCG@k and latency on a labelled dataset (`<app> --eval`, `kitchen eval`, `make eval`), checked against a saved baseline?"
@@ -364,7 +374,16 @@ ignore = ["desktop-core/src/pgstore.rs", "desktop-core/src/pgupgrade.rs", "fuzz/
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs", "fuzz/fuzz_targets/mcp.rs"]
 
 [conditional.'!ai']
-ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs", "desktop-core/src/meter.rs"]
+ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache/semantic.rs", "desktop-core/src/meter.rs"]
+
+[conditional.'!ai && !cache']
+ignore = ["desktop-core/src/cache.rs", "desktop-core/src/cache"]
+
+[conditional.'!cache']
+ignore = ["desktop-core/src/cache/memory.rs"]
+
+[conditional.'!kv']
+ignore = ["desktop-core/src/kv.rs"]
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]

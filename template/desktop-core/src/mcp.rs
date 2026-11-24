@@ -138,6 +138,12 @@ impl McpConfig {
         }
         self.policies.get(&tool.name).or_else(|| self.policies.get("*")).copied().unwrap_or_default()
     }
+
+    /// Whether `tool` was allowed by name: listed in `tools`, or given its own `policies`
+    /// entry other than `deny`. Opt-in tools (the key-value tools, say) are offered only then.
+    pub fn names(&self, tool: &str) -> bool {
+        self.tools.iter().any(|t| t == tool) || self.policies.get(tool).is_some_and(|p| *p != ToolPolicy::Deny)
+    }
 }
 
 /// How an `ask` call ended.
@@ -551,6 +557,19 @@ mod tests {
 
     fn tool(name: &str, read_only: bool) -> Tool {
         Tool { name: name.into(), description: String::new(), input_schema: json!({}), read_only }
+    }
+
+    #[test]
+    fn opt_in_tools_need_their_name() {
+        let mut c = McpConfig::default();
+        assert!(!c.names("kv_get"));
+        c.policies.insert("*".into(), ToolPolicy::Allow);
+        assert!(!c.names("kv_get"), "a wildcard does not name it");
+        c.policies.insert("kv_get".into(), ToolPolicy::Deny);
+        assert!(!c.names("kv_get"));
+        c.policies.insert("kv_get".into(), ToolPolicy::Ask);
+        assert!(c.names("kv_get"));
+        assert!(McpConfig { tools: vec!["kv_list".into()], ..McpConfig::default() }.names("kv_list"));
     }
 
     #[test]

@@ -23,6 +23,10 @@
 //! `jobs_set_schedule` {id, kind?, payload?, cron? | everySecs?, paused?, remove?};
 //! with feature `tray-menu`: `action` {id} (the backend side of the app's own tray, menu and
 //! shortcut actions; `null` when an action has nothing to do here);
+//! with feature `kv`: `kv_get` {ns, key}, `kv_set` {ns, key, value, ttlSecs?}, `kv_delete`
+//! {ns, key}, `kv_list` {ns, prefix?} (only namespaces in `kv.uiNamespaces`, since the
+//! window, the HTTP API and MCP tools all call these) and `kv_info`; with feature `cache`:
+//! `cache_stats`, `cache_clear`;
 //! with feature `mcp`:
 //! `mcp_pending` (MCP calls waiting for approval) and `mcp_decide` {id, allow} (every other call
 //! is timed for opt-in traces/analytics).
@@ -679,6 +683,41 @@ impl Local {
             "jobs_schedules" => to(Ok(self.queue()?.schedules())),
             #[cfg(feature = "jobs-queue")]
             "jobs_set_schedule" => to(self.queue()?.set_schedule(serde_json::from_value(params)?)),
+{% endif %}{% if kv %}            #[cfg(feature = "kv")]
+            "kv_get" => {
+                let (ns, key) = (arg::<String>(&params, "ns")?, arg::<String>(&params, "key")?);
+                to(self.engine()?.kv_exposed(&ns).and_then(|ns| ns.get_json::<Value>(&key)))
+            }
+            #[cfg(feature = "kv")]
+            "kv_set" => {
+                let ns = self.engine()?.kv_exposed(&arg::<String>(&params, "ns")?)?;
+                let (key, value) = (arg::<String>(&params, "key")?, arg::<Value>(&params, "value")?);
+                match arg::<Option<u64>>(&params, "ttlSecs")?.filter(|s| *s > 0) {
+                    Some(secs) => ns.set_json_ttl(&key, &value, std::time::Duration::from_secs(secs))?,
+                    None => ns.set_json(&key, &value)?,
+                }
+                Ok(Value::Null)
+            }
+            #[cfg(feature = "kv")]
+            "kv_delete" => {
+                let (ns, key) = (arg::<String>(&params, "ns")?, arg::<String>(&params, "key")?);
+                to(self.engine()?.kv_exposed(&ns).and_then(|ns| ns.delete(&key)))
+            }
+            #[cfg(feature = "kv")]
+            "kv_list" => {
+                let prefix = arg::<Option<String>>(&params, "prefix")?.unwrap_or_default();
+                to(self.engine()?.kv_exposed(&arg::<String>(&params, "ns")?).and_then(|ns| ns.entries(&prefix)))
+            }
+            #[cfg(feature = "kv")]
+            "kv_info" => to(self.engine()?.kv_info()),
+{% endif %}{% if cache %}            #[cfg(feature = "cache")]
+            "cache_stats" => to(Ok(self.engine()?.cache().stats())),
+            #[cfg(feature = "cache")]
+            "cache_clear" => {
+                let cache = self.engine()?.cache();
+                cache.clear();
+                to(Ok(cache.stats()))
+            }
 {% endif %}{% if tray_menu %}            #[cfg(feature = "tray-menu")]
             "action" => self.action(&arg::<String>(&params, "id")?),
 {% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)

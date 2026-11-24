@@ -350,6 +350,8 @@ pub const LICENCES: &[Licence] = &[
     Licence { feature: "ipc_worker", licences: "interprocess: 0BSD OR Apache-2.0", notice: "" },
     Licence { feature: "background_jobs", licences: "croner: MIT; jiff: Unlicense OR MIT", notice: "" },
     Licence { feature: "http_api", licences: "axum: MIT; tokio: MIT", notice: "" },
+    Licence { feature: "kv", licences: "redb: MIT OR Apache-2.0", notice: "" },
+    Licence { feature: "cache", licences: "moka: (MIT OR Apache-2.0) AND Apache-2.0", notice: "" },
 ];
 
 /// How serious a [`Finding`] is.

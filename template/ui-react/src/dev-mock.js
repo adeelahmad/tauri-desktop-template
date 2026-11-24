@@ -47,6 +47,8 @@ const FEATURES = {
   pythonExample: {% if python_example %}true{% else %}false{% endif %},
   claudeMcp: {% if claude_mcp %}true{% else %}false{% endif %},
   trayMenu: {% if tray_menu %}true{% else %}false{% endif %},
+  kv: {% if kv %}true{% else %}false{% endif %},
+  cache: {% if cache %}true{% else %}false{% endif %},
 };
 
 const params = new URLSearchParams(location.search);
@@ -86,6 +88,16 @@ const DEFAULTS = {
   oauth: { enabled: false, providers: [], redirect: 'loopback', timeoutSecs: 300, refreshBeforeSecs: 120 },
   jobs: { enabled: false, workers: 2, maxAttempts: 5, backoffBaseSecs: 10, backoffMaxSecs: 3600, historyDays: 7, queues: {} },
   httpApi: { enabled: false, host: '127.0.0.1', port: 0, corsOrigins: [], maxBodyKb: 1024, timeoutSecs: 30 },
+  kv: {
+    uiNamespaces: ['ui'],
+    encryptedNamespaces: [],
+    keySource: 'file',
+    maxSizeMb: 1024,
+    maxValueKb: 1024,
+    sweepMinutes: 10,
+    backup: true,
+  },
+  cache: { maxMb: 64, ttlSecs: 3600, ttiSecs: 0, persist: false },
   webview: {
     enabled: false,
     allow: [],
@@ -127,6 +139,8 @@ const state = {
   signedIn: {},
   jobs: [],
   history: [],
+  kv: { theme: 'dark' },
+  cacheStats: { hits: 42, misses: 8, backingHits: 0, entries: 12, weight: 4096, maxWeight: 67108864, hitRate: 0.84 },
 };
 
 const status = () => ({ chunks: docs.length, backend: state.settings.backend, embedder: FEATURES.embed ? 'mock embeddings' : null });
@@ -244,6 +258,24 @@ const commands = {
   jobs_cancel: () => null,
   jobs_retry: () => null,
   jobs_set_schedule: () => null,
+  kv_info: () => ({
+    path: '/mock/data/kv.redb',
+    bytes: 1048576,
+    namespaces: [{ name: 'ui', keys: Object.keys(state.kv).length, encrypted: false }],
+    uiNamespaces: state.config.kv.uiNamespaces,
+  }),
+  kv_get: ({ key }) => state.kv[key] ?? null,
+  kv_set: ({ key, value }) => {
+    state.kv[key] = value;
+    return null;
+  },
+  kv_delete: ({ key }) => delete state.kv[key],
+  kv_list: () => Object.entries(state.kv).map(([key, value]) => ({ key, value, expiresAt: null })),
+  cache_stats: () => ({ ...state.cacheStats }),
+  cache_clear: () => {
+    state.cacheStats = { hits: 0, misses: 0, backingHits: 0, entries: 0, weight: 0, maxWeight: 67108864, hitRate: 0 };
+    return { ...state.cacheStats };
+  },
   http_api_info: () =>
     state.config.httpApi.enabled
       ? { running: true, url: 'http://127.0.0.1:47011', token: 'mock-token-0123456789' }
