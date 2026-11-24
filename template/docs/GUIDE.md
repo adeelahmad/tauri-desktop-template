@@ -411,7 +411,8 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`pdf`](../desktop-core/src/pdf.rs) | `pdf` | PDF text, with OCR for pages without text |
 | [`pgstore`](../desktop-core/src/pgstore.rs) | `postgres` (`bm25`) | Embedded Postgres + pgvector (+ BM25) store |
 | [`watch`](../desktop-core/src/watch.rs) | `watch` | Drop folder and watched folders |
-| [`llm`](../desktop-core/src/llm.rs) | `ai` | Chat client for cloud and local models; API keys; RAG prompt |
+| [`llm`](../desktop-core/src/llm.rs) | `ai` | Chat client for cloud and local models: retries, fallback chain, budgets, prompt caching; API keys; RAG prompt |
+| [`meter`](../desktop-core/src/meter.rs) | `ai` | AI cost meter: price table, per-day and per-month usage, budgets |
 | [`cache`](../desktop-core/src/cache.rs) | `ai` | Semantic answer cache for `Engine::ask` |
 | [`local`](../desktop-core/src/local.rs) | `llama` | llama.cpp built in (GGUF) |
 | [`mcp`](../desktop-core/src/mcp.rs) | `mcp` | MCP protocol, tool policy and audit log |

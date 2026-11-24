@@ -577,11 +577,18 @@ impl Engine {
         }
         let sources = self.search_with(question, &cfg.search)?;
         let messages = crate::llm::rag_messages(cfg.llm.system_prompt.as_deref(), question, &sources);
-        let usage = self.data_dir.join("llm-usage.json");
+        let usage = self.data_dir.join(crate::llm::USAGE_FILE);
         let reply = crate::llm::Client::new(cfg.llm, keys, Some(&usage)).chat(&messages, on_token)?;
         let answer = Answer { reply, sources, cached: false };
         self.answers.put(&cache, question, qv.as_deref(), &state, &answer);
         Ok(answer)
+    }
+
+    /// AI usage and cost today, this month and recently, with the budgets (`ai_usage`).
+    #[cfg(feature = "ai")]
+    pub fn ai_usage(&self) -> crate::meter::Report {
+        let ledger = crate::meter::Meter::new(self.data_dir.join(crate::llm::USAGE_FILE)).ledger();
+        crate::meter::Report::new(&ledger, &self.config().llm.limits(), crate::meter::today())
     }
 
     /// What a cached answer depends on: the chunk count, the embedding model, and the

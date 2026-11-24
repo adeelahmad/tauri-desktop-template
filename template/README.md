@@ -45,7 +45,7 @@ Everything runs on the user's machine.
 | Drop folder + watch folders (debounced auto-ingest, deletes forgotten) | `desktop-core/src/watch.rs` | `watch` |
 {% endif -%}
 {% if ai -%}
-| AI answers over your documents (Claude, OpenAI, Gemini, Ollama, any OpenAI-compatible server): streaming, citations, fallbacks, budgets. Turn on under Settings → AI | `desktop-core/src/llm.rs` | `ai` |
+| AI answers over your documents (Claude, OpenAI, Gemini, Ollama, any OpenAI-compatible server): streaming, citations, retries with backoff, fallback chains, a cost meter with budgets, prompt caching. Turn on under Settings → AI | `desktop-core/src/llm.rs` | `ai` |
 {% if local_llm -%}
 | llama.cpp built in (static; Metal on Apple Silicon): provider `local` runs a GGUF model in the app | `desktop-core/src/local.rs` | `llama` |
 {% endif -%}
@@ -393,6 +393,13 @@ is off by default; values are clamped to safe ranges.
 | `resources.gpuBudget`, `resources.gpuLayers` | off, 0 | cap the local model's GPU layers (0 = CPU only) |
 | `resources.onnxProvider` | `cpu` | preferred ONNX Runtime provider (`auto`, `coreml`, `directml`, `cuda`); falls back to the CPU when not built in |
 {% if ai -%}
+| `llm.retries`, `llm.retryBaseMs`, `llm.retryMaxSecs` | 2, 500, 30 | retries per provider on 408/429/5xx/timeouts; waits double from the base with jitter; `Retry-After` is honoured, and one longer than the max moves to the next provider |
+| `llm.fallbacks` | none | `[{"provider": "openai", "model": "gpt-5-mini"}, {"provider": "ollama"}]`: tried in order when the main provider fails |
+| `llm.dailyTokenBudget`, `llm.monthlyTokenBudget`, `llm.budget.dailyUsd`, `llm.budget.monthlyUsd` | none | token and dollar budgets per UTC day and month |
+| `llm.budget.warnPercent`, `llm.budget.overrideLimits` | 80, off | warn from this share of a budget; keep going over budget |
+| `llm.prices` | current Claude list prices; OpenAI and Gemini rows to verify | **edit me**: `{"<model or prefix>": {"input": 2, "output": 10, "cachedInput": 0.1, "cacheWrite": 2.5}}`, USD per million tokens; optional `longPrompt: {aboveTokens, input, output, ...}` |
+| `llm.temperature` | none | empty = the model's default; Claude gets it only on models up to 4.6 (newer ones refuse it), OpenAI only when set, local servers 0.2 |
+| `llm.promptCache` | on | Anthropic `cache_control` on the system prompt and the sources |
 | `llm.cache.enabled`, `llm.cache.ttlHours`, `llm.cache.maxEntries`, `llm.cache.similarity` | off, 24, 500, 0.95 | answer cache (`answer-cache.jsonl`): same question, or a near-identical one by cosine with embeddings; emptied on ingest, remove and clear |
 {% endif -%}
 {% if mcp_server -%}
@@ -458,6 +465,33 @@ With `backup.encrypt` on, backups are sealed with ChaCha20-Poly1305 under a rand
 owner-only in the data folder (ring, already in every build). Settings shows it as a
 recovery key; restoring on another computer asks for it.
 
+{% if ai -%}
+<a id="ai-operations"></a>
+#### AI operations: retries, fallbacks, cost and caching
+
+`desktop_core::llm::Client` handles the plumbing every AI call needs, set under `llm`:
+
+- **Retries.** HTTP 408, 429 and 5xx, timeouts and dropped connections are retried
+  `retries` times, waiting `retryBaseMs` doubled per retry (with random jitter), never longer
+  than `retryMaxSecs`. A `Retry-After` header sets the wait; if it asks for longer than
+  `retryMaxSecs`, the next provider is tried at once.
+- **Fallback chain.** After the main provider fails for good (bad request, no key, retries
+  used up), each entry of `fallbacks` is tried in order. The answer records who answered
+  (`reply.provider`, `reply.model`) and every failed try (`reply.attempts`); the Ask
+  screen shows both, and the answer cache keeps them.
+- **Cost meter.** Token counts come from the provider's usage fields (cache reads and writes
+  included) and are priced with `llm.prices` (edit it when prices change; a model matches
+  its name or the longest prefix). Totals per day and month are kept in `llm-usage.json` in
+  the data folder. Settings → AI shows them (the `ai_usage` command).
+- **Budgets.** Token and dollar budgets per day and month warn from `budget.warnPercent`
+  (80%) and block at 100% with an error that says which budget ran out.
+  `budget.overrideLimits` lets calls through anyway (each reply still warns).
+- **Prompt caching** (`promptCache`). Claude gets `cache_control: {"type": "ephemeral"}` on
+  the system prompt and on the sources block. OpenAI and Gemini cache a repeated prefix on
+  their own: the system prompt and sources always come first and the question last, and
+  their `cached_tokens` are counted at the cached price.
+
+{% endif -%}
 {% if email -%}
 Email (`desktop_core::mail::send`) speaks SMTP itself: it refuses a password over an
 unencrypted link, checks certificates against the bundled Mozilla roots (or `net.caFiles` and
