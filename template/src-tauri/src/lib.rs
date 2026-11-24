@@ -701,6 +701,13 @@ fn telemetry_status(state: tauri::State<AppState>) -> Result<Value, String> {
     call(&state, "telemetry_status", Value::Null)
 }
 
+/// AI usage and cost: today, this month, recent days and months, and the budgets.
+#[cfg(feature = "ai")]
+#[tauri::command(async)]
+fn ai_usage(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "ai_usage", Value::Null)
+}
+
 /// Providers that have a key (the keys never leave the backend).
 #[cfg(feature = "ai")]
 #[tauri::command(async)]
@@ -1110,6 +1117,8 @@ pub fn run() {
             ask,
             #[cfg(feature = "ai")]
             ai_keys,
+            #[cfg(feature = "ai")]
+            ai_usage,
             #[cfg(feature = "ai")]
             set_ai_key,
             #[cfg(feature = "llama")]

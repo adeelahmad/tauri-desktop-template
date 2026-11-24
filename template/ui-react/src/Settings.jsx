@@ -41,9 +41,21 @@ const FIELDS = [
   ['llm', 'maxTokens', 'Longest answer (tokens)', 'number', { needs: 'ai', min: 1 }],
   ['llm', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'ai', min: 5 }],
   ['llm', 'retries', 'Retries before the next provider', 'number', { needs: 'ai', min: 0, max: 10 }],
+  ['llm', 'retryBaseMs', 'First retry wait (ms, doubles each retry)', 'number', { needs: 'ai', min: 50, max: 60000 }],
+  [
+    'llm',
+    'retryMaxSecs',
+    'Longest retry wait (s; a longer Retry-After moves to the next provider)',
+    'number',
+    { needs: 'ai', min: 1, max: 600 },
+  ],
   ['llm', 'dailyTokenBudget', 'Daily token budget', 'optional', { needs: 'ai', min: 0 }],
   ['llm', 'monthlyTokenBudget', 'Monthly token budget', 'optional', { needs: 'ai', min: 0 }],
-  ['llm', 'promptCache', 'Prompt caching (Anthropic)', 'bool', { needs: 'ai' }],
+  ['llm', 'budget.dailyUsd', 'Daily budget (USD)', 'optional', { needs: 'ai', min: 0, step: 0.01 }],
+  ['llm', 'budget.monthlyUsd', 'Monthly budget (USD)', 'optional', { needs: 'ai', min: 0, step: 0.01 }],
+  ['llm', 'budget.warnPercent', 'Warn at (% of a budget; 0 = never)', 'number', { needs: 'ai', min: 0, max: 100 }],
+  ['llm', 'budget.overrideLimits', 'Keep going over budget (override)', 'bool', { needs: 'ai' }],
+  ['llm', 'promptCache', 'Prompt caching (Anthropic cache_control; OpenAI and Gemini cache on their own)', 'bool', { needs: 'ai' }],
   ['llm', 'systemPrompt', 'System prompt (empty = built in)', 'text', { needs: 'ai', nullable: true }],
   ['llm', 'httpHosts', 'Hosts allowed over plain HTTP', 'list', { needs: 'ai' }],
   ['llm', 'cache.enabled', 'Reuse answers to repeated questions (cleared when documents change)', 'bool', { needs: 'ai' }],
@@ -1352,6 +1364,69 @@ function AiKeys() {
   );
 }
 
+// Settings → AI usage: tokens and cost today, this month and per recent day, with the
+// budgets. Prices come from `llm.prices` in settings.json (edit them when prices change).
+function AiUsage() {
+  const [u, setU] = useState(null);
+  const [err, setErr] = useState('');
+  const load = () =>
+    invoke('ai_usage')
+      .then(setU)
+      .catch((e) => setErr(String(e)));
+  useEffect(() => {
+    load();
+  }, []);
+  const usd = (t) => `$${(t?.costUsd || 0).toFixed(4)}${t?.unpriced ? ` (+${t.unpriced} unpriced)` : ''}`;
+  const toks = (t) => `${t?.inputTokens || 0} in / ${t?.outputTokens || 0} out, ${t?.cachedTokens || 0} cached`;
+  if (err) return <p className="status error">{err}</p>;
+  if (!u) return null;
+  const rows = [
+    [`Today (${u.day})`, u.today],
+    [`This month (${u.month})`, u.thisMonth],
+    ...u.days.filter(([d]) => d !== u.day).slice(0, 7),
+  ];
+  return (
+    <div className="ai-usage">
+      <h3>AI usage</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Calls</th>
+            <th>Tokens</th>
+            <th>Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([name, t]) => (
+            <tr key={name}>
+              <td>{name}</td>
+              <td>{t?.requests || 0}</td>
+              <td>{toks(t)}</td>
+              <td>{usd(t)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {u.budgets.map((b) => (
+        <div key={b.name} className="row">
+          <label>
+            {b.name}: {b.name.endsWith('USD') ? `$${b.used.toFixed(2)} of $${b.limit.toFixed(2)}` : `${b.used} of ${b.limit}`}
+          </label>
+          <meter min={0} max={100} low={79} high={99} optimum={0} value={Math.min(b.percent, 100)} />
+          <span className={b.state === 'ok' ? 'hint' : 'status error'}>
+            {b.state === 'over' ? (u.overrideLimits ? 'over (override on)' : 'used up') : `${b.percent.toFixed(0)}%`}
+          </span>
+        </div>
+      ))}
+      {!u.budgets.length && <p className="hint">No budgets set.</p>}
+      <button className="link" onClick={load}>
+        Refresh
+      </button>
+    </div>
+  );
+}
+
 // A key press as an accelerator Tauri reads, like CmdOrCtrl+Shift+K (null for a lone modifier).
 const MAC = navigator.userAgent.includes('Mac');
 function keysOf(e) {
@@ -1623,6 +1698,7 @@ export default function Settings({ features }) {
           </div>
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
+          {s === 'llm' && <AiUsage />}
           {s === 'llm' && features.llama && <ModelDownload onDone={(p) => set('llm', 'local.modelPath', p)} />}
           {s === 'mcp' && <McpPolicies policies={cfg.mcp.policies} onChange={(v) => set('mcp', 'policies', v)} />}
           {s === 'mcp' && cfg.mcp.enabled && <McpPending />}
