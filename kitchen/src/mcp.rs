@@ -41,15 +41,23 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "project": project, "dry_run": dry}, "required": ["name", "value"]}},
         {"name": "upgrade", "description": "Move the app to a newer template commit, keeping its edits.",
          "inputSchema": {"type": "object", "properties": {"rev": {"type": "string"}, "project": project, "dry_run": dry}}},
-        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name) or page (name).",
+        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut), shortcut (name = action id, shortcut) or job (name; a background job type, needs background_jobs) or route (name; POST /v1/<name> on the HTTP API, needs http_api). menu and shortcut need the tray_menu feature.",
          "inputSchema": {"type": "object", "properties": {
-             "kind": {"type": "string", "enum": ["module", "setting", "command", "page"]},
+             "kind": {"type": "string", "enum": ["module", "setting", "command", "page", "menu", "shortcut", "job", "route"]},
              "name": {"type": "string"}, "config": {"type": "boolean"},
              "type": {"type": "string", "enum": ["bool", "int", "float", "text", "list"]},
              "default": {"type": "string"}, "label": {"type": "string"},
+             "shortcut": {"type": "string", "description": "Keys like CmdOrCtrl+Shift+K"},
              "project": project, "dry_run": dry}, "required": ["kind", "name"]}},
         {"name": "doctor", "description": "Check the machine and the app; each problem comes with its fix.",
          "inputSchema": {"type": "object", "properties": {"project": project}}},
+        {"name": "service", "description": "The app's daemon as an OS service (template feature `daemon`): action status (default), logs, install, uninstall, start, stop or restart; system for the machine-wide service. Builds the app if needed. Only status and logs run unless allow_changes is true; otherwise it reports what it would run.",
+         "inputSchema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": crate::service::ACTIONS},
+             "system": {"type": "boolean", "description": "LaunchDaemon / system unit / Windows Service (needs administrator rights)"},
+             "lines": {"type": "integer", "description": "logs: how many lines"},
+             "allow_changes": {"type": "boolean", "description": "Really install, start, stop ... (default: only say what would run)"},
+             "project": project}}},
         {"name": "new", "description": "Create a new app from the template in folder `dir` (default: the server's folder).",
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
     ])
@@ -90,7 +98,13 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
         ]
         .concat(),
         "generate" => {
-            let mut v = vec!["generate".into(), need("kind")?, need("name")?];
+            let kind = need("kind")?;
+            let mut v = vec!["generate".into(), kind.clone(), need("name")?];
+            match (kind.as_str(), s("shortcut")) {
+                ("shortcut", k) => v.push(k.ok_or("generate shortcut: `shortcut` is required")?),
+                (_, Some(k)) => v.extend(["--shortcut".into(), k]),
+                _ => {}
+            }
             v.extend(s("type"));
             v.extend(s("default"));
             if let Some(l) = s("label") {
@@ -115,6 +129,23 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
                 if let Some(x) = s(k) {
                     v.extend([format!("--{k}"), x]);
                 }
+            }
+            v
+        }
+        "service" => {
+            let action = s("action").unwrap_or_else(|| "status".into());
+            let mut v = vec!["service".to_string(), action.clone()];
+            if a.get("system").and_then(Value::as_bool) == Some(true) {
+                v.push("--system".into());
+            }
+            if let Some(n) = a.get("lines").and_then(Value::as_u64) {
+                v.extend(["--lines".into(), n.to_string()]);
+            }
+            // Dry-run safe: anything that changes the machine needs allow_changes.
+            if !crate::service::read_only(&action)
+                && a.get("allow_changes").and_then(Value::as_bool) != Some(true)
+            {
+                v.push("--dry-run".into());
             }
             v
         }
@@ -222,10 +253,32 @@ mod tests {
             ["generate", "setting", "inv.days", "int", "30", "--label", "Days"]
         );
         assert_eq!(
+            argv("generate", &json!({"kind": "menu", "name": "export_csv", "label": "Export", "shortcut": "Ctrl+E"})).unwrap(),
+            ["generate", "menu", "export_csv", "--shortcut", "Ctrl+E", "--label", "Export"]
+        );
+        assert_eq!(
+            argv(
+                "generate",
+                &json!({"kind": "shortcut", "name": "search", "shortcut": "Ctrl+K"})
+            )
+            .unwrap(),
+            ["generate", "shortcut", "search", "Ctrl+K"]
+        );
+        assert!(argv("generate", &json!({"kind": "shortcut", "name": "search"})).is_err());
+        assert_eq!(
             argv("new", &json!({"name": "x", "enable": ["a", "b"]})).unwrap(),
             ["new", "x", "--no-git", "--enable", "a,b"]
         );
         assert!(argv("enable", &json!({})).is_err());
+        assert_eq!(argv("service", &json!({})).unwrap(), ["service", "status"]);
+        assert_eq!(
+            argv("service", &json!({"action": "install", "system": true})).unwrap(),
+            ["service", "install", "--system", "--dry-run"]
+        );
+        assert_eq!(
+            argv("service", &json!({"action": "stop", "allow_changes": true})).unwrap(),
+            ["service", "stop"]
+        );
     }
 
     #[test]
