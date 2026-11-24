@@ -44,6 +44,7 @@ This build has:
 {% endif -%}
 {% if postgres -%}
 - `postgres` (cargo feature `postgres`): embedded Postgres + pgvector store, `desktop-core/src/pgstore.rs`.
+  A newer major Postgres upgrades the data folder with `pg_upgrade` (`desktop-core/src/pgupgrade.rs`, setting `postgres.upgrade`, `<app> --pg-upgrade [--check]`); when you bump `PG_VERSION`, move the old version and its SHA-256s to `OLD_SERVERS`.
 {% if bm25 -%}
 - `bm25` (cargo feature `bm25`): BM25 keyword ranking in Postgres for hybrid search.
 {% endif -%}

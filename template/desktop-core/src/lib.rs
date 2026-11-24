@@ -69,6 +69,8 @@ pub mod pdf;
 pub mod sandbox;
 {% endif %}{% if postgres %}#[cfg(feature = "postgres")]
 pub mod pgstore;
+#[cfg(feature = "postgres")]
+pub mod pgupgrade;
 {% endif %}{% if watch_folders %}{% if mobile %}#[cfg(all(feature = "watch", not(any(target_os = "android", target_os = "ios"))))]{% else %}#[cfg(feature = "watch")]{% endif %}
 pub mod watch;
 {% endif %}{% if ai %}#[cfg(feature = "ai")]

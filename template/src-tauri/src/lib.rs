@@ -420,8 +420,10 @@ struct Done {
 
 /// Open the store and load the model in the background (`setup-progress` text events,
 /// then `setup-done`). On success the choice is saved and later starts skip the wizard.
-#[tauri::command]
-fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Option<Backend>, embeddings: Option<bool>) -> Result<(), String> {
+{% if postgres %}/// `pg_upgrade` answers the prompt a `pg-upgrade-needed` error asks for: `true` upgrades the
+/// Postgres data now, `false` runs on the old server this time (the setting is not changed).
+{% endif %}#[tauri::command]
+fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Option<Backend>, embeddings: Option<bool>{% if postgres %}, pg_upgrade: Option<bool>{% endif %}) -> Result<(), String> {
     let saved = load_settings(&app);
     let settings = Settings {
         setup_done: true,
@@ -429,14 +431,26 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         embeddings: embeddings.unwrap_or(saved.embeddings) && cfg!(feature = "embed"),
         config: saved.config,
     };
-    let opts = EngineOptions {
+    #[allow(unused_mut)]
+    let mut opts = EngineOptions {
         data_dir: paths::app_dirs().1,
         backend: settings.backend,
         embeddings: settings.embeddings,
         config: settings.config.clone(),
         app_name: Some(app.package_info().name.clone()),
     };
-    let service = state.service.clone();
+{% if postgres %}    #[cfg(feature = "postgres")]
+    if let Some(now) = pg_upgrade {
+        use desktop_core::pgupgrade::{clear_failure, Layout, UpgradeMode};
+        opts.config.postgres.upgrade = if now { UpgradeMode::Auto } else { UpgradeMode::Off };
+        if now {
+            // A yes after a failed try means: try again.
+            clear_failure(&Layout { root: opts.data_dir.join("postgres") }).map_err(err)?;
+        }
+    }
+    #[cfg(not(feature = "postgres"))]
+    let _ = pg_upgrade;
+{% endif %}    let service = state.service.clone();
     std::thread::spawn(move || {
         let mut progress = |msg: &str| {
             let _ = app.emit("setup-progress", msg.to_string());
@@ -976,6 +990,36 @@ pub fn eval_main(args: &[String]) -> i32 {
 #[cfg(not(feature = "evals"))]
 pub fn eval_main(_args: &[String]) -> i32 {
     eprintln!("this build has no evals (feature evals)");
+    2
+}
+
+/// `<app> --pg-upgrade [--check]`: upgrade the embedded Postgres data folder of the running
+/// profile to the bundled major version now, whatever `postgres.upgrade` says (`--check`
+/// only runs `pg_upgrade --check`). Progress goes to stderr, the result to stdout. Returns
+/// the exit code: 0 done (or nothing to do), 1 failed (the data is kept), 2 not built in.
+#[cfg(feature = "postgres")]
+pub fn pg_upgrade_main(args: &[String]) -> i32 {
+    let check = args.iter().any(|a| a == "--check");
+    let (config_dir, data_dir) = paths::app_dirs();
+    let settings = settings_at(&config_dir.join("settings.json"));
+    let result = desktop_core::pgstore::upgrade_now(&data_dir.join("postgres"), &settings.config.postgres, check, &mut |p| eprintln!("{p}"));
+    desktop_core::pgstore::shutdown();
+    match result {
+        Ok(done) => {
+            println!("{done}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
+
+/// `<app> --pg-upgrade` where Postgres is not built in: says so and returns 2.
+#[cfg(not(feature = "postgres"))]
+pub fn pg_upgrade_main(_args: &[String]) -> i32 {
+    eprintln!("this build has no embedded Postgres (feature postgres)");
     2
 }
 

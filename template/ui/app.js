@@ -50,8 +50,13 @@ async function start() {
   if (f.updater) checkUpdate(true);
 }
 
-// Opens the store and model; progress lines arrive as events.
-function setup(backend, embeddings, statusArea) {
+// The start of the error that asks before the database is upgraded (desktop_core::pgupgrade).
+const UPGRADE_NEEDED = 'pg-upgrade-needed';
+
+// Opens the store and model; progress lines arrive as events. pgUpgrade answers the
+// database-upgrade prompt: true upgrades now, false waits (Postgres only).
+function setup(backend, embeddings, statusArea, pgUpgrade) {
+  show('pg-upgrade', false);
   const statusId = statusArea === 'loading' ? null : 'w-status';
   const line = (t, e) => statusId ? say(statusId, t, e) : ($('loading').firstElementChild.textContent = t);
   const offs = [];
@@ -60,13 +65,22 @@ function setup(backend, embeddings, statusArea) {
     offs.forEach((u) => u());
     show('w-progress', false);
     $('w-go').disabled = false;
-    if (!e.payload.ok) return line(`Setup failed: ${e.payload.error}`, true);
+    const error = e.payload.error || '';
+    if (!e.payload.ok && error.includes(UPGRADE_NEEDED)) {
+      // The data folder is from an older Postgres and postgres.upgrade is "ask".
+      line(error.slice(error.indexOf(UPGRADE_NEEDED) + UPGRADE_NEEDED.length + 1).trim());
+      $('pg-upgrade-yes').onclick = () => setup(backend, embeddings, statusArea, true);
+      $('pg-upgrade-no').onclick = () => setup(backend, embeddings, statusArea, false);
+      return show('pg-upgrade');
+    }
+    if (!e.payload.ok) return line(`Setup failed: ${error}`, true);
+    if (e.payload.status.notice) { $('store-notice').textContent = e.payload.status.notice; show('store-notice'); }
     show('wizard', false); show('loading', false); show('main'); show('clear'); loadConfig().catch(() => {});
     const s = e.payload.status;
     $('about').textContent = `${info.name} ${info.version} · ${s.chunks} chunks · ${s.backend} store` +
       (s.embedder ? ` · ${s.embedder}` : ' · keyword search');
   }).then((u) => offs.push(u));
-  invoke('run_setup', { backend, embeddings }).catch((e) => line(String(e), true));
+  invoke('run_setup', { backend, embeddings, pgUpgrade }).catch((e) => line(String(e), true));
 }
 
 $('w-go').onclick = () => {

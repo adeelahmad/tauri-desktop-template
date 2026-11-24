@@ -328,7 +328,7 @@ default = false
 ignore = ["desktop-core/src/embed.rs"]
 
 [conditional.'!postgres']
-ignore = ["desktop-core/src/pgstore.rs", "fuzz/fuzz_targets/zip.rs", "desktop-core/pg-ext.sha256", ".github/workflows/pg-extensions.yml", "scripts/pg-ext"]
+ignore = ["desktop-core/src/pgstore.rs", "desktop-core/src/pgupgrade.rs", "fuzz/fuzz_targets/zip.rs", "desktop-core/pg-ext.sha256", ".github/workflows/pg-extensions.yml", "scripts/pg-ext"]
 
 [conditional.'!mcp_server']
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs", "fuzz/fuzz_targets/mcp.rs"]

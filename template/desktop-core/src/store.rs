@@ -95,6 +95,11 @@ pub trait Store: Send + Sync {
     fn embedder(&self) -> Result<Option<String>>;
     /// Record the embedder the stored vectors come from.
     fn set_embedder(&self, name: Option<&str>) -> Result<()>;
+    /// Something the user should know about this store while it works (for example, an
+    /// embedded Postgres that still runs an old major version); `None` when all is well.
+    fn notice(&self) -> Option<String> {
+        None
+    }
     /// New settings (the Postgres store sets up BM25 here when it is turned on).
     fn configure(&self, _config: &crate::config::Config) -> Result<()> {
         Ok(())

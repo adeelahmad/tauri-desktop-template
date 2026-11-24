@@ -21,6 +21,14 @@ const FIELDS = [
   ['search', 'keywordEngine', 'Keyword engine (Postgres)', 'select', { options: ['auto', 'bm25', 'fulltext'], needs: 'postgres' }],
   ['search', 'bm25Tokenizer', 'BM25 tokenizer model', 'select', { options: ['bert_base_uncased', 'llmlingua2', 'gemma2b'], needs: 'bm25' }],
   ['search', 'fulltextLanguage', 'Full-text language', 'text', { needs: 'postgres' }],
+  [
+    'postgres',
+    'upgrade',
+    'When a new version brings a newer Postgres',
+    'select',
+    { options: ['ask', 'auto', 'off'], labels: ['Ask first', 'Upgrade at start', 'Keep the old version'], needs: 'postgres' },
+  ],
+  ['postgres', 'upgradeCopy', 'Upgrade by copying (slower, twice the disk space)', 'bool', { needs: 'postgres' }],
   ['ingest', 'workers', 'Ingest workers (0 = one per core)', 'number', { min: 0, max: 64 }],
   ['ingest', 'chunkChars', 'Chunk size (characters)', 'number', { min: 100, max: 20000 }],
   ['ingest', 'chunkOverlap', 'Chunk overlap (characters)', 'number', { min: 0 }],
@@ -291,6 +299,7 @@ const FIELDS = [
 const TITLES = {
   appearance: 'Appearance',
   search: 'Search',
+  postgres: 'Database',
   ingest: 'Ingest',
   llm: 'AI',
   mcp: 'MCP server',
@@ -1773,6 +1782,7 @@ export default function Settings({ features }) {
   const needs = {
     appearance: 'appShell',
     watch: 'watch',
+    postgres: 'postgres',
     llm: 'ai',
     mcp: 'mcp',
     tts: 'tts',
@@ -1794,6 +1804,7 @@ export default function Settings({ features }) {
   const sections = [
     'appearance',
     'search',
+    'postgres',
     'ingest',
     'llm',
     'mcp',
