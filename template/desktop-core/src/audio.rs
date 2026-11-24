@@ -56,38 +56,63 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The lowest sample rate [`read_wav`] accepts (lower ones would make [`resample`] blow up).
+pub const MIN_RATE: u32 = 1_000;
+/// The highest sample rate [`read_wav`] accepts.
+pub const MAX_RATE: u32 = 768_000;
+
+/// Little-endian `u16` at `i`, if `b` has the bytes.
+fn le16(b: &[u8], i: usize) -> Option<u16> {
+    Some(u16::from_le_bytes([*b.get(i)?, *b.get(i + 1)?]))
+}
+
+/// Little-endian `u32` at `i`, if `b` has the bytes.
+fn le32(b: &[u8], i: usize) -> Option<u32> {
+    Some(u32::from_le_bytes([*b.get(i)?, *b.get(i + 1)?, *b.get(i + 2)?, *b.get(i + 3)?]))
+}
 
 /// Mono samples and their rate from WAV bytes (PCM 8/16/24/32-bit or 32-bit float).
+///
+/// Hostile input is refused, never trusted: more than
+/// [`limits::WAV_BYTES`](crate::untrusted::limits::WAV_BYTES), chunk lengths past the end of
+/// the file, a `fmt ` chunk shorter than 16 bytes, or a rate outside
+/// [`MIN_RATE`]..=[`MAX_RATE`].
 pub fn read_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
     let bad = || audio_err("not a WAV file this app can read (PCM or 32-bit float)");
+    crate::untrusted::check_size("the WAV file", bytes.len(), crate::untrusted::limits::WAV_BYTES)?;
     if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err(bad());
     }
-    let u16_at = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
-    let u32_at = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
-    let (mut fmt, mut data) = (None, None);
-    let mut i = 12;
-    while i + 8 <= bytes.len() {
-        let len = u32_at(i + 4) as usize;
-        let body = i + 8..(i + 8 + len).min(bytes.len());
-        match &bytes[i..i + 4] {
-            b"fmt " if len >= 16 => fmt = Some(body.start),
-            b"data" => data = Some(body.clone()),
+    let (mut fmt, mut data): (Option<&[u8]>, Option<&[u8]>) = (None, None);
+    let mut rest = &bytes[12..];
+    while let (Some(id), Some(len)) = (rest.get(..4), le32(rest, 4)) {
+        // The length is the file's claim: clamp it to what is really there.
+        let after = &rest[8..];
+        let len = usize::try_from(len).unwrap_or(usize::MAX);
+        let body = &after[..len.min(after.len())];
+        match id {
+            b"fmt " if body.len() >= 16 => fmt = Some(body),
+            b"data" => data = Some(body),
             _ => {}
         }
-        i = body.start + len + (len & 1);
+        rest = after.get(len.saturating_add(len & 1)..).unwrap_or(&[]);
     }
     let (f, data) = (fmt.ok_or_else(bad)?, data.ok_or_else(bad)?);
-    let mut format = u16_at(f);
-    let channels = u16_at(f + 2).max(1) as usize;
-    let rate = u32_at(f + 4);
-    let bits = u16_at(f + 14) as usize;
-    if format == 0xFFFE && f + 26 <= bytes.len() {
-        format = u16_at(f + 24); // WAVE_FORMAT_EXTENSIBLE: the sub-format's first two bytes
+    let field16 = |i| le16(f, i).ok_or_else(bad);
+    let mut format = field16(0)?;
+    let channels = field16(2)?.max(1) as usize;
+    let rate = le32(f, 4).ok_or_else(bad)?;
+    let bits = field16(14)? as usize;
+    if format == 0xFFFE {
+        // WAVE_FORMAT_EXTENSIBLE: the sub-format's first two bytes.
+        format = le16(f, 24).ok_or_else(bad)?;
     }
     let width = bits / 8;
-    if rate == 0 || width == 0 || !matches!((format, bits), (1, 8 | 16 | 24 | 32) | (3, 32)) {
+    if width == 0 || !matches!((format, bits), (1, 8 | 16 | 24 | 32) | (3, 32)) {
         return Err(bad());
+    }
+    if !(MIN_RATE..=MAX_RATE).contains(&rate) {
+        return Err(audio_err(format!("a sample rate of {rate} Hz is not supported ({MIN_RATE} to {MAX_RATE})")));
     }
     let sample = |s: &[u8]| -> f32 {
         match (format, bits) {
@@ -99,7 +124,7 @@ pub fn read_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
         }
     };
     let frame = width * channels;
-    let mono = bytes[data].chunks_exact(frame).map(|fr| fr.chunks_exact(width).map(sample).sum::<f32>() / channels as f32).collect();
+    let mono = data.chunks_exact(frame).map(|fr| fr.chunks_exact(width).map(sample).sum::<f32>() / channels as f32).collect();
     Ok((mono, rate))
 }
 
@@ -109,7 +134,11 @@ pub fn from_pcm16(bytes: &[u8]) -> Vec<f32> {
 }
 
 /// Band-limited resampling (a Hann-windowed sinc, 16 zero crossings each side).
+/// A zero rate gives no samples.
 pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
+    if from == 0 || to == 0 {
+        return Vec::new();
+    }
     if from == to || input.is_empty() {
         return input.to_vec();
     }
@@ -138,8 +167,12 @@ pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
         .collect()
 }
 
-/// Decode standard base64 (padding optional, whitespace ignored).
+/// Decode standard base64 (padding optional, whitespace ignored; the URL-safe `-` and `_`
+/// are accepted too). Input over
+/// [`limits::BASE64_CHARS`](crate::untrusted::limits::BASE64_CHARS) and a lone trailing
+/// character (which can hold no byte) are errors.
 pub fn base64_decode(s: &str) -> Result<Vec<u8>> {
+    crate::untrusted::check_size("the base64 text", s.len(), crate::untrusted::limits::BASE64_CHARS)?;
     let val = |c: u8| -> Option<u32> {
         Some(match c {
             b'A'..=b'Z' => c - b'A',
@@ -153,6 +186,9 @@ pub fn base64_decode(s: &str) -> Result<Vec<u8>> {
     let clean: Vec<u8> = s.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=').collect();
     let mut out = Vec::with_capacity(clean.len() * 3 / 4);
     for c in clean.chunks(4) {
+        if c.len() == 1 {
+            return Err(audio_err("bad base64 (cut short)"));
+        }
         let mut n = 0u32;
         for (i, &b) in c.iter().enumerate() {
             n |= val(b).ok_or_else(|| audio_err("bad base64"))? << (18 - 6 * i);
@@ -181,5 +217,76 @@ mod tests {
         let (back, rate) = read_wav(&w).unwrap();
         assert_eq!(rate, 24_000);
         assert!((back[1] - 1.0).abs() < 1e-3 && (back[2] + 1.0).abs() < 1e-3);
+    }
+
+    /// A WAV header with a `fmt ` chunk of `fmt_len` (claimed) and the given body.
+    fn header(fmt_len: u32, fmt_body: &[u8]) -> Vec<u8> {
+        let mut b = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        b.extend_from_slice(&fmt_len.to_le_bytes());
+        b.extend_from_slice(fmt_body);
+        b
+    }
+
+    #[test]
+    fn short_fmt_chunk_is_refused_not_a_panic() {
+        // Claims 16 bytes of fmt but the file ends after 4: `u16_at(f + 14)` read past the end.
+        let mut b = header(16, &[1, 0, 1, 0]);
+        b.extend_from_slice(b"data\0\0\0\0");
+        assert!(read_wav(&header(16, &[1, 0, 1, 0])).is_err());
+        assert!(read_wav(&b).is_err());
+    }
+
+    #[test]
+    fn huge_chunk_length_is_clamped() {
+        // A chunk length near u32::MAX used to overflow `i + 8 + len` on 32-bit targets.
+        let mut b = wav(&[0.5; 4], 16_000);
+        b[40..44].copy_from_slice(&u32::MAX.to_le_bytes());
+        let (s, _) = read_wav(&b).unwrap();
+        assert_eq!(s.len(), 4);
+        let mut odd = header(u32::MAX, &[0; 3]);
+        odd.extend_from_slice(b"da");
+        assert!(read_wav(&odd).is_err());
+    }
+
+    #[test]
+    fn truncated_chunk_headers_are_ignored() {
+        // Fewer than 8 bytes after the last chunk: no read past the end.
+        let mut b = wav(&[0.25; 2], 8_000);
+        b.extend_from_slice(b"LIS");
+        assert_eq!(read_wav(&b).unwrap().0.len(), 2);
+        for n in 12..b.len() {
+            let _ = read_wav(&b[..n]);
+        }
+    }
+
+    #[test]
+    fn extensible_format_needs_its_subformat() {
+        let mut fmt = vec![0xFE, 0xFF, 1, 0];
+        fmt.extend_from_slice(&16_000u32.to_le_bytes());
+        fmt.extend_from_slice(&[0, 0, 0, 0, 2, 0, 16, 0]);
+        let mut b = header(16, &fmt);
+        b.extend_from_slice(b"data\x02\0\0\0\0\0");
+        assert!(read_wav(&b).is_err(), "a 16-byte extensible fmt has no sub-format");
+    }
+
+    #[test]
+    fn absurd_sample_rates_are_refused() {
+        // Rate 1 Hz made `resample` to 16 kHz allocate 16 000 samples per input sample.
+        assert!(read_wav(&wav(&[0.0; 8], 1)).unwrap_err().to_string().contains("sample rate"));
+        assert!(read_wav(&wav(&[0.0; 8], MAX_RATE + 1)).is_err());
+        assert!(resample(&[0.0; 8], 0, 16_000).is_empty());
+        assert!(resample(&[0.0; 8], 16_000, 0).is_empty());
+    }
+
+    #[test]
+    fn oversized_input_is_refused_before_parsing() {
+        let big = "A".repeat(crate::untrusted::limits::BASE64_CHARS + 1);
+        assert!(base64_decode(&big).unwrap_err().to_string().contains("too large"));
+    }
+
+    #[test]
+    fn lone_base64_character_is_an_error() {
+        assert!(base64_decode("TWFuT").is_err());
+        assert_eq!(base64_decode("TWFu").unwrap(), b"Man");
     }
 }

@@ -323,10 +323,10 @@ default = false
 ignore = ["desktop-core/src/embed.rs"]
 
 [conditional.'!postgres']
-ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256", ".github/workflows/pg-extensions.yml", "scripts/pg-ext"]
+ignore = ["desktop-core/src/pgstore.rs", "fuzz/fuzz_targets/zip.rs", "desktop-core/pg-ext.sha256", ".github/workflows/pg-extensions.yml", "scripts/pg-ext"]
 
 [conditional.'!mcp_server']
-ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]
+ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs", "fuzz/fuzz_targets/mcp.rs"]
 
 [conditional.'!ai']
 ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs", "desktop-core/src/meter.rs"]
@@ -344,7 +344,7 @@ ignore = ["desktop-core/src/mail.rs"]
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
 
 [conditional.'!oauth']
-ignore = ["desktop-core/src/oauth.rs"]
+ignore = ["desktop-core/src/oauth.rs", "fuzz/fuzz_targets/oauth.rs"]
 
 [conditional.'!background_jobs']
 ignore = ["desktop-core/src/queue.rs", "desktop-core/src/job_types"]
@@ -359,7 +359,7 @@ ignore = ["desktop-core/src/rclone.rs"]
 ignore = ["desktop-core/src/tailscale.rs"]
 
 [conditional.'!http_api']
-ignore = ["desktop-core/src/http_api", "desktop-core/tests/http_api.rs", "src-tauri/src/http.rs"]
+ignore = ["desktop-core/src/http_api", "fuzz/fuzz_targets/http_api.rs", "desktop-core/tests/http_api.rs", "src-tauri/src/http.rs"]
 
 [conditional.'!webview']
 ignore = ["desktop-core/src/webview.rs", "src-tauri/src/webview.rs", "src-tauri/capabilities/webview.json"]
@@ -386,7 +386,7 @@ ignore = ["src-tauri/src/single.rs"]
 ignore = ["desktop-core/src/watch.rs"]
 
 [conditional.'!pdf']
-ignore = ["desktop-core/src/pdf.rs"]
+ignore = ["desktop-core/src/pdf.rs", "desktop-core/src/sandbox.rs", "fuzz/fuzz_targets/pdf.rs"]
 
 [conditional.'frontend == "react"']
 ignore = ["ui"]

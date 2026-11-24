@@ -74,6 +74,30 @@ cargo clippy -p desktop-core --all-features -- -D warnings   # every optional pa
 
 Tests that need something missing print `skipped: ...` and pass.
 
+## Fuzzing
+
+`fuzz/` is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) crate with one
+target per parser of outside input: `wav`, `base64`, `config`, `text_ingest` (watch-folder
+names and chunking), `dotenv`, `backup`{% if pdf %}, `pdf`{% endif %}{% if postgres %}, `zip`
+(the extension bundle){% endif %}{% if mcp_server %}, `mcp` (JSON-RPC lines){% endif %}{% if http_api %},
+`http_api` (request bodies){% endif %}{% if oauth %}, `oauth` (redirects and ID tokens){% endif %}.
+It sits outside the workspace, so `cargo test` never builds it, and it needs nightly:
+
+```sh
+rustup toolchain install nightly
+cargo install cargo-fuzz
+make fuzz                                         # every target, FUZZ_SECONDS=60 each
+make fuzz FUZZ_SECONDS=600                        # longer
+cargo +nightly fuzz run wav -- -max_total_time=120   # one target
+cargo +nightly fuzz list                          # the targets
+```
+
+A crash leaves its input in `fuzz/artifacts/<target>/`; replay it with
+`cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`. Fix the parser and add the
+input as a regression unit test next to it (see `audio.rs`, "short_fmt_chunk"). A new parser
+of outside input gets a target in `fuzz/fuzz_targets/`, a `[[bin]]` in `fuzz/Cargo.toml` and
+a size cap in `desktop_core::untrusted::limits` (docs/GUIDE.md, "Untrusted input").
+
 ## Linux
 
 ```sh

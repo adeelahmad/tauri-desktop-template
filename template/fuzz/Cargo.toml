@@ -1,0 +1,131 @@
+# Fuzz targets for every parser of untrusted input (cargo-fuzz, libFuzzer). Outside the
+# workspace on purpose: it needs a nightly toolchain, and `cargo test` must not build it.
+#
+#   cargo install cargo-fuzz
+#   make fuzz                                   # every target for FUZZ_SECONDS (default 60) each
+#   cargo +nightly fuzz run wav -- -max_total_time=60
+#
+# See TESTING.md, "Fuzzing".
+[package]
+name = "{{project-name}}-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace, so the app's workspace does not claim it.
+[workspace]
+members = ["."]
+
+[features]
+default = [{% if pdf %}"pdf", {% endif %}{% if postgres %}"postgres", {% endif %}{% if mcp_server %}"mcp", {% endif %}{% if http_api %}"http-api", {% endif %}{% if oauth %}"oauth", {% endif %}]
+{% if pdf -%}
+pdf = ["desktop-core/pdf"]
+{% endif -%}
+{% if postgres -%}
+postgres = ["desktop-core/postgres"]
+{% endif -%}
+{% if mcp_server -%}
+mcp = ["desktop-core/mcp"]
+{% endif -%}
+{% if http_api -%}
+http-api = ["desktop-core/http-api"]
+{% endif -%}
+{% if oauth -%}
+oauth = ["desktop-core/oauth"]
+{% endif %}
+[dependencies]
+libfuzzer-sys = "0.4"
+desktop-core = { path = "../desktop-core" }
+serde = "1"
+serde_json = "1"
+tempfile = "3"
+
+[profile.release]
+debug = 1
+
+# One binary per parser. `test = false`, `doc = false`, `bench = false`: cargo-fuzz builds them.
+[[bin]]
+name = "wav"
+path = "fuzz_targets/wav.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "base64"
+path = "fuzz_targets/base64.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config"
+path = "fuzz_targets/config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text_ingest"
+path = "fuzz_targets/text_ingest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dotenv"
+path = "fuzz_targets/dotenv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backup"
+path = "fuzz_targets/backup.rs"
+test = false
+doc = false
+bench = false
+{% if pdf %}
+[[bin]]
+name = "pdf"
+path = "fuzz_targets/pdf.rs"
+test = false
+doc = false
+bench = false
+required-features = ["pdf"]
+{% endif %}{% if postgres %}
+[[bin]]
+name = "zip"
+path = "fuzz_targets/zip.rs"
+test = false
+doc = false
+bench = false
+required-features = ["postgres"]
+{% endif %}{% if mcp_server %}
+[[bin]]
+name = "mcp"
+path = "fuzz_targets/mcp.rs"
+test = false
+doc = false
+bench = false
+required-features = ["mcp"]
+{% endif %}{% if http_api %}
+[[bin]]
+name = "http_api"
+path = "fuzz_targets/http_api.rs"
+test = false
+doc = false
+bench = false
+required-features = ["http-api"]
+{% endif %}{% if oauth %}
+[[bin]]
+name = "oauth"
+path = "fuzz_targets/oauth.rs"
+test = false
+doc = false
+bench = false
+required-features = ["oauth"]
+{% endif %}
