@@ -687,6 +687,12 @@ mod tests {
         assert!(read(&t, "src-tauri/src/service.rs").contains(
             "\"export_csv\" => crate::export_csv::run(self.engine()?.as_ref(), params),"
         ));
+        let cmd = read(&t, "src-tauri/src/export_csv.rs");
+        assert!(cmd.contains("pub fn export_csv(state: tauri::State<crate::AppState>, input: Value) -> Result<Value, CommandError>"));
+        assert!(
+            !cmd.contains(", String>"),
+            "generated commands return CommandError"
+        );
         page(t.path(), "reports", &o).unwrap();
         assert!(read(&t, "ui-react/src/App.jsx")
             .contains("import Reports from './Reports.jsx';\n// kitchen:imports"));

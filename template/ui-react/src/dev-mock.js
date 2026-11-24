@@ -5,7 +5,8 @@
 // for screenshots and browser tests of the built pages.
 //
 // Every invoke() lands in `commands` below, with a small in-memory state, and events work
-// (listen and emit). A command without a mock rejects with a message saying so: add it here
+// (listen and emit). A command without a mock rejects, as a real command does, with
+// { code: 'not_found', message } saying so: add it here
 // when you add a Tauri command. Each call is logged to the console as `[dev-mock]`.
 //
 // URL options: ?mode=light|dark (default: the OS), ?theme=nord (any theme in shell.css),
@@ -266,6 +267,12 @@ const commands = {
   run_action: () => null,
 };
 
+// Reject the way a real command does: with a CommandError, { code, message, details? }
+// (src-tauri/src/error.rs). A mock that should fail calls this, e.g. fail('invalid', 'give a name').
+function fail(code, message, details) {
+  throw details === undefined ? { code, message } : { code, message, details };
+}
+
 // Window calls (titlebar buttons, size events) do nothing in a browser.
 const quiet = (cmd) => cmd.startsWith('plugin:window|') || cmd.startsWith('plugin:webview|') || cmd.startsWith('plugin:app|');
 
@@ -275,7 +282,7 @@ mockIPC(
     console.debug('[dev-mock]', cmd, args);
     if (commands[cmd]) return commands[cmd](args || {});
     if (quiet(cmd)) return cmd.endsWith('|is_maximized') ? false : null;
-    throw { code: 'not_found', message: `dev-mock: no mock for "${cmd}"; add one to src/dev-mock.js` };
+    fail('not_found', `dev-mock: no mock for "${cmd}"; add one to src/dev-mock.js`);
   },
   { shouldMockEvents: true },
 );

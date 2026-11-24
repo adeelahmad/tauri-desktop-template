@@ -408,19 +408,52 @@ Settings screen, one file per profile.
 
 ## Command errors
 
-Commands reject the UI's `invoke` with one JSON shape:
+Every Tauri command returns `Result<T, app_lib::error::CommandError>`, so a failed command
+rejects the UI's `invoke` with one JSON shape:
 
 ```json
-{ "code": "not_found", "message": "no document named notes.txt" }
+{ "code": "not_found", "message": "No such file or directory (os error 2)", "details": { "kind": "NotFound" } }
 ```
 
-`code` is a short, stable, snake_case word the UI can branch on: `invalid` (bad input),
-`not_found`, `unavailable` (the feature is off or not set up), `denied` (a policy said no),
-`failed` (anything else). `message` is for people. In Rust, return
-`Result<T, app_lib::error::CommandError>`; `?` turns a `String` or `desktop_core::Error`
-into code `failed`, and `CommandError::new("invalid", "...")` sets a code. In the UI,
-`errorText(e)` and `errorCode(e)` from `ui-react/src/errors.js` read it (and the plain
-strings that older commands still return).
+`code` is short, snake_case and **stable**: the UI may branch on it, so a code never changes
+meaning once released (new codes go at the end of the table). `message` is for people and
+may change. `details` is optional data for code and is left out when there is none.
+
+| Code | Meaning | Comes from |
+|------|---------|------------|
+| `invalid` | The arguments are wrong: missing, the wrong type, or not allowed. | a bad argument, an unknown method, `serde_json::Error` |
+| `not_found` | A file, profile, web view or other named thing does not exist. | `desktop_core::Error::Io` / `io::Error` of kind `NotFound` |
+| `denied` | The OS or a policy said no (file permissions, the web view allowlist). | `Io` of kind `PermissionDenied`, policy checks |
+| `not_ready` | The backend is still starting; try again in a moment. | the engine is not open yet |
+| `unavailable` | Turned off in Settings, or not set up or downloaded yet. | the command itself |
+| `not_built` | The part is not compiled into this build (`details.part` names it). | `Error::NotBuilt` |
+| `io` | Reading or writing a file failed (`details.kind` has the I/O error kind). | other `Error::Io` |
+| `bad_data` | A file or a message was not the JSON expected. | `Error::Json` |
+| `embedding` | The embedding model could not load or run. | `Error::Embed` |
+| `store` | The store (file or Postgres) refused or failed. | `Error::Store` |
+| `source` | A file, folder, recording or URL could not be used. | `Error::Source` |
+| `ai` | The language model call failed, or AI is switched off. | `Error::Llm` |
+| `mail` | Sending email or logging in to the mail server failed. | `mail::MailError` |
+| `oauth` | Signing in with a provider failed. | `oauth::OauthError` |
+| `cloud_sync` | rclone could not be installed, configured or run. | `rclone::RcloneError` |
+| `tailscale` | Tailscale could not be reached or changed. | `tailscale::TailscaleError` |
+| `failed` | Anything else. | a `String` or `&str` |
+
+**In Rust**, `?` does the mapping: a `desktop_core::Error` (or one of the part errors above)
+gets its code, a `String` from an older helper becomes `failed`. Set a code yourself with
+`CommandError::invalid("...")`, `CommandError::unavailable("...")` or
+`CommandError::new(codes::DENIED, "...")` (the constants are in `app_lib::error::codes`).
+The backend behind the commands (`service::Service`) returns the same type and the worker
+process sends it over its socket unchanged, so a code set there reaches the UI. The MCP
+server and the HTTP API still answer with the message only. Keep commands thin: the mapping
+lives in `error.rs`, not in each command.
+
+**In the UI**, call `errorText(e)` (exported by {% if frontend == "react" %}`ui-react/src/ipc.js`{% else %}`ui/errors.js`{% endif %}): it reads
+`e.message`, falls back to `String(e)` for anything else, and adds a next step for a few codes
+(`denied`, `not_built`, `mail`, `oauth`, `tailscale`). `errorCode(e)` gives the code
+(`failed` for a plain string), for branching. The typed bindings include `CommandError`
+(`bindings/types.d.ts`).{% if frontend == "react" %} The browser dev mock (`dev-mock.js`) rejects with the same shape;
+call `fail(code, message)` in a mock that should fail.{% endif %}
 
 ## Untrusted input
 
@@ -754,7 +787,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`guard`](../src-tauri/src/guard.rs) | always | Navigation lock and dev tools policy for the window |
 | [`app_config`](../src-tauri/src/app_config.rs) | always | Build-time app config (`config/`), `get::<T>("a.b")`, production safety check |
 | [`config_layers`](../src-tauri/src/config_layers.rs) | always | The layer merge `build.rs` runs; `APP_A__B` overrides |
-| [`error`](../src-tauri/src/error.rs) | always | `CommandError`, the `{ code, message }` shape of command errors |
+| [`error`](../src-tauri/src/error.rs) | always | `CommandError`, the `{ code, message, details? }` shape of command errors, and the stable `codes` |
 | [`ipc`](../src-tauri/src/ipc.rs) | `ipc-worker` | The worker process and its local-socket protocol |
 | [`agent`](../src-tauri/src/agent.rs) | `background-agent` | Start the worker at login (launchd, Run key, systemd) |
 | [`mcp`](../src-tauri/src/mcp.rs) | `mcp` | `--mcp`: tools mapped to the service; client registration |

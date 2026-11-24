@@ -16,6 +16,7 @@
 //! assert_eq!(entry["args"][0], "tool");
 //! ```
 
+use crate::error::CommandError;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -175,7 +176,7 @@ pub fn register(file: &Path, value: Value) -> Result<Registration, String> {
 
 /// Register, then warm the package cache in the background (`warmup-done` event, true/false).
 #[tauri::command(async)]
-pub fn register_claude(app: tauri::AppHandle) -> Result<Registration, String> {
+pub fn register_claude(app: tauri::AppHandle) -> Result<Registration, CommandError> {
     use tauri::Emitter;
     let uv = install_uv(&app.path().app_data_dir().map_err(|e| e.to_string())?)?;
     let reg = register(&config_file(), entry(&uv))?;

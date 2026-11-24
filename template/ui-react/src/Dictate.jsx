@@ -3,7 +3,7 @@
 // resampled to 16 kHz mono by the web view, sent as 16-bit PCM, and the text goes to
 // `onText`. (No double curly braces in this folder: the template engine would eat them.)
 import { useRef, useState } from 'react';
-import { api } from './ipc.js';
+import { api, errorText } from './ipc.js';
 
 const RATE = 16000;
 
@@ -44,7 +44,7 @@ export default function Dictate({ onText }) {
       if (r.text) onText(r.text);
       else setError('No speech heard.');
     } catch (e) {
-      setError(String(e));
+      setError(errorText(e));
     } finally {
       setState('idle');
     }

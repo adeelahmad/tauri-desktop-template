@@ -18,6 +18,7 @@
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 
+use crate::error::CommandError;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -148,7 +149,7 @@ impl Drop for PythonWorker {
 
 /// Tauri command: call `method` in `worker.py` with `params` and return its result.
 #[tauri::command(async)]
-pub fn python_call(app: tauri::AppHandle, worker: tauri::State<PythonWorker>, method: String, params: Option<Value>) -> Result<Value, String> {
+pub fn python_call(app: tauri::AppHandle, worker: tauri::State<PythonWorker>, method: String, params: Option<Value>) -> Result<Value, CommandError> {
     use tauri::Manager;
-    worker.call(app.path().resource_dir().ok(), &method, params.unwrap_or(Value::Null))
+    Ok(worker.call(app.path().resource_dir().ok(), &method, params.unwrap_or(Value::Null))?)
 }

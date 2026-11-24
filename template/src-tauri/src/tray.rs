@@ -16,6 +16,7 @@
 //! Add an action with `kitchen generate menu <id> --label "..."` or bind a default
 //! shortcut with `kitchen generate shortcut <action> <keys>`; both write into [`own`].
 
+use crate::error::CommandError;
 use desktop_core::actions::{ActionError, Host, PlannedItem, Registry};
 use desktop_core::Config;
 use serde::Serialize;
@@ -143,7 +144,7 @@ pub fn tray_status(app: AppHandle) -> Status {
 
 /// Run an action from the UI (the same path as the tray, the menu and the shortcuts).
 #[tauri::command]
-pub fn run_action(app: AppHandle, action: String) -> Result<(), String> {
+pub fn run_action(app: AppHandle, action: String) -> Result<(), CommandError> {
     let tray = app.try_state::<Tray>().ok_or("not ready")?;
     tray.registry.resolve(&action).map_err(|e| e.to_string())?;
     run(&app, &action);
@@ -287,7 +288,7 @@ fn in_background(app: &AppHandle, action: &'static str, work: impl FnOnce(&AppHa
 
 fn call(app: &AppHandle, method: &str, params: Value) -> Result<Value, String> {
     let state = app.try_state::<crate::AppState>().ok_or("not ready")?;
-    state.service.call(method, params, &mut |_| {})
+    Ok(state.service.call(method, params, &mut |_| {})?)
 }
 
 /// The text on the clipboard, through the system's own tool (no extra crates).

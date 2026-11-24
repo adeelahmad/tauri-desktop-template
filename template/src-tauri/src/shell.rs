@@ -73,8 +73,8 @@ pub fn get_appearance(app: AppHandle) -> serde_json::Value {
 /// Open the Settings window, or bring it to the front when it is open.
 #[cfg(desktop)]
 #[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<(), String> {
-    show_settings(&app).map_err(|e| e.to_string())
+pub fn open_settings(app: AppHandle) -> Result<(), crate::error::CommandError> {
+    Ok(show_settings(&app).map_err(|e| e.to_string())?)
 }
 
 /// What [`open_settings`] does, for Rust callers (menus, tray actions).

@@ -2,7 +2,7 @@
 // Every optional behaviour is off until it is switched on here.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useState } from 'react';
-import { api, invoke } from './ipc.js';
+import { api, errorText, invoke } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
@@ -445,7 +445,7 @@ function MailSetup({ from }) {
       setPassword('');
       setMsg('Password saved.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   const test = async (to) => {
@@ -455,7 +455,7 @@ function MailSetup({ from }) {
       await api.test_mail({ to });
       setMsg(to ? `Sent. Check ${to}.` : 'Connected and logged in.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -497,7 +497,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
   const [secrets, setSecrets] = useState({});
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
-  const refresh = () => api.oauth_status().then(setStatus, (e) => setMsg(String(e)));
+  const refresh = () => api.oauth_status().then(setStatus, (e) => setMsg(errorText(e)));
   useEffect(() => {
     refresh();
     const off = listen('oauth-changed', (e) => {
@@ -522,7 +522,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
       else if (r && 'revoked' in r) setMsg(r.revoked ? 'Signed out and the token was revoked.' : 'Signed out on this computer.');
       else setMsg('Signed in.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       setBusy('');
       refresh();
@@ -535,7 +535,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
       setMsg(r.set ? 'Client secret saved in the keychain.' : 'Client secret removed.');
       refresh();
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   const live = (id) => status?.providers.find((p) => p.id === id);
@@ -629,7 +629,7 @@ function PluginList({ settings, onChange }) {
   const [list, setList] = useState([]);
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    api.plugins_list().then(setList, (e) => setMsg(String(e)));
+    api.plugins_list().then(setList, (e) => setMsg(errorText(e)));
   }, []);
   const put = (name, key, v) => onChange({ ...settings, [name]: { ...(settings[name] || {}), [key]: v } });
   return (
@@ -692,7 +692,7 @@ function JobsPanel() {
   const [payload, setPayload] = useState('{}');
   const [msg, setMsg] = useState('');
   const refresh = () => {
-    api.jobs_list().then(setSt, (e) => setMsg(String(e)));
+    api.jobs_list().then(setSt, (e) => setMsg(errorText(e)));
     api.jobs_schedules().then(setSchedules, () => {});
   };
   useEffect(() => {
@@ -705,7 +705,7 @@ function JobsPanel() {
       await invoke(cmd, args);
       setMsg('');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
     refresh();
   };
@@ -714,7 +714,7 @@ function JobsPanel() {
       const job = await api.jobs_enqueue({ kind: kind || st.types[0], payload: JSON.parse(payload || '{}') });
       setMsg(`Queued ${job.kind}.`);
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
     refresh();
   };
@@ -800,7 +800,7 @@ function RcloneSetup() {
       setText('');
       setMsg(text ? 'Config saved.' : 'Config removed.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   const run = async (cmd) => {
@@ -810,7 +810,7 @@ function RcloneSetup() {
       await invoke(cmd);
       setMsg(cmd === 'rclone_sync' ? 'Synced.' : 'rclone is ready.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       unlisten();
       setBusy(false);
@@ -851,7 +851,7 @@ function TailscaleStatus() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.tailscale_status().then(setR, (e) => setMsg(String(e)));
+    api.tailscale_status().then(setR, (e) => setMsg(errorText(e)));
   }, []);
   const apply = async () => {
     setBusy(true);
@@ -859,7 +859,7 @@ function TailscaleStatus() {
       setR(await api.tailscale_apply());
       setMsg('Done.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -895,7 +895,7 @@ function ServiceSetup() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.service_status().then(setSt, (e) => setMsg(String(e)));
+    api.service_status().then(setSt, (e) => setMsg(errorText(e)));
     api.service_system_hint().then(setHint, () => {});
   }, []);
   const toggle = async (enabled) => {
@@ -904,7 +904,7 @@ function ServiceSetup() {
       setSt(await api.set_service({ enabled }));
       setMsg(enabled ? 'Installed.' : 'Removed.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -950,14 +950,14 @@ function WebviewTry() {
       const label = await api.webview_open({ url, name: 'settings' });
       setMsg(`Opened in ${label}.`);
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   return (
     <div className="row">
       <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Web page to open" />
       <button onClick={open}>Open</button>
-      <button className="link" onClick={() => api.webview_close({ name: 'settings' }).catch((e) => setMsg(String(e)))}>
+      <button className="link" onClick={() => api.webview_close({ name: 'settings' }).catch((e) => setMsg(errorText(e)))}>
         Close
       </button>
       <span className="hint">{msg}</span>
@@ -970,14 +970,14 @@ function HttpApiInfo() {
   const [r, setR] = useState(null);
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    api.http_api_info().then(setR, (e) => setMsg(String(e)));
+    api.http_api_info().then(setR, (e) => setMsg(errorText(e)));
   }, []);
   const copy = async (text, what) => {
     try {
       await navigator.clipboard.writeText(text);
       setMsg(`${what} copied.`);
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   if (!r) return <div className="hint">{msg}</div>;
@@ -1017,7 +1017,7 @@ function VoiceDownload() {
       await api.download_voice();
       setMsg('Voice ready.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       unlisten();
       setBusy(false);
@@ -1043,7 +1043,7 @@ function SttDownload() {
       await api.download_stt();
       setMsg('Model ready.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       unlisten();
       setBusy(false);
@@ -1068,7 +1068,7 @@ function Profiles() {
     api
       .list_profiles()
       .then(setP)
-      .catch((e) => setMsg(String(e)));
+      .catch((e) => setMsg(errorText(e)));
   useEffect(() => {
     load();
   }, []);
@@ -1078,7 +1078,7 @@ function Profiles() {
     try {
       await fn();
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
     load();
   };
@@ -1129,7 +1129,7 @@ function Backups() {
     api
       .list_backups()
       .then(setList)
-      .catch((e) => setMsg(String(e)));
+      .catch((e) => setMsg(errorText(e)));
   useEffect(() => {
     load();
   }, []);
@@ -1139,7 +1139,7 @@ function Backups() {
     try {
       setMsg(await fn());
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
     setBusy(false);
     load();
@@ -1176,7 +1176,7 @@ function Backups() {
           onClick={() =>
             api.backup_recovery_key().then(
               (r) => setRecovery(r.key),
-              (e) => setMsg(String(e)),
+              (e) => setMsg(errorText(e)),
             )
           }
         >
@@ -1227,7 +1227,7 @@ function McpConnect() {
       const r = await api.mcp_register_claude();
       setMsg(`Claude Desktop: ${r}. Restart Claude Desktop to load it.`);
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   if (!setup) return null;
@@ -1297,7 +1297,7 @@ function McpPending() {
       setCalls(await api.mcp_decide({ id, allow }));
       setMsg('');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   return (
@@ -1332,7 +1332,7 @@ function ModelDownload({ onDone }) {
       onDone(path);
       setMsg(`Ready: ${path}`);
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     } finally {
       unlisten();
       setBusy(false);
@@ -1365,7 +1365,7 @@ function AiKeys() {
       setKey('');
       setMsg(value ? 'Key saved.' : 'Key removed.');
     } catch (e) {
-      setMsg(String(e));
+      setMsg(errorText(e));
     }
   };
   return (
@@ -1407,7 +1407,7 @@ function AiUsage() {
     api
       .ai_usage()
       .then(setU)
-      .catch((e) => setErr(String(e)));
+      .catch((e) => setErr(errorText(e)));
   useEffect(() => {
     load();
   }, []);
@@ -1658,14 +1658,14 @@ function UpdateChannel() {
     api
       .update_channel_status()
       .then(setSt)
-      .catch((e) => setMsg(String(e)));
+      .catch((e) => setMsg(errorText(e)));
   }, []);
   const rollback = async () => {
     setMsg(`Going back to ${st.previous}...`);
     try {
       await api.rollback_update();
     } catch (e) {
-      setMsg(`Rollback failed: ${e}`);
+      setMsg(`Rollback failed: ${errorText(e)}`);
     }
   };
   if (!st)
@@ -1758,7 +1758,7 @@ export default function Settings({ features }) {
     api
       .get_config()
       .then(setCfg)
-      .catch((e) => setMsg(String(e)));
+      .catch((e) => setMsg(errorText(e)));
   }, []);
   if (!cfg) return null;
   // Keys like 'local.modelPath' reach one level down.
@@ -1772,7 +1772,7 @@ export default function Settings({ features }) {
       setCfg(await api.set_config({ config: cfg }));
       setMsg('Saved.');
     } catch (e) {
-      setMsg(`Not saved: ${e}`);
+      setMsg(`Not saved: ${errorText(e)}`);
     }
   };
   const reset = async () => {

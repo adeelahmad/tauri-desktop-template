@@ -22,6 +22,7 @@
 //! assert_eq!(status["installed"], false);
 //! ```
 
+use crate::error::CommandError;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
@@ -237,7 +238,7 @@ pub fn agent_status() -> AgentStatus {
 
 /// Tauri command: install or remove the agent, then return its state.
 #[tauri::command(async)]
-pub fn set_agent(enabled: bool) -> Result<AgentStatus, String> {
+pub fn set_agent(enabled: bool) -> Result<AgentStatus, CommandError> {
     if enabled {
         os::install()?;
     } else {

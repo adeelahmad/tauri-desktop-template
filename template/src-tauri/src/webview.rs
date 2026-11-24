@@ -54,6 +54,7 @@
 //! assert_eq!(cfg.verdict(url.scheme(), url.host_str().unwrap()), Verdict::Allow);
 //! ```
 
+use crate::error::{codes, CommandError};
 use desktop_core::webview::{self as policy, Isolation, Verdict, WebviewConfig};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -164,11 +165,11 @@ fn bridge_in(app: &AppHandle, cfg: &WebviewConfig, label: &str, host: &str, url:
 
 /// Open `url` in the web view window `web-<name>` (made if needed) and return its label.
 #[tauri::command(async)]
-pub fn webview_open(app: AppHandle, url: String, name: Option<String>, title: Option<String>) -> Result<String, String> {
+pub fn webview_open(app: AppHandle, url: String, name: Option<String>, title: Option<String>) -> Result<String, CommandError> {
     let cfg = config(&app)?;
-    let url = Url::parse(&url).map_err(|e| format!("not a URL: {e}"))?;
+    let url = Url::parse(&url).map_err(|e| CommandError::invalid(format!("not a URL: {e}")))?;
     if !matches!(url.scheme(), "http" | "https") || decide(&cfg, &url) != Verdict::Allow {
-        return Err(format!("{} is not on the web view allowlist", url.host_str().unwrap_or(url.scheme())));
+        return Err(CommandError::new(codes::DENIED, format!("{} is not on the web view allowlist", url.host_str().unwrap_or(url.scheme()))));
     }
     let label = label_for(name.as_deref())?;
     if let Some(w) = app.get_webview_window(&label) {
@@ -178,7 +179,7 @@ pub fn webview_open(app: AppHandle, url: String, name: Option<String>, title: Op
     }
     let open = app.webview_windows().keys().filter(|l| policy::is_webview_label(l)).count();
     if open >= cfg.max_windows {
-        return Err(format!("at most {} web views can be open at once", cfg.max_windows));
+        return Err(CommandError::new(codes::DENIED, format!("at most {} web views can be open at once", cfg.max_windows)));
     }
 
     let host = Arc::new(Mutex::new(url.host_str().unwrap_or_default().to_string()));
@@ -244,10 +245,10 @@ fn isolate<'a, R: Runtime, M: Manager<R>>(builder: WebviewWindowBuilder<'a, R, M
 
 /// Close the web view window `web-<name>` (nothing happens when it is not open).
 #[tauri::command(async)]
-pub fn webview_close(app: AppHandle, name: String) -> Result<(), String> {
+pub fn webview_close(app: AppHandle, name: String) -> Result<(), CommandError> {
     let label = label_for(Some(&name))?;
     match app.get_webview_window(&label) {
-        Some(w) => w.close().map_err(super::err),
+        Some(w) => Ok(w.close().map_err(super::err)?),
         None => Ok(()),
     }
 }
@@ -255,19 +256,19 @@ pub fn webview_close(app: AppHandle, name: String) -> Result<(), String> {
 /// Send `message` (JSON) to the page in `web-<name>`, when that page may use the bridge.
 /// The page receives a `message` event whose `origin` is `"kitchen-app"`.
 #[tauri::command(async)]
-pub fn webview_post(app: AppHandle, name: String, message: Value) -> Result<(), String> {
+pub fn webview_post(app: AppHandle, name: String, message: Value) -> Result<(), CommandError> {
     let cfg = config(&app)?;
     let label = label_for(Some(&name))?;
-    let w = app.get_webview_window(&label).ok_or_else(|| format!("no web view {label}"))?;
+    let w = app.get_webview_window(&label).ok_or_else(|| CommandError::new(codes::NOT_FOUND, format!("no web view {label}")))?;
     let page = w.url().map_err(super::err)?;
     let host = page.host_str().unwrap_or_default();
     if page.scheme() != "https" || !cfg.bridge_allowed(host) {
-        return Err(format!("{host} may not use the bridge (Settings → Web views)"));
+        return Err(CommandError::new(codes::DENIED, format!("{host} may not use the bridge (Settings → Web views)")));
     }
     if message.to_string().len() > policy::MAX_MESSAGE {
-        return Err(format!("message over {} bytes", policy::MAX_MESSAGE));
+        return Err(CommandError::invalid(format!("message over {} bytes", policy::MAX_MESSAGE)));
     }
-    w.eval(policy::deliver_script(&message)).map_err(super::err)
+    Ok(w.eval(policy::deliver_script(&message)).map_err(super::err)?)
 }
 
 /// Run `invoke` through `handler`, unless it comes from a web view window: then it is
