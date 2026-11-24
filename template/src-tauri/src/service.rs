@@ -491,7 +491,7 @@ impl Local {
                 let voice = {
                     let mut v = self.voice.lock().map_err(err)?;
                     if v.is_none() {
-                        let dir = tts::model_dir(e.data_dir());
+                        let dir = tts::locate(e.data_dir())?;
                         if !dir.join("model.onnx").is_file() {
                             return Err(CommandError::unavailable("Download the voice first (Settings → Speech)"));
                         }
@@ -506,7 +506,7 @@ impl Local {
             }
             #[cfg(feature = "tts")]
             "download_voice" => {
-                let dir = desktop_core::tts::model_dir(self.engine()?.data_dir());
+                let dir = desktop_core::tts::locate(self.engine()?.data_dir())?;
                 desktop_core::tts::download(&dir, &mut |name, done, total| {
                     progress(&format!("{name}: {}", megabytes(done, total)))
                 })
@@ -544,7 +544,7 @@ impl Local {
                     let mut m = self.whisper.lock().map_err(err)?;
                     if m.as_ref().is_none_or(|m| m.model != cfg.model) {
                         *m = None;
-                        let dir = stt::model_dir(e.data_dir(), &cfg.model);
+                        let dir = stt::locate(e.data_dir(), &cfg.model)?;
                         if !stt::is_downloaded(&dir) {
                             return Err(CommandError::unavailable(format!("Download the {} model first (Settings → Dictation)", cfg.model)));
                         }
@@ -558,7 +558,7 @@ impl Local {
             "download_stt" => {
                 let e = self.engine()?;
                 let model = params.get("model").and_then(Value::as_str).map(String::from).unwrap_or(e.config().stt.model);
-                let dir = desktop_core::stt::model_dir(e.data_dir(), &model);
+                let dir = desktop_core::stt::locate(e.data_dir(), &model)?;
                 desktop_core::stt::download(&dir, &model, &mut |name, done, total| {
                     progress(&format!("{name}: {}", megabytes(done, total)))
                 })

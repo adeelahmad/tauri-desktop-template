@@ -398,6 +398,12 @@ pub fn model_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("models").join("tiny-voca")
 }
 
+/// The folder the voice loads from: the installer's copy when it bundles one
+/// ([`crate::models`]), else [`model_dir`] (where [`download`] puts it).
+pub fn locate(data_dir: &Path) -> Result<PathBuf> {
+    Ok(crate::models::locate("tiny-voca", model_dir(data_dir), &data_dir.join("models"))?.dir().to_path_buf())
+}
+
 /// Download the model files that are missing (resumable), checking each SHA-256.
 pub fn download(dir: &Path, progress: &mut dyn FnMut(&str, u64, Option<u64>)) -> Result<()> {
     use sha2::Digest;

@@ -36,7 +36,8 @@ pub struct Feature {
     pub default: toml::Value,
     /// Allowed values of a text question.
     pub choices: Vec<String>,
-    /// A yes/no question that only applies when this one is on (`bm25` needs `postgres`).
+    /// The condition under which the question is asked: a feature (`bm25` needs
+    /// `postgres`) or a simple expression ([`Manifest::holds`](crate::manifest::Manifest::holds)).
     pub requires: Option<String>,
 }
 
@@ -167,7 +168,7 @@ impl Template {
             .retain(|k, _| features.iter().any(|f| &f.name == k));
         let off: Vec<String> = features
             .iter()
-            .filter(|f| f.requires.as_ref().is_some_and(|r| !m.is_on(r)))
+            .filter(|f| f.requires.as_ref().is_some_and(|r| !m.holds(r)))
             .map(|f| f.name.clone())
             .collect();
         m.answers.retain(|k, _| !off.contains(k));
@@ -242,8 +243,11 @@ pub fn parse_features(text: &str) -> Result<Vec<Feature>> {
     }
     if let Some(c) = doc.get("conditional").and_then(toml::Value::as_table) {
         for (cond, body) in c {
-            // Only simple `feature` conditions carry questions in this template.
-            let simple = cond.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            // Questions sit under a feature (`postgres`) or a simple condition that
+            // `Manifest::holds` reads (`models != "download" && stt`).
+            let simple = cond
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || " _!=\"&|()".contains(c));
             if let (true, Some(p)) = (
                 simple,
                 body.get("placeholders").and_then(toml::Value::as_table),

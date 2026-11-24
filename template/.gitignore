@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 /target
+# Bundled models are fetched before a build (make models); only their lock is committed.
+/src-tauri/resources/models/*
+!/src-tauri/resources/models/models.lock
 **/node_modules
 .DS_Store
 # This machine only (layered app config, see src-tauri/src/app_config.rs).

@@ -54,6 +54,10 @@ kitchen service status            # installed? running? pid, log file
 kitchen service logs --lines 100 --follow
 kitchen service stop | start | restart | uninstall [--system]
 kitchen eval --baseline evals/baseline.json   # the app's search evals (feature evals); fails on a regression
+kitchen set models=bundle_with_fallback   # ship the ML models inside the installer (or: kitchen enable bundled_models)
+kitchen models list               # models the installer can bundle: size, licence, which are in models.lock
+kitchen models add whisper-small  # add one to src-tauri/resources/models/models.lock (remove <name> drops it)
+kitchen models fetch              # download them next to the lock and check every SHA-256 (verify: check only)
 kitchen build                     # cargo tauri build, as is
 kitchen mcp                       # MCP server over stdio
 ```

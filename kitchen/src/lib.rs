@@ -22,6 +22,7 @@
 //! kitchen audit                            # cargo-deny, cargo-audit, npm audit, pip-audit
 //! kitchen service install                  # run the app's daemon as a user service
 //! kitchen eval --baseline evals/baseline.json  # search evals; fails on a regression
+//! kitchen models fetch                     # download the models the installer bundles
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
 //!
@@ -51,7 +52,8 @@
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
 //! generators), [`lifecycle`] (start, test, package, publish, eject), [`audit`] (supply-chain checks), [`doctor`] (machine
 //! checks), [`hooks`] (the app's git hooks), [`service`] (the app's daemon as a service),
-//! [`eval`] (the app's search evals), [`mcp`] (the MCP server), [`cli`] (arguments).
+//! [`eval`] (the app's search evals), [`models`] (models built into the installer), [`mcp`]
+//! (the MCP server), [`cli`] (arguments).
 
 pub mod audit;
 pub mod cli;
@@ -64,6 +66,7 @@ pub mod lifecycle;
 pub mod manifest;
 pub mod mcp;
 pub mod merge;
+pub mod models;
 pub mod project;
 pub mod service;
 pub mod template;

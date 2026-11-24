@@ -96,7 +96,9 @@ impl Project {
             };
             let mut needs = compat::needs_of(&s.feature.name);
             if let Some(p) = s.feature.requires.as_deref() {
-                if !needs.contains(&p) {
+                // A compound condition (`models != "download" && stt`) is said as is,
+                // unless the rule table already names what it needs.
+                if !needs.contains(&p) && (needs.is_empty() || !p.contains(' ')) {
                     needs.push(p);
                 }
             }
@@ -123,7 +125,8 @@ impl Project {
     /// ([`compat`]). The summary says how many problems there are ("no problems" when
     /// none); every error comes with the commands that fix it.
     pub fn check_features(&self) -> Report {
-        let found = compat::check(|n| self.manifest.is_on(n));
+        let mut found = compat::check(|n| self.manifest.is_on(n));
+        found.extend(compat::check_models(|k| self.manifest.text(k)));
         let errors = found.iter().filter(|f| f.level == Level::Error).count();
         let mut r = Report::new(if errors == 0 {
             format!("{FILE}: no problems; these answers work together")
@@ -184,7 +187,7 @@ impl Project {
                 if on { (&[key], &[]) } else { (&[], &[key]) };
             return self.set_features(enable, disable, opts);
         }
-        if let Some(parent) = f.requires.as_deref().filter(|p| !self.manifest.is_on(p)) {
+        if let Some(parent) = f.requires.as_deref().filter(|p| !self.manifest.holds(p)) {
             return Err(Error::Usage(format!(
                 "{key} applies only with {parent} on: `kitchen enable {parent}` first"
             )));
@@ -200,6 +203,7 @@ impl Project {
         };
         let mut next = self.manifest.clone();
         next.set(key, v);
+        fill_defaults(&features, &mut next);
         let mut notes = Vec::new();
         gate(&self.manifest, &next, &mut notes)?;
         self.reconfigure(next, None, opts, notes)
@@ -394,16 +398,7 @@ fn switch<S: AsRef<str>>(
             why(by, need)
         ));
     }
-    // Questions that only apply under a feature that is now on start at their defaults
-    // (`kitchen new` leaves them out while that feature is off).
-    let fill: Vec<&Feature> = features
-        .iter()
-        .filter(|f| f.requires.as_ref().is_some_and(|r| m.is_on(r)))
-        .filter(|f| !m.answers.contains_key(&f.name))
-        .collect();
-    for child in fill {
-        m.set(&child.name, child.default.clone());
-    }
+    fill_defaults(features, m);
     for name in &disable {
         m.set(name, toml::Value::Boolean(false));
     }
@@ -417,11 +412,32 @@ fn switch<S: AsRef<str>>(
     Ok(notes)
 }
 
+/// Questions that only apply under a feature (or answer) that now holds start at their
+/// defaults (`kitchen new` leaves them out while it does not). Repeated, since one filled
+/// answer can open further questions (`models` opens `bundle_stt_model`).
+fn fill_defaults(features: &[Feature], m: &mut Manifest) {
+    loop {
+        let fill: Vec<&Feature> = features
+            .iter()
+            .filter(|f| f.requires.as_ref().is_some_and(|r| m.holds(r)))
+            .filter(|f| !m.answers.contains_key(&f.name))
+            .collect();
+        if fill.is_empty() {
+            return;
+        }
+        for child in fill {
+            m.set(&child.name, child.default.clone());
+        }
+    }
+}
+
 /// Check `after` against the rule table before anything is rendered: an error that
 /// `before` did not have is refused; new warnings and licence notices go into `notes`.
 fn gate(before: &Manifest, after: &Manifest, notes: &mut Vec<String>) -> Result<()> {
-    let old = compat::check(|n| before.is_on(n));
-    let new = compat::check(|n| after.is_on(n));
+    let mut old = compat::check(|n| before.is_on(n));
+    old.extend(compat::check_models(|k| before.text(k)));
+    let mut new = compat::check(|n| after.is_on(n));
+    new.extend(compat::check_models(|k| after.text(k)));
     let fresh: Vec<_> = new.iter().filter(|f| !old.contains(f)).collect();
     let errors: Vec<String> = fresh
         .iter()
@@ -449,7 +465,7 @@ fn gate(before: &Manifest, after: &Manifest, notes: &mut Vec<String>) -> Result<
 fn drop_unused_answers(features: &[Feature], m: &mut Manifest) {
     let unused: Vec<String> = features
         .iter()
-        .filter(|f| f.requires.as_ref().is_some_and(|r| !m.is_on(r)))
+        .filter(|f| f.requires.as_ref().is_some_and(|r| !m.holds(r)))
         .map(|f| f.name.clone())
         .collect();
     m.answers.retain(|k, _| !unused.contains(k));

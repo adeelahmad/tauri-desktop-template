@@ -30,6 +30,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Tests](#tests)
 - [Search evals](#search-evals)
 - [Postgres upgrades](#postgres-upgrades)
+- [Bundling models](#bundling-models)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
 - [Feature dependencies](#feature-dependencies)
@@ -359,7 +360,8 @@ The window keeps one JSON file per profile, `<config>/settings.json`:
   Environment variables such as `ANTHROPIC_API_KEY` override the key file.
 - **Environment overrides** for a single run: `APP_PROFILE` (profile), `APP_LOG` (log level,
   for example `warn,desktop_core=debug`), `APP_EMBED_MODEL` and `APP_EMBED_DIM` (embedding
-  model), `APP_PG_URL` and `APP_PG_EXT_DIR` (Postgres), `APP_DEVTOOLS=1` (debug builds).
+  model), `APP_MODELS` and `APP_MODELS_DIR` (bundled models), `APP_PG_URL` and
+  `APP_PG_EXT_DIR` (Postgres), `APP_DEVTOOLS=1` (debug builds).
 
 The README's settings table lists every key with its default. The rustdoc of each config
 struct documents every field.
@@ -727,6 +729,59 @@ rollback against a fake `Runner`, with no Postgres. The real upgrade (downloads 
 and 16; `initdb` and `pg_upgrade` refuse to run as root) is ignored by default:
 `APP_PG_UPGRADE_E2E=1 cargo test -p desktop-core --features postgres -- --ignored upgrade_e2e`.
 
+## Bundling models
+
+By default every model downloads on first use into `<data>/models`: the installer stays
+small, and the first use of each feature needs the network. When the app is generated
+(question `models`, asked only when a feature with a model is on) it can ship them inside
+the installer instead:
+
+| `models` | What happens |
+|---|---|
+| `download` (default) | Every model downloads on first use, as before |
+| `bundle` | The chosen models are inside the installer; the first start works offline. A bundled model missing from the install is an error that says to reinstall |
+| `bundle_with_fallback` | Inside the installer, and any that is missing (or fails its checksum) downloads instead |
+
+Then one question per feature that is on picks what goes in:
+
+| Answer | Model | Size | Licence (model card) |
+|---|---|---|---|
+| `bundle_embedding_model` | the chosen `embedding_model`: BGE small en v1.5 / all-MiniLM-L6-v2 / multilingual E5 small / Nomic embed v1.5 | 134 / 91 / 487 / 548 MB | MIT / Apache-2.0 / MIT / Apache-2.0 |
+| `bundle_stt_model` | Whisper base (8-bit ONNX) | 78 MB | MIT |
+| `bundle_tts_voice` | tiny-voca | 25 MB | Apache-2.0 |
+| `bundle_llm` (default no) | Qwen3 0.6B Q4_K_M GGUF | 397 MB | Apache-2.0 |
+
+`kitchen models add whisper-tiny` / `whisper-small` (42 / 249 MB) bundles other Whisper
+sizes. `kitchen models list` shows every model with its size and licence.
+
+How it works:
+
+- `src-tauri/resources/models/models.lock` lists each file: kind, model, path, bytes, SHA-256
+  and a URL pinned to a Hugging Face revision. Only the lock is committed (`.gitignore`).
+- `make models` (or `kitchen models fetch`) downloads the files next to the lock and checks
+  every checksum; `make build` runs it first. `make models-verify` / `kitchen models verify`
+  checks what is there. Both run `desktop-core/examples/models.rs`, the same code as the app.
+- `tauri.conf.json` has `"bundle.resources": {"resources/models/": "models/"}`, so the folder
+  is copied into the installer (and next to the binary in development builds).
+- At run time `desktop_core::models::locate` picks the folder: the bundled copy when every
+  file is there (its SHA-256 is checked once, then a marker in `<data>/models/.bundled`
+  remembers it), else the user's cache, downloading only if `net` allows. The embedding
+  model is kept in the Hugging Face cache layout fastembed reads, so it loads with no
+  network call. The setup wizard says "built into the app" instead of offering a download,
+  and `app_info` lists the bundled models (`models`).
+- `APP_MODELS` (`download`, `bundle`, `bundle_with_fallback`; set in `.cargo/config.toml`)
+  and `APP_MODELS_DIR` (another bundled folder) override them for a run.
+
+Things to know before you ship:
+
+- **Size.** The pre-hook and `kitchen features --check` print what the models add; past
+  about 200 MB they warn. GitHub refuses release files over 2 GB, and macOS notarization
+  uploads the whole installer to Apple (slow for large ones), so an LLM is a warning too.
+- **Updates.** The updater downloads the whole installer, so every update carries the models
+  again. Bundle small models, or use `bundle_with_fallback` with fewer models.
+- **Licences.** Bundling redistributes the models: ship each model's licence (above) with
+  the app, as you do for code. `kitchen features --check` lists them.
+
 ## Module index
 
 Paths are relative to this file. The rustdoc page of `desktop_core::X` is
@@ -746,6 +801,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`backup`](../desktop-core/src/backup.rs) | always | Portable backups (optionally encrypted) and restores |
 | [`logging`](../desktop-core/src/logging.rs) | always | JSON-lines logs with rotation, through the `log` facade |
 | [`net`](../desktop-core/src/net.rs) | always | The network policy and the one HTTP client |
+| [`models`](../desktop-core/src/models.rs) | always | Models built into the installer (`models.lock`), and where each model loads from |
 | [`bindings`](../desktop-core/src/bindings.rs) | `ts` (tests only) | Typed IPC: TypeScript types for the Tauri commands ([Typed IPC](#typed-ipc)) |
 | [`governor`](../desktop-core/src/governor.rs) | always | CPU share and background priority for ingest |
 | [`audio`](../desktop-core/src/audio.rs) | always | WAV, PCM, resampling, base64 |
@@ -842,6 +898,10 @@ Generated from `kitchen/src/compat.rs`; the template's pre-hook (`hooks/compat.r
 | `macos_pkg` | `installers` | the release workflow builds it |
 | `install_scripts` | `installers` | they download what the release workflow builds |
 | `linux` | `installers` | the release workflow builds them |
+| `bundle_embedding_model` | `embeddings` | it puts that feature's model inside the installer |
+| `bundle_stt_model` | `stt` | it puts that feature's model inside the installer |
+| `bundle_tts_voice` | `tts` | it puts that feature's model inside the installer |
+| `bundle_llm` | `local_llm` | it puts that feature's model inside the installer |
 
 Warnings (it still generates):
 
@@ -889,6 +949,7 @@ answers it was generated with.
 | `kitchen package [mac\|windows\|linux] [--release]` | `cargo tauri build` with this OS's bundles, copied into `./packages`. Other OSes are refused |
 | `kitchen publish [--tag v1.2.3] [--yes]` | A GitHub release with `./packages` through `gh`; a dry run without `--yes` |
 | `kitchen eval [dataset] [--baseline file]` | Run the app's search evals (`<app> --eval`, feature `evals`) and fail on a regression ([Search evals](#search-evals)) |
+| `kitchen models list\|add\|remove\|fetch\|verify` | Models built into the installer ([Bundling models](#bundling-models)); `kitchen set models=bundle` (or `kitchen enable bundled_models`) turns bundling on |
 | `kitchen eject vite\|tauri\|cargo` | Where that tool's own config is, and what Kitchen sets on top |
 | `kitchen mcp` | Offer the same commands to AI agents as an MCP server over stdio (`claude mcp add kitchen -- kitchen mcp`) |
 

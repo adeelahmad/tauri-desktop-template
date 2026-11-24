@@ -33,9 +33,14 @@
     "active": true,
     "targets": "all",{% if updater %}
     "createUpdaterArtifacts": true,{% endif %}
-    "shortDescription": "{{description}}",{% if python_example %}
+    "shortDescription": "{{description}}",{% if python_example or bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm %}
     "resources": {
-      "../python/worker.py": "python/worker.py"
+      {%- if python_example %}
+      "../python/worker.py": "python/worker.py"{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm %},{% endif %}
+      {%- endif %}
+      {%- if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm %}
+      "resources/models/": "models/"
+      {%- endif %}
     },{% endif %}
     "icon": [
       "icons/32x32.png",

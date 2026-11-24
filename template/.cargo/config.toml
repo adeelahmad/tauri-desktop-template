@@ -16,5 +16,10 @@ APP_MCP_PACKAGE = "{{mcp_package}}"
 # replace the pinned hashes with its SHA256SUMS.
 APP_PG_EXT_URL = "https://github.com/adeelahmad/pg-extensions/releases/download/pg-ext-16.16.0-r1/pg16-extensions-{target}.zip"
 {% endif -%}
+{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm -%}
+# Models built into the installer (desktop_core::models; docs/GUIDE.md "Bundling models"):
+# bundle or bundle_with_fallback. APP_MODELS at run time overrides it.
+APP_MODELS = "{{models}}"
+{% endif -%}
 APP_REPOSITORY = "{{github_repo}}"
 APP_IDENTIFIER = "{{identifier}}"

@@ -42,6 +42,10 @@ let REQUIRES = [
     ["macos_pkg", "installers", "the release workflow builds it"],
     ["install_scripts", "installers", "they download what the release workflow builds"],
     ["linux", "installers", "the release workflow builds them"],
+    ["bundle_embedding_model", "embeddings", "it puts that feature's model inside the installer"],
+    ["bundle_stt_model", "stt", "it puts that feature's model inside the installer"],
+    ["bundle_tts_voice", "tts", "it puts that feature's model inside the installer"],
+    ["bundle_llm", "local_llm", "it puts that feature's model inside the installer"],
 ];
 let ADVICE = [
     ["oauth", "tauri_deep_link", "the deep-link redirect (oauth.redirect = deepLink) needs the deep-link plugin; without it sign-in uses the loopback redirect"],
@@ -85,6 +89,15 @@ let LICENCES = [
     ["background_jobs", ""],
     ["http_api", ""],
 ];
+let MODELS = [
+    ["bundle_embedding_model", "embedding_model", "nomic-embed-text-v1.5", "embed-nomic-embed-text-v1.5", "548", "embed", "Apache-2.0"],
+    ["bundle_embedding_model", "embedding_model", "bge-small-en-v1.5", "embed-bge-small-en-v1.5", "134", "embed", "MIT"],
+    ["bundle_embedding_model", "embedding_model", "all-MiniLM-L6-v2", "embed-all-MiniLM-L6-v2", "91", "embed", "Apache-2.0"],
+    ["bundle_embedding_model", "embedding_model", "multilingual-e5-small", "embed-multilingual-e5-small", "487", "embed", "MIT"],
+    ["bundle_stt_model", "", "", "whisper-base", "78", "stt", "MIT"],
+    ["bundle_tts_voice", "", "", "tiny-voca", "25", "tts", "Apache-2.0"],
+    ["bundle_llm", "", "", "qwen3-0.6b-q4", "397", "llm", "Apache-2.0"],
+];
 // kitchen:rules end
 
 let errors = [];
@@ -125,6 +138,35 @@ if notices.len() > 0 {
     print("Licence notices (code under licences other than MIT / Apache-2.0):");
     for n in notices {
         print(n);
+    }
+}
+
+// Bundled models (models = bundle or bundle_with_fallback): what they add to the installer.
+if variable::is_set("models") && variable::get("models") != "download" {
+    let mb = 0;
+    let names = "";
+    let licences = "";
+    let llm = false;
+    for m in MODELS {
+        if on(m[0]) && (m[1] == "" || (variable::is_set(m[1]) && variable::get(m[1]) == m[2])) {
+            mb += parse_int(m[4]);
+            let sep = if names == "" { "" } else { ", " };
+            names += `${sep}${m[3]} ${m[4]} MB`;
+            licences += `${sep}${m[3]} ${m[6]}`;
+            if m[5] == "llm" {
+                llm = true;
+            }
+        }
+    }
+    if names != "" {
+        print(`Bundled models: they add ${mb} MB to the installer and to every full update (${names})`);
+        print(`  Bundling redistributes them: ship their licences with the app (${licences}).`);
+        if mb > 200 {
+            print(`  Warning: the installer grows past 200 MB (${mb} MB of models).`);
+        }
+        if llm {
+            print("  Warning: a large model inside the installer: GitHub refuses release files over 2 GB, and macOS notarization uploads the whole installer to Apple (slow, can time out).");
+        }
     }
 }
 

@@ -199,6 +199,32 @@ prompt = "Embedding model"
 choices = ["nomic-embed-text-v1.5", "bge-small-en-v1.5", "all-MiniLM-L6-v2", "multilingual-e5-small"]
 default = "nomic-embed-text-v1.5"
 
+[conditional.'embeddings || stt || tts || local_llm'.placeholders.models]
+type = "string"
+prompt = "Ship the ML models inside the installer? download: fetched on first use (small installer); bundle: inside the installer, the first start works offline (a missing one is an error); bundle_with_fallback: inside, downloading any that are missing"
+choices = ["download", "bundle", "bundle_with_fallback"]
+default = "download"
+
+[conditional.'models != "download" && embeddings'.placeholders.bundle_embedding_model]
+type = "bool"
+prompt = "Bundle the embedding model (90-550 MB, depending on the model)?"
+default = true
+
+[conditional.'models != "download" && stt'.placeholders.bundle_stt_model]
+type = "bool"
+prompt = "Bundle the Whisper base model (78 MB, MIT)?"
+default = true
+
+[conditional.'models != "download" && tts'.placeholders.bundle_tts_voice]
+type = "bool"
+prompt = "Bundle the tiny-voca voice (25 MB, Apache-2.0)?"
+default = true
+
+[conditional.'models != "download" && local_llm'.placeholders.bundle_llm]
+type = "bool"
+prompt = "Bundle the default GGUF model, Qwen3 0.6B Q4_K_M (397 MB, Apache-2.0)? Large installers are slow to notarize and must stay under GitHub's 2 GB per release file"
+default = false
+
 [conditional.'postgres'.placeholders.bm25]
 type = "bool"
 prompt = "BM25 keyword ranking in Postgres (VectorChord-BM25) for hybrid BM25 + vector search?"
@@ -323,6 +349,10 @@ default = false
 type = "bool"
 prompt = "Tauri plugin Shell: run only the commands listed in capabilities/desktop.json (never arbitrary ones) (desktop)?"
 default = false
+
+# Bundled models: the lock and its fetcher only when some model goes into the installer.
+[conditional.'!(embeddings || stt || tts || (ai && local_llm)) || models == "download" || !((embeddings && bundle_embedding_model) || (stt && bundle_stt_model) || (tts && bundle_tts_voice) || (ai && local_llm && bundle_llm))']
+ignore = ["src-tauri/resources", "desktop-core/examples"]
 
 [conditional.'!embeddings']
 ignore = ["desktop-core/src/embed.rs"]

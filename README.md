@@ -16,6 +16,7 @@ feature afterwards.
 | `local_llm` (with `ai`) | llama.cpp compiled in and linked statically (Metal on Apple Silicon): GGUF models run inside the app with no server. Provider `local`, a one-click model download (resumable), context, GPU layers and thread settings. Default off |
 | `tts` | Text to speech in pure Rust over ONNX Runtime with tiny-voca (about 25 MB, two voices, speed and pitch, own lexicon-based phonemizer, no espeak). One-click voice download with SHA-256 check; "Read aloud" on answers. Default off |
 | `stt` | Speech to text with OpenAI Whisper (tiny 40 MB, base 75 MB, small 250 MB; 8-bit ONNX, pinned and checksummed) on the same ONNX Runtime: no whisper.cpp, no second ggml next to llama.cpp. Log-mel features, resampling, WAV reading and greedy decoding are plain Rust. Microphone dictation into search and Ask, audio files, language detection, translate to English, a length limit. macOS microphone prompt and entitlement included. Default off |
+| `models` (with `embeddings`, `stt`, `tts` or `local_llm`) | Ship the ML models inside the installer instead of downloading them on first use: `download` (default), `bundle` (first start works offline) or `bundle_with_fallback`, then one yes/no per model (`bundle_embedding_model`, `bundle_stt_model`, `bundle_tts_voice`, `bundle_llm`). Pinned and checksummed in `models.lock`; `make models` / `kitchen models fetch` fetch them; size, licence and 2 GB warnings. Default `download` |
 | `email` | Native SMTP in Rust: SSL/TLS (465) and STARTTLS (587), AUTH PLAIN/LOGIN, HTML, attachments, certificate pins; the password stays in an owner-only file. Default off |
 | `telemetry` | Opt-in crash reports (Sentry envelopes), anonymous analytics (PostHog or Aptabase) and traces (OTLP/HTTP JSON to any collector), all over the existing HTTP client with no SDK crates. A panic hook writes crashes locally with the home folder scrubbed and sends them at the next start only if allowed; every backend call is timed in one place; only call names, timings, counts, OS/arch and a random install id can leave. Keys come from release secrets. Default off |
 | `background_jobs` | A persistent background job queue on std threads: named job types with typed JSON payloads, delayed and cron/interval schedules, per-queue concurrency, retries with exponential backoff and jitter, dead letters, cancel, timeouts and a pruned run history; respects the resource and network settings; runs in the worker with the background agent; foreground only on mobile. `kitchen generate job <name>` adds job types. Default off |
@@ -73,6 +74,10 @@ Generated from `kitchen/src/compat.rs`; the template's pre-hook (`hooks/compat.r
 | `macos_pkg` | `installers` | the release workflow builds it |
 | `install_scripts` | `installers` | they download what the release workflow builds |
 | `linux` | `installers` | the release workflow builds them |
+| `bundle_embedding_model` | `embeddings` | it puts that feature's model inside the installer |
+| `bundle_stt_model` | `stt` | it puts that feature's model inside the installer |
+| `bundle_tts_voice` | `tts` | it puts that feature's model inside the installer |
+| `bundle_llm` | `local_llm` | it puts that feature's model inside the installer |
 
 Warnings (it still generates):
 

@@ -64,6 +64,9 @@ This build has:
 {% if stt -%}
 - `stt` (cargo feature `stt`): speech to text with Whisper, `desktop-core/src/stt.rs`.
 {% endif -%}
+{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm -%}
+- `models = {{models}}`: models built into the installer, listed in `src-tauri/resources/models/models.lock`, loaded through `desktop_core::models::locate`. Fetch them with `make models` (or `kitchen models fetch`) before `make build`; never commit the model files, only the lock. Change the list with `kitchen models add|remove <name>`.
+{% endif -%}
 {% if email -%}
 - `email` (cargo feature `mail`): SMTP email, `desktop-core/src/mail.rs`. The password is kept outside `settings.json`.
 {% endif -%}
@@ -187,6 +190,8 @@ kitchen enable <feature> --dry-run                 # see the files it would chan
 kitchen enable <feature>                           # turn it on (3-way merge keeps your edits)
 kitchen disable <feature>                          # turn it off
 kitchen set <name>=<value>                         # change another answer, e.g. frontend
+kitchen set models=bundle_with_fallback            # ship the ML models inside the installer
+kitchen models list|add|remove|fetch|verify        # which models, and fetch them (models.lock)
 
 kitchen generate module <name> --config            # desktop-core/src/<name>.rs + settings section
 kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] --label "<text>"

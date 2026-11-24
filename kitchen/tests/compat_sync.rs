@@ -113,7 +113,10 @@ fn every_rule_names_a_real_question_and_every_conditional_question_is_a_rule() {
         assert!(switch(n), "{n} is not a yes/no question");
     }
     for f in features.iter().filter(|f| f.is_switch()) {
-        if let Some(parent) = &f.requires {
+        // `bm25` under `postgres`, or `bundle_stt_model` under `models != "download" && stt`:
+        // each yes/no answer in the condition is a rule.
+        let parents = f.requires.iter().flat_map(|c| c.split("&&")).map(str::trim);
+        for parent in parents.filter(|p| p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
             assert!(
                 compat::REQUIRES
                     .iter()
@@ -123,4 +126,26 @@ fn every_rule_names_a_real_question_and_every_conditional_question_is_a_rule() {
             );
         }
     }
+    // Every bundled-model answer is a question, and the template's lock is generated.
+    for m in kitchen::models::CATALOG
+        .iter()
+        .filter(|m| !m.answer.is_empty())
+    {
+        assert!(switch(m.answer), "{} is not a yes/no question", m.answer);
+    }
+}
+
+#[test]
+fn the_template_lock_is_generated_from_the_catalog() {
+    let path = repo().join("template/src-tauri/resources/models/models.lock");
+    let want = kitchen::models::lock_liquid();
+    if bless() {
+        std::fs::write(&path, &want).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        want,
+        "{} is stale: KITCHEN_BLESS=1 cargo test rewrites it",
+        path.display()
+    );
 }
