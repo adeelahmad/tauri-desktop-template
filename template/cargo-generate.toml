@@ -35,12 +35,12 @@ regex = "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
 [placeholders.embeddings]
 type = "bool"
 prompt = "Local ONNX text embeddings (fastembed-rs, no API calls)?"
-default = true
+default = false
 
 [placeholders.postgres]
 type = "bool"
 prompt = "Embedded Postgres + pgvector store (downloads itself on first run)?"
-default = true
+default = false
 
 [placeholders.watch_folders]
 type = "bool"
@@ -145,12 +145,12 @@ default = false
 [placeholders.pdf]
 type = "bool"
 prompt = "PDF text extraction (docling.rs, tesseract OCR fallback)?"
-default = true
+default = false
 
 [placeholders.wizard]
 type = "bool"
 prompt = "First-run setup wizard?"
-default = true
+default = false
 
 [placeholders.frontend]
 type = "string"
@@ -161,22 +161,22 @@ default = "react"
 [placeholders.ipc_worker]
 type = "bool"
 prompt = "Run the backend as a separate worker process over local IPC (socket / named pipe)?"
-default = true
+default = false
 
 [placeholders.python_example]
 type = "bool"
 prompt = "Python worker example (child process over stdio JSON)?"
-default = true
+default = false
 
 [placeholders.updater]
 type = "bool"
 prompt = "Auto-update from GitHub releases (Tauri updater)?"
-default = true
+default = false
 
 [placeholders.installers]
 type = "bool"
 prompt = "Release workflow that builds and tests installers (macOS .dmg, Windows .exe)?"
-default = true
+default = false
 
 [placeholders.supply_chain]
 type = "bool"

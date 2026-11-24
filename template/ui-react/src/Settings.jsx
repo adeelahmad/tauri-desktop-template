@@ -534,7 +534,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
         const st = live(p.id);
         const who = st?.user && (st.user.email || st.user.login || st.user.name || st.user.id);
         return (
-          <div key={i} className="grid">
+          <div key={i} className="grid card">
             <Field kind="select" label="Provider" value={p.kind} extra={KIND_FIELD} onChange={(v) => put(i, 'kind', v)} />
             <Field kind="text" label="Name (used to sign in; e.g. google)" value={p.id} extra={NONE} onChange={(v) => put(i, 'id', v)} />
             <Field kind="text" label="Client id" value={p.clientId} extra={NONE} onChange={(v) => put(i, 'clientId', v)} />
@@ -619,7 +619,8 @@ function PluginList({ settings, onChange }) {
   }, []);
   const put = (name, key, v) => onChange({ ...settings, [name]: { ...(settings[name] || {}), [key]: v } });
   return (
-    <div className="hint">
+    <div className="panel">
+      {list.length === 0 && !msg && <p className="hint">No plugins are built in.</p>}
       {list.map((p) => (
         <div key={p.name}>
           <div>
@@ -705,7 +706,7 @@ function JobsPanel() {
   };
   if (!st) return <p className="hint">{msg}</p>;
   return (
-    <div className="hint">
+    <div className="panel">
       {!st.enabled && <div>Jobs are kept but not run until you turn them on above and save.</div>}
       <div className="row">
         <select value={kind || st.types[0]} onChange={(e) => setKind(e.target.value)} aria-label="Job type">
@@ -755,7 +756,7 @@ function JobsPanel() {
           </li>
         ))}
       </ul>
-      <div>Recent runs:</div>
+      <div>{st.history.length ? 'Recent runs:' : 'No runs yet.'}</div>
       <ul className="pending">
         {st.history.slice(0, 10).map((r, i) => (
           <li key={i}>
@@ -1139,6 +1140,7 @@ function Backups() {
         </button>
         <span className="hint">{msg}</span>
       </div>
+      {list.length === 0 && <p className="hint">No backups yet.</p>}
       <ul className="backups">
         {list.map((b) => (
           <li key={b.path}>
@@ -1512,29 +1514,33 @@ function EntryList({ title, entries, actions, onChange, keys }) {
   };
   const add = () => onChange([...entries, { id: `item${Date.now()}`, label: '', action: 'show', shortcutHint: null, enabled: true }]);
   return (
-    <div className="hint">
-      <b>{title}</b>
+    <div className="panel">
+      {title && <h4>{title}</h4>}
       {entries.map((e, i) => (
-        <div className="row" key={e.id || i}>
+        <div className="row entry" key={e.id || i}>
           <ActionPick value={e.action} actions={actions} separator onChange={(v) => put(i, 'action', v)} />
           {e.action !== 'separator' && (
             <>
               <input value={e.label} placeholder="Label (empty = default)" onChange={(x) => put(i, 'label', x.target.value)} />
               {keys && <KeyCapture label="" value={e.shortcutHint} onChange={(v) => put(i, 'shortcutHint', v || null)} />}
+            </>
+          )}
+          <span className="row-tools">
+            {e.action !== 'separator' && (
               <label className="field">
                 <input type="checkbox" checked={e.enabled} onChange={(x) => put(i, 'enabled', x.target.checked)} /> on
               </label>
-            </>
-          )}
-          <button className="link" onClick={() => move(i, -1)} aria-label="Move up">
-            ↑
-          </button>
-          <button className="link" onClick={() => move(i, 1)} aria-label="Move down">
-            ↓
-          </button>
-          <button className="link" onClick={() => onChange(entries.filter((_, j) => j !== i))}>
-            Remove
-          </button>
+            )}
+            <button className="link" onClick={() => move(i, -1)} aria-label="Move up" title="Move up">
+              ↑
+            </button>
+            <button className="link" onClick={() => move(i, 1)} aria-label="Move down" title="Move down">
+              ↓
+            </button>
+            <button className="link" onClick={() => onChange(entries.filter((_, j) => j !== i))}>
+              Remove
+            </button>
+          </span>
         </div>
       ))}
       <button className="link" onClick={add}>
@@ -1568,8 +1574,8 @@ function TrayShortcuts({ cfg, setCfg }) {
         actions={actions}
         onChange={(v) => setCfg({ ...cfg, tray: { ...cfg.tray, items: v } })}
       />
-      <div className="hint">
-        <b>App menu</b>
+      <div className="panel">
+        <h4>App menu</h4>
         <label className="field">
           Title
           <input value={cfg.menu.title} onChange={(e) => setCfg({ ...cfg, menu: { ...cfg.menu, title: e.target.value } })} />
@@ -1582,8 +1588,11 @@ function TrayShortcuts({ cfg, setCfg }) {
         keys
         onChange={(v) => setCfg({ ...cfg, menu: { ...cfg.menu, extra: v } })}
       />
-      <div className="hint">
-        <b>Global shortcuts</b> (work while other apps are in front)
+      <div className="panel">
+        <h4>Global shortcuts</h4>
+        <p className="hint">
+          {shortcuts.length ? 'They work while other apps are in front.' : 'None yet. They work while other apps are in front.'}
+        </p>
         {shortcuts.map((s, i) => (
           <div className="row" key={i}>
             <KeyCapture label="" value={s.accelerator} onChange={(v) => putShortcut(i, 'accelerator', v)} />
@@ -1705,6 +1714,7 @@ function Licences() {
 export default function Settings({ features }) {
   const [cfg, setCfg] = useState(null);
   const [msg, setMsg] = useState('');
+  const [open, setOpen] = useState('');
   useEffect(() => {
     invoke('get_config')
       .then(setCfg)
@@ -1778,28 +1788,38 @@ export default function Settings({ features }) {
     'about',
     // kitchen:sections
   ].filter((s) => !needs[s] || features[needs[s]]);
+  // One section at a time: a list of sections beside it on wide windows, above it on narrow ones.
+  const all = ['profiles', ...sections];
+  const s = all.includes(open) ? open : all[0];
+  const fields = FIELDS.filter(([sec, , , , x]) => sec === s && (!x.needs || features[x.needs]));
   return (
-    <section id="settings">
+    <section id="settings" className="settings">
       <h2>Settings</h2>
-      <details>
-        <summary>Profiles</summary>
-        <Profiles />
-      </details>
-      {sections.map((s) => (
-        <details key={s}>
-          <summary>{TITLES[s]}</summary>
-          <div className="grid">
-            {FIELDS.filter(([sec, , , , x]) => sec === s && (!x.needs || features[x.needs])).map(([sec, key, label, kind, extra]) => (
-              <Field
-                key={key}
-                kind={kind}
-                label={label}
-                extra={extra}
-                value={key.split('.').reduce((o, k) => o?.[k], cfg[sec])}
-                onChange={(v) => set(sec, key, v)}
-              />
-            ))}
-          </div>
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {all.map((id) => (
+            <button key={id} data-section={id} aria-current={id === s ? 'page' : undefined} onClick={() => setOpen(id)}>
+              {id === 'profiles' ? 'Profiles' : TITLES[id]}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-pane">
+          <h3>{s === 'profiles' ? 'Profiles' : TITLES[s]}</h3>
+          {s === 'profiles' && <Profiles />}
+          {fields.length > 0 && (
+            <div className="grid">
+              {fields.map(([sec, key, label, kind, extra]) => (
+                <Field
+                  key={key}
+                  kind={kind}
+                  label={label}
+                  extra={extra}
+                  value={key.split('.').reduce((o, k) => o?.[k], cfg[sec])}
+                  onChange={(v) => set(sec, key, v)}
+                />
+              ))}
+            </div>
+          )}
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
           {s === 'llm' && <AiUsage />}
@@ -1835,15 +1855,17 @@ export default function Settings({ features }) {
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}
           {s === 'updates' && <UpdateChannel />}
           {s === 'about' && <Licences />}
-        </details>
-      ))}
-      <div className="row">
+        </div>
+      </div>
+      <div className="settings-actions">
         <button onClick={save}>Save settings</button>
         <button className="link" onClick={reset}>
           Reset to defaults
         </button>
+        <span className="status" role="status">
+          {msg}
+        </span>
       </div>
-      <p className="status">{msg}</p>
     </section>
   );
 }

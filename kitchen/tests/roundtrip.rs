@@ -61,6 +61,9 @@ fn new_enable_disable_round_trip() {
             "--no-git",
             "--disable",
             "postgres,embeddings,pdf",
+            // Every feature starts off; this one carries the rules checked below.
+            "--enable",
+            "ipc_worker",
         ]),
         &work,
     )

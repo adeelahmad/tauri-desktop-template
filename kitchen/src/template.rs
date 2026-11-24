@@ -92,7 +92,8 @@ impl Template {
                     source,
                     &mirror.to_string_lossy(),
                 ],
-            )?;
+            )
+            .map_err(|e| clone_error(source, &e))?;
         }
         let want = rev.unwrap_or("HEAD");
         let resolve = |m: &Path| {
@@ -256,6 +257,16 @@ pub fn parse_features(text: &str) -> Result<Vec<Feature>> {
     Ok(out)
 }
 
+/// A failed template download, said in words with what to try next.
+fn clone_error(source: &str, e: &Error) -> Error {
+    Error::Tool(format!(
+        "could not download the template from {source}\n  ({e})\n  \
+         Check your network. If the repository is private, sign in to git first \
+         (for GitHub: `gh auth login`, then `gh auth setup-git`).\n  \
+         Or use a copy on disk: kitchen new <name> --source <folder with the template>"
+    ))
+}
+
 /// The folder with `cargo-generate.toml`: `dir` itself or its `template/`.
 fn template_root(dir: &Path) -> Result<PathBuf> {
     [dir.to_path_buf(), dir.join("template")]
@@ -328,6 +339,18 @@ pub(crate) fn check(what: &str, out: std::io::Result<std::process::Output>) -> R
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_failed_download_says_what_to_try() {
+        let e = super::clone_error(
+            "https://github.com/o/r",
+            &crate::Error::Tool("git failed: fatal: could not read Username".into()),
+        )
+        .to_string();
+        assert!(e.starts_with("could not download the template from https://github.com/o/r"));
+        assert!(e.contains("could not read Username"), "{e}");
+        assert!(e.contains("gh auth login") && e.contains("--source"), "{e}");
+    }
+
     use super::*;
 
     #[test]

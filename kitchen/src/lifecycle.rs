@@ -211,9 +211,20 @@ pub fn missing_tools(root: &Path, deps: bool) -> Vec<(String, Step)> {
     out
 }
 
-/// Refuse with the exact fix commands, or (with `install`) put the fixes first.
+/// Put a missing `npm install` of the UI's packages first, then refuse over a missing
+/// machine-wide tool with the exact fix commands, or (with `install`) put those fixes first.
 pub fn prerequisites(root: &Path, install: bool, deps: bool, plan: &mut Plan) -> Result<()> {
-    let missing = missing_tools(root, deps);
+    let (local, missing): (Vec<_>, Vec<_>) = missing_tools(root, deps)
+        .into_iter()
+        .partition(|(_, step)| step.program == "npm");
+    // The UI's own packages live in the app (like the crates cargo fetches), so they are
+    // installed without asking; only machine-wide tools wait for `--install`.
+    if !local.is_empty() {
+        plan.notes
+            .push("First run: installing the UI's npm packages into ui-react/node_modules.".into());
+        plan.steps
+            .splice(0..0, local.into_iter().map(|(_, step)| step));
+    }
     if missing.is_empty() {
         return Ok(());
     }
@@ -938,5 +949,25 @@ mod tests {
         }
         let p = start_plan(d.path(), &[], true).unwrap();
         assert_eq!(p.steps.last().unwrap().command_line(), "cargo tauri dev");
+    }
+
+    #[test]
+    fn start_installs_the_ui_packages_without_asking() {
+        let d = app();
+        std::fs::create_dir_all(d.path().join("ui-react")).unwrap();
+        std::fs::write(d.path().join("ui-react/package.json"), "{}").unwrap();
+        // With --install, a missing Tauri CLI is installed too, so the plan always builds.
+        let p = start_plan(d.path(), &[], true).unwrap();
+        assert!(
+            p.steps
+                .iter()
+                .any(|s| s.command_line() == "npm --prefix ui-react install --include=dev"),
+            "{:?}",
+            p.steps
+        );
+        assert!(p.notes.iter().any(|n| n.starts_with("First run")));
+        std::fs::create_dir_all(d.path().join("ui-react/node_modules")).unwrap();
+        let p = start_plan(d.path(), &[], true).unwrap();
+        assert!(!p.steps.iter().any(|s| s.program == "npm"));
     }
 }
