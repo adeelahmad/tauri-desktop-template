@@ -270,6 +270,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     };
     let mut out = Vec::new();
     let mut tray_menu = false;
+    let mut capture_keys = false;
     match Manifest::load(&root) {
         Ok(m) => {
             let rev = if m.template.rev.is_empty() {
@@ -281,6 +282,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
                 )
             };
             tray_menu = m.is_on("tray_menu");
+            capture_keys = m.is_on("web_wrapper") && m.is_on("capture_keys");
             out.push(check(
                 "Kitchen app",
                 Status::Ok,
@@ -352,7 +354,51 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     });
     out.push(agent_files(&root));
     out.extend(crate::models::doctor_check(&root));
+    if capture_keys {
+        out.extend(capture_check(std::env::consts::OS, accessibility_trusted()));
+    }
     out
+}
+
+/// Whether this terminal (which `kitchen start` runs the app from, so macOS asks about it)
+/// has Accessibility access; `None` when that cannot be told (not macOS, no osascript).
+fn accessibility_trusted() -> Option<bool> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let out = Command::new("osascript")
+        .args([
+            "-l",
+            "JavaScript",
+            "-e",
+            "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted()",
+        ])
+        .output()
+        .ok()?;
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// The web app's key capture: on macOS it needs Accessibility and Input Monitoring for the
+/// app (and, under `kitchen start`, for the terminal). Elsewhere a note on the limits.
+fn capture_check(os: &str, trusted: Option<bool>) -> Option<Check> {
+    let name = "Key capture";
+    Some(match (os, trusted) {
+        ("macos", Some(true)) => check(name, Status::Ok, "this terminal has Accessibility access (the built app asks for its own on first run)", ""),
+        ("macos", Some(false)) => check(
+            name,
+            Status::Warn,
+            "this terminal has no Accessibility access, so `kitchen start` cannot capture keys",
+            "System Settings → Privacy & Security → Accessibility and Input Monitoring: turn on your terminal (the installed app shows a first-run screen that opens these panes)",
+        ),
+        ("macos", None) => check(name, Status::Warn, "could not tell whether Accessibility access is granted", "check System Settings → Privacy & Security → Accessibility and Input Monitoring"),
+        ("windows", _) => check(name, Status::Ok, "a low-level keyboard hook; Ctrl+Alt+Del and Win+L always stay with Windows", ""),
+        ("linux", _) => check(name, Status::Ok, "a keyboard grab; on Wayland the compositor must support the shortcuts-inhibit protocol (GNOME asks once)", ""),
+        _ => return None,
+    })
 }
 
 /// The React UI's npm packages: installed, or not yet (`kitchen start` installs them on its
@@ -554,6 +600,23 @@ mod tests {
         assert_eq!(app.next, ["kitchen start   # run the app with hot reload"]);
         let none = report(&[check("Rust", Status::Ok, "1.90", "")]);
         assert!(none.next[0].starts_with("kitchen new"), "{:?}", none.next);
+    }
+
+    #[test]
+    fn key_capture_needs_accessibility_on_macos() {
+        assert_eq!(
+            capture_check("macos", Some(false)).unwrap().status,
+            Status::Warn
+        );
+        assert_eq!(
+            capture_check("macos", Some(true)).unwrap().status,
+            Status::Ok
+        );
+        assert!(capture_check("windows", None)
+            .unwrap()
+            .detail
+            .contains("Ctrl+Alt+Del"));
+        assert!(capture_check("freebsd", None).is_none());
     }
 
     #[test]

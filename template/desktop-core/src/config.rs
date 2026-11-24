@@ -91,6 +91,10 @@ pub struct Config {
 {% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
     #[cfg(feature = "webview")]
     pub webview: crate::webview::WebviewConfig,
+{% endif %}{% if web_wrapper %}    /// The web app wrapper, as changed in Preferences (`None`: the developer's defaults in
+    /// `config/`, section `wrapper`).
+    #[cfg(feature = "web-wrapper")]
+    pub wrapper: Option<crate::wrapper::WrapperConfig>,
 {% endif %}{% if tray_menu %}    /// The tray or menu-bar icon and its menu.
     #[cfg(feature = "tray-menu")]
     pub tray: crate::actions::TrayConfig,
@@ -365,6 +369,12 @@ impl Config {
 {% endif %}{% if webview %}        #[cfg(feature = "webview")]
         {
             self.webview = self.webview.validated();
+        }
+{% endif %}{% if web_wrapper %}        // A wrapper section that does not pass the check falls back to the developer's defaults.
+        #[cfg(feature = "web-wrapper")]
+        if let Some(Err(e)) = self.wrapper.as_ref().map(crate::wrapper::WrapperConfig::check) {
+            log::warn!("wrapper settings ignored: {}", e.join("; "));
+            self.wrapper = None;
         }
 {% endif %}{% if tray_menu %}        #[cfg(feature = "tray-menu")]
         {

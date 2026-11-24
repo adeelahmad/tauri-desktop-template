@@ -6,9 +6,9 @@
 //!   enabled), and `APP_DEVTOOLS=1` opens them at start in a debug build.
 //!
 //! The content security policy is in `tauri.conf.json` (`app.security.csp`).
-{% if webview %}//!
-//! Windows labelled `web-*` (feature `webview`) are not the app's pages: their navigations
-//! are checked by their own allowlist hook in `webview.rs` instead.
+{% if webview or web_wrapper %}//!
+//! Windows labelled `web-*` (features `webview` and `web-wrapper`) are not the app's pages:
+//! their navigations are checked by their own hooks in `webview.rs` and `wrapper/` instead.
 {% endif %}
 //!
 //! # Example
@@ -42,8 +42,8 @@ pub fn allowed(url: &tauri::Url) -> bool {
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("guard")
         .on_navigation(|webview, url| {
-{% if webview %}            // Embedded web views (feature `webview`) have their own allowlist hook, and no IPC.
-            #[cfg(feature = "webview")]
+{% if webview or web_wrapper %}            // Embedded web views and the web app's window have their own hooks, and no IPC.
+            #[cfg(any(feature = "webview", feature = "web-wrapper"))]
             if desktop_core::webview::is_webview_label(webview.label()) {
                 return true;
             }

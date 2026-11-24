@@ -25,6 +25,11 @@ path = "src/main.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+# Web app mode (`kitchen new --web`, `kitchen icon fetch`): the site's title, certificate and icon.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "bmp", "webp"] }
 # `kitchen i18n check`: the Fluent parser the app itself uses.
 fluent-syntax = "0.12"
 

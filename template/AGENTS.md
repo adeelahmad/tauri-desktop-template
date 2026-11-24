@@ -142,6 +142,9 @@ This build has:
 - `linux`: also Linux installers (.AppImage, .deb).
 {% endif -%}
 {% endif -%}
+{% if web_wrapper -%}
+- `web_wrapper` (cargo feature `web-wrapper`): one remote site as the app, `desktop-core/src/wrapper/` (settings, checks, pinning, rules, proxy) and `src-tauri/src/wrapper/` (window, menu, Preferences `ui/wrapper.html`, per-OS hooks in `macos.rs`, `windows.rs`, `linux.rs`). The site's window (`web-app`) must never get IPC or a capability; validate every new setting in `WrapperConfig::check`; never log header values or secrets (they are masked; secrets live in the keychain).
+{% endif -%}
 {% if tauri_plugins -%}
 - `tauri_plugins`: official Tauri plugins, permissions in `src-tauri/capabilities/`:
 {%- if tauri_dialog %} `tauri_dialog`{% endif %}

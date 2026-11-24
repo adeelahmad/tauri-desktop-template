@@ -800,3 +800,28 @@ licences-version = Version
 licences-licence = Licence
 licences-show = Show the licence texts
 licences-hide = Hide the licence texts
+
+## Web app wrapper: its native menu and Preferences window (src-tauri/src/wrapper, ui/wrapper.html).
+
+wrapper-menu-preferences = Preferences…
+wrapper-menu-edit = Edit
+wrapper-menu-view = View
+wrapper-menu-page = Page
+wrapper-menu-reload = Reload
+wrapper-menu-back = Back
+wrapper-menu-forward = Forward
+wrapper-menu-zoom-in = Zoom In
+wrapper-menu-zoom-out = Zoom Out
+wrapper-menu-actual-size = Actual Size
+wrapper-menu-capture = Toggle Key Capture
+wrapper-menu-mute = Mute / Unmute
+wrapper-menu-fill = Fill Form
+wrapper-prefs-title = Preferences
+wrapper-prefs-permissions = Permissions
+wrapper-prefs-site = Site
+wrapper-prefs-certificate = Certificate
+wrapper-prefs-keys = Keys
+wrapper-prefs-media = Media
+wrapper-prefs-features = Browser features
+wrapper-prefs-headers = Request headers
+wrapper-prefs-autofill = Form auto-fill

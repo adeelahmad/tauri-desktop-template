@@ -20,7 +20,7 @@
 //! [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
 //! development builds), [`untrusted`] (size caps and panic guards for outside input). Feature
 //! modules: `embed`, `pdf` (with `sandbox`, its child-process limits), `pgstore`, `watch`, `llm` and `meter` (cost
-//! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
+//! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`, `wrapper` and `keymap` (a remote site as a desktop app, feature `web-wrapper`),
 //! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`),
 //! `notices` (licence notices, feature `supply-chain`), `release` (update channels, feature
 //! `release-channels`), `bindings` (typed IPC: TypeScript types for the Tauri commands; feature
@@ -115,8 +115,12 @@ pub mod appearance;
 pub mod daemon;
 {% endif %}{% endif %}{% if http_api %}#[cfg(feature = "http-api")]
 pub mod http_api;
-{% endif %}{% if webview %}#[cfg(feature = "webview")]
+{% endif %}{% if webview or web_wrapper %}#[cfg(feature = "webview")]
 pub mod webview;
+{% endif %}{% if web_wrapper %}#[cfg(feature = "web-wrapper")]
+pub mod keymap;
+#[cfg(feature = "web-wrapper")]
+pub mod wrapper;
 {% endif %}{% if tray_menu %}#[cfg(feature = "tray-menu")]
 pub mod actions;
 {% endif %}{% if supply_chain %}#[cfg(feature = "supply-chain")]

@@ -37,6 +37,7 @@ feature afterwards.
 | `claude_mcp` | Bundles uv and registers a Python MCP server in Claude Desktop (config backed up first) |
 | `app_shell` | Custom titlebar (Windows and Linux buttons and drag region, macOS traffic lights over the content), six named themes in light, dark and system mode with no flash of the wrong theme, interface and editor fonts, and Settings in a second window (Cmd/Ctrl+,) with its own minimal capability. React and plain UI. Default off |
 | `i18n` | Translations with Fluent (`locales/<code>/app.ftl`; English, German and Arabic to start): the UI, native menus and tray, the test email and backend error messages (the error code stays the same). Plurals and numbers per language, dates from a small table, the OS language by default (`ui.language`), a language switcher in Settings that applies at once, right-to-left layouts with logical CSS. `kitchen generate locale <code> [--pseudo]` and `kitchen i18n check`. Default off |
+| `web_wrapper` | Wrap one https site as a native desktop app (`kitchen new kvm --web https://pikvm.local`): its own window with no IPC for the site, other origins in the default browser, the site's title and icon, persistent login, downloads, a native menu and Preferences. Optional: self-signed TLS for that origin only with SHA-256 pinning (`web_insecure_tls`), capture of every key with a release shortcut (`capture_keys`; CGEventTap, low-level hook, keyboard grab), microphone, webcam and screen sharing for that origin, start muted, custom headers, form auto-fill with keychain secrets, User-Agent, WebRTC/WASM/service worker switches, a deep-link scheme. Default off |
 | `tauri_plugins` | Official Tauri plugins, one answer each: dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log, http (URL allowlist), positioner, shell (explicit command list only). Default off |
 
 Always included: a file store with BM25, vector and hybrid (RRF) search, configurable
@@ -77,6 +78,7 @@ Generated from `kitchen/src/compat.rs`; the template's pre-hook (`hooks/compat.r
 | `macos_pkg` | `installers` | the release workflow builds it |
 | `install_scripts` | `installers` | they download what the release workflow builds |
 | `linux` | `installers` | the release workflow builds them |
+| `web_insecure_tls`, `capture_keys`, `web_microphone`, `web_muted`, `web_camera`, `web_screen` | `web_wrapper` | it is a choice about the wrapped web app |
 | `bundle_embedding_model` | `embeddings` | it puts that feature's model inside the installer |
 | `bundle_stt_model` | `stt` | it puts that feature's model inside the installer |
 | `bundle_tts_voice` | `tts` | it puts that feature's model inside the installer |
@@ -87,7 +89,7 @@ Warnings (it still generates):
 | Feature | Without | What is missing |
 |---|---|---|
 | `oauth` | `tauri_deep_link` | the deep-link redirect (oauth.redirect = deepLink) needs the deep-link plugin; without it sign-in uses the loopback redirect |
-| `ipc_worker`, `background_agent`, `daemon`, `updater`, `release_channels`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
+| `ipc_worker`, `background_agent`, `daemon`, `updater`, `release_channels`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `web_wrapper`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
 
 Licences checked for each feature (the pre-hook prints a notice for anything beyond MIT / Apache-2.0):
 
@@ -106,6 +108,7 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `oauth` | keyring: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `ipc_worker` | interprocess: 0BSD OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
+| `web_wrapper` | rustls: Apache-2.0 OR ISC OR MIT; webpki-roots: CDLA-Permissive-2.0; regex, keyring: MIT OR Apache-2.0 | webpki-roots (Mozilla's root certificates) is CDLA-Permissive-2.0: keep its licence text with the app |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
 | `i18n` | fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `kv` | redb: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |

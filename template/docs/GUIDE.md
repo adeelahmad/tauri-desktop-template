@@ -33,6 +33,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Postgres upgrades](#postgres-upgrades)
 - [Bundling models](#bundling-models)
 - [Key-value store and cache](#key-value-store-and-cache)
+- [Wrap a web app](#wrap-a-web-app)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
 - [Feature dependencies](#feature-dependencies)
@@ -867,6 +868,70 @@ Things to know before you ship:
 - **Licences.** Bundling redistributes the models: ship each model's licence (above) with
   the app, as you do for code. `kitchen features --check` lists them.
 
+## Wrap a web app
+
+With `web_wrapper` on, the app is one remote site in its own native window instead of the
+boilerplate UI: a PiKVM, a NAS, a router or any web tool you want in the Dock with its own
+icon. `kitchen new <name> --web <url>` asks the questions, reads the site's title, icon and
+certificate, and generates the app:
+
+```sh
+kitchen new kvm --web https://pikvm.local --insecure-tls --capture-keys
+#   site certificate SHA-256 3A:7F:...:C2 (self-signed or untrusted: pinned in the app; compare it with the device's own)
+#   site icon https://pikvm.local/share/apple-touch-icon.png (180px)
+cd kvm && kitchen start
+```
+
+On a terminal, plain `kitchen new kvm` first asks "Desktop app (boilerplate)" or "Web app
+(wrap a URL)", then the URL, "Ignore TLS certificate errors for this site?", "Capture all
+keys?", the release shortcut (default Ctrl+Alt+Shift+K), microphone, start muted, webcam
+and screen sharing (all default no). Every answer can be changed later in Preferences
+(Cmd/Ctrl+,). `kitchen icon fetch <url> [--insecure-tls]` remakes the icon set from the site.
+
+**What the site can and cannot do.** The site's window (`web-app`) has no Tauri IPC: it is
+in no capability, and the command guard refuses every call from a `web-*` window. Only the
+wrapped origin loads in it; links, `target=_blank` and `window.open` to anything else open
+in the default browser, and other schemes are refused. Cookies and storage persist in the
+app's data folder (`<data>/wrapper`), so a login survives restarts. Downloads go to the
+Downloads folder under a unique name, with a "Show in Finder/Explorer" button.
+
+**Self-signed certificates.** With "ignore TLS errors" on, a certificate error is accepted
+for the wrapped origin only, and only for the certificate pinned by its SHA-256: the one
+`kitchen new` saw (it prints it; compare it with the device's), or the first one the app sees.
+A different certificate is refused until you press Forget in Preferences. No local CA is
+installed and the system trust store is never touched.
+
+**Key capture.** Keys the OS would keep (Cmd+Tab, the Windows key, Alt+Tab, media keys) go
+to the page while capture is on. The release shortcut, or the window losing focus, gives
+them back; an overlay says how. `kitchen doctor` checks the macOS permission.
+
+**Customise.** `config/settings.json` (`wrapper`) sets defaults at build time, Preferences
+changes them at run time, and both are checked in one place (`WrapperConfig::check`):
+the User-Agent, request headers per URL pattern (`/api/*`, a full URL, or `re:` + a regex;
+values are literal, `${ENV}`, `config:<key>` or `keychain:<name>`, never logged and masked
+in Preferences), form auto-fill (pattern → CSS selector → value, on the wrapped origin only;
+secrets in the OS keychain; on load or from the Page menu), and switches for WebRTC,
+service workers and WebAssembly. A custom URL scheme (`deep_link_scheme`, needs
+`tauri_deep_link`; `kitchen enable deep_link --scheme kvm`) maps `kvm://path?x` to
+`<site>/path?x`, same origin only, and reaches a running instance with `single_instance`.
+
+**The proxy.** Headers on every request (scripts, `fetch`, WebSocket handshakes) need a hook
+the web view lacks on macOS and Linux, so there the app can run a loopback proxy
+(`proxy`: `auto` turns it on when a header rule exists, `on`, `off`): plain
+`http://127.0.0.1:<port>` with a per-launch token cookie, upstream TLS through rustls with
+the same pin, WebSockets proxied, `Set-Cookie` and `Location` rewritten for loopback, HTML
+untouched. WebRTC media does not go through it (fine for PiKVM, whose video still works).
+
+| | macOS (WKWebView) | Windows (WebView2) | Linux (WebKitGTK) |
+|---|---|---|---|
+| Pinned self-signed TLS | `didReceiveAuthenticationChallenge` | `ServerCertificateErrorDetected` | `load-failed-with-tls-errors` + `allow_tls_certificate_for_host` |
+| Key capture | CGEventTap; needs Accessibility and Input Monitoring (a first-run screen opens the panes) | `WH_KEYBOARD_LL`; **Ctrl+Alt+Del and Win+L stay with Windows** | keyboard grab: X11 `XGrabKeyboard`; Wayland only with the shortcuts-inhibit protocol (GNOME asks once), else the compositor keeps its shortcuts |
+| Microphone, webcam | prompts with the usage strings and entitlements (only when on) | allowed per origin | allowed per origin |
+| Screen sharing | needs Screen Recording (System Settings; on the first-run screen) | picker | portal (PipeWire) |
+| Mute | `_setPageMuted:` | `IsMuted` | `set_is_muted` |
+| Headers on every request | the loopback proxy | `WebResourceRequested` (no proxy) | the loopback proxy |
+| WebRTC / WASM / service workers off | page script | browser switches (`--disable-features=WebRtc`, `--noexpose_wasm`) + page script | WebKit setting (WebRTC) + page script |
+
 ## Key-value store and cache
 
 Two features, both off by default: `kitchen enable kv` and `kitchen enable cache`.
@@ -962,6 +1027,8 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
 | [`oauth`](../desktop-core/src/oauth.rs) | `oauth` | OAuth 2 / OpenID Connect sign-in (PKCE, browser, keychain) |
 | [`webview`](../desktop-core/src/webview.rs) | `webview` | Embedded web view policy: allowlist, isolation, message bridge |
+| [`wrapper`](../desktop-core/src/wrapper/mod.rs) | `web-wrapper` | The web app's settings and their one check, origin guard, deep links, certificate pinning, header and auto-fill rules, media permissions, the page script, the loopback proxy ([Wrap a web app](#wrap-a-web-app)) |
+| [`keymap`](../desktop-core/src/keymap.rs) | `web-wrapper` | Key codes from macOS, Windows and Linux to DOM `code`/`key`, modifiers, the release shortcut |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 | [`eval`](../desktop-core/src/eval.rs) | `evals` | Search and RAG evals: recall@k, MRR, nDCG@k, latency, baselines, LLM judge |
 
@@ -988,6 +1055,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`python`](../src-tauri/src/python.rs) | `python-example` | A Python child process behind a command |
 | [`claude`](../src-tauri/src/claude.rs) | `claude-mcp` | Register a Python MCP server in Claude Desktop through bundled uv |
 | [`webview`](../src-tauri/src/webview.rs) | `webview` | Remote pages in app windows: allowlist hook, isolation, no IPC, bridge |
+| [`wrapper`](../src-tauri/src/wrapper/mod.rs) | `web-wrapper` | The web app: its window, menu, Preferences, and the per-OS TLS, key capture, media and mute hooks |
 | [`eval`](../src-tauri/src/eval.rs) | `evals` | `--eval`: the command line of the search evals |
 
 ## Docs and checks
@@ -1034,6 +1102,7 @@ Generated from `kitchen/src/compat.rs`; the template's pre-hook (`hooks/compat.r
 | `macos_pkg` | `installers` | the release workflow builds it |
 | `install_scripts` | `installers` | they download what the release workflow builds |
 | `linux` | `installers` | the release workflow builds them |
+| `web_insecure_tls`, `capture_keys`, `web_microphone`, `web_muted`, `web_camera`, `web_screen` | `web_wrapper` | it is a choice about the wrapped web app |
 | `bundle_embedding_model` | `embeddings` | it puts that feature's model inside the installer |
 | `bundle_stt_model` | `stt` | it puts that feature's model inside the installer |
 | `bundle_tts_voice` | `tts` | it puts that feature's model inside the installer |
@@ -1044,7 +1113,7 @@ Warnings (it still generates):
 | Feature | Without | What is missing |
 |---|---|---|
 | `oauth` | `tauri_deep_link` | the deep-link redirect (oauth.redirect = deepLink) needs the deep-link plugin; without it sign-in uses the loopback redirect |
-| `ipc_worker`, `background_agent`, `daemon`, `updater`, `release_channels`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
+| `ipc_worker`, `background_agent`, `daemon`, `updater`, `release_channels`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `web_wrapper`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
 
 Licences checked for each feature (the pre-hook prints a notice for anything beyond MIT / Apache-2.0):
 
@@ -1063,6 +1132,7 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `oauth` | keyring: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `ipc_worker` | interprocess: 0BSD OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
+| `web_wrapper` | rustls: Apache-2.0 OR ISC OR MIT; webpki-roots: CDLA-Permissive-2.0; regex, keyring: MIT OR Apache-2.0 | webpki-roots (Mozilla's root certificates) is CDLA-Permissive-2.0: keep its licence text with the app |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
 | `i18n` | fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `kv` | redb: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |

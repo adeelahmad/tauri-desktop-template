@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="wrapper-prefs-title">Preferences</title>
+    <link rel="stylesheet" href="wrapper.css" />
+    <script src="wrapper.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1 data-i18n="wrapper-prefs-title">Preferences</h1>
+      <p id="problems" class="warn" role="alert" hidden></p>
+
+      <section id="permissions" hidden>
+        <h2 data-i18n="wrapper-prefs-permissions">Permissions</h2>
+        <p>
+          Key capture takes keys such as Cmd+Tab away from macOS, which needs two permissions. Open each pane, switch
+          this app on, then come back: this page notices by itself.
+        </p>
+        <ul id="perm-list"></ul>
+      </section>
+
+      <form id="form">
+        <section>
+          <h2 data-i18n="wrapper-prefs-site">Site</h2>
+          <label>Address <input name="url" type="url" required spellcheck="false" /></label>
+          <label>Zoom <input name="zoom" type="number" min="0.25" max="5" step="0.05" /></label>
+          <label>User-Agent (empty: the web view's own) <input name="userAgent" spellcheck="false" /></label>
+          <label
+            >Proxy
+            <select name="proxy">
+              <option value="auto">Automatic (only when header rules need it)</option>
+              <option value="on">Always</option>
+              <option value="off">Never</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
+          <h2 data-i18n="wrapper-prefs-certificate">Certificate</h2>
+          <label class="check"
+            ><input name="insecureTls" type="checkbox" /> Accept this site's own certificate (self-signed)</label
+          >
+          <p class="warn">
+            Only for a device you own on a network you trust. The certificate is pinned by its SHA-256 the first time;
+            a different one is refused until you forget the pin.
+          </p>
+          <p>Pinned: <code id="pin">none</code> <button type="button" id="forget">Forget</button></p>
+        </section>
+
+        <section>
+          <h2 data-i18n="wrapper-prefs-keys">Keys</h2>
+          <label class="check"><input name="captureKeys" type="checkbox" /> Capture all keys for the page</label>
+          <label class="check"><input name="startCaptured" type="checkbox" /> Start captured when the window is focused</label>
+          <label
+            >Release shortcut <input name="releaseShortcut" spellcheck="false" />
+            <button type="button" id="record">Record</button></label
+          >
+        </section>
+
+        <section>
+          <h2 data-i18n="wrapper-prefs-media">Media</h2>
+          <label class="check"><input name="microphone" type="checkbox" /> Allow the microphone</label>
+          <label class="check"><input name="camera" type="checkbox" /> Allow the camera</label>
+          <label class="check"><input name="screen" type="checkbox" /> Allow screen sharing</label>
+          <label class="check"><input name="muted" type="checkbox" /> Mute the page</label>
+        </section>
+
+        <section>
+          <h2 data-i18n="wrapper-prefs-features">Browser features</h2>
+          <label class="check"><input name="features.webrtc" type="checkbox" /> WebRTC</label>
+          <label class="check"><input name="features.serviceWorkers" type="checkbox" /> Service workers</label>
+          <label class="check"><input name="features.wasm" type="checkbox" /> WebAssembly</label>
+        </section>
+
+        <section>
+          <h2 data-i18n="wrapper-prefs-headers">Request headers</h2>
+          <p class="hint">
+            Pattern: <code>/api/*</code> (on this site), <code>https://cdn.example.com/*</code>, or <code>re:</code> and a
+            regular expression. Value: text, <code>${ENV_VAR}</code>, <code>config:path</code> or
+            <code>keychain:name</code>. Saved values show as dots.
+          </p>
+          <div id="headers"></div>
+          <button type="button" id="add-header">Add header</button>
+        </section>
+
+        <section>
+          <h2 data-i18n="wrapper-prefs-autofill">Form auto-fill</h2>
+          <label class="check"><input name="fillOnLoad" type="checkbox" /> Fill when a page loads (else: Page → Fill Form)</label>
+          <div id="autofill"></div>
+          <button type="button" id="add-fill">Add field</button>
+          <p class="hint">Keep passwords in the keychain and use <code>keychain:name</code> as the value:</p>
+          <label>Keychain name <input id="secret-name" spellcheck="false" /></label>
+          <label>Secret <input id="secret-value" type="password" autocomplete="off" /></label>
+          <button type="button" id="save-secret">Save in keychain</button>
+        </section>
+
+        <p>
+          <button type="submit">Save</button> <span id="status" role="status"></span>
+          <button type="button" id="restart" hidden>Restart now</button>
+        </p>
+      </form>
+    </main>
+  </body>
+</html>

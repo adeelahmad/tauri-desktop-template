@@ -101,6 +101,8 @@ mod python;
 mod mcp;
 {% endif %}{% if webview %}#[cfg(all(desktop, feature = "webview"))]
 mod webview;
+{% endif %}{% if web_wrapper %}#[cfg(all(desktop, feature = "web-wrapper"))]
+mod wrapper;
 {% endif %}{% if http_api %}#[cfg(all(desktop, feature = "http-api"))]
 mod http;
 {% endif %}{% if evals %}#[cfg(feature = "evals")]
@@ -693,7 +695,7 @@ fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, CommandError>
 
 {% if oauth %}/// Where the browser returns with `oauth.redirect = deepLink` (the app's own URL scheme).
 #[cfg(feature = "oauth")]
-const OAUTH_DEEP_LINK: &str = "{{project-name}}://oauth/callback";
+const OAUTH_DEEP_LINK: &str = "{% if deep_link_scheme and deep_link_scheme != "" %}{{deep_link_scheme}}{% else %}{{project-name}}{% endif %}://oauth/callback";
 
 /// Sign-in: providers, who is signed in, and the redirect in use (feature `oauth`).
 #[cfg(feature = "oauth")]
@@ -1340,15 +1342,38 @@ pub fn run() {
         if let Some((lock, listener)) = instance {
             app.manage(single::Held(lock));
             let handle = app.handle().clone();
-            single::listen(listener, move || {
-                if let Some(w) = handle.get_webview_window("main") {
+            single::listen_args(listener, move |_args| {
+                if let Some(w) = handle.get_webview_window("main"){% if web_wrapper %}.or_else(|| handle.get_webview_window("web-app")){% endif %} {
                     let _ = w.unminimize();
                     let _ = w.show();
                     let _ = w.set_focus();
                 }
-            });
+{% if web_wrapper %}                // A deep link another launch was opened with (Windows, Linux).
+                #[cfg(feature = "web-wrapper")]
+                for a in _args.iter().filter(|a| a.starts_with(&format!("{}:", wrapper::SCHEME))) {
+                    wrapper::open_link(&handle, a);
+                }
+{% endif %}            });
         }
-        // macOS: "Settings…" (Cmd+,) in the app menu.
+{% if web_wrapper %}        // The web app: its window, menu and Preferences (feature `web-wrapper`).
+        #[cfg(all(desktop, feature = "web-wrapper"))]
+        {
+            wrapper::setup(app.handle())?;
+{% if tauri_plugins %}{% if tauri_deep_link %}            use tauri_plugin_deep_link::DeepLinkExt;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    wrapper::open_link(&handle, url.as_str());
+                }
+            });
+            // Opened by a link (Windows, Linux: the link is in this launch's arguments).
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    wrapper::open_link(app.handle(), url.as_str());
+                }
+            }
+{% endif %}{% endif %}        }
+{% endif %}        // macOS: "Settings…" (Cmd+,) in the app menu.
         #[cfg(all(target_os = "macos", feature = "app-shell"))]
         if let Err(e) = shell::add_menu_item(app.handle()) {
             log::warn!("could not add Settings to the app menu: {e}");
@@ -1356,7 +1381,7 @@ pub fn run() {
         Ok(())
     });
     builder
-        .invoke_handler({% if webview %}guarded({% endif %}tauri::generate_handler![
+        .invoke_handler({% if webview or web_wrapper %}guarded({% endif %}tauri::generate_handler![
             app_info,
             run_setup,
             ingest_text,
@@ -1501,10 +1526,22 @@ pub fn run() {
             webview::webview_close,
             #[cfg(all(desktop, feature = "webview"))]
             webview::webview_post,
+{% endif %}{% if web_wrapper %}            #[cfg(all(desktop, feature = "web-wrapper"))]
+            wrapper::wrapper_get,
+            #[cfg(all(desktop, feature = "web-wrapper"))]
+            wrapper::wrapper_set,
+            #[cfg(all(desktop, feature = "web-wrapper"))]
+            wrapper::wrapper_forget_pin,
+            #[cfg(all(desktop, feature = "web-wrapper"))]
+            wrapper::wrapper_set_secret,
+            #[cfg(all(desktop, feature = "web-wrapper"))]
+            wrapper::wrapper_open_privacy,
+            #[cfg(all(desktop, feature = "web-wrapper"))]
+            wrapper::wrapper_restart,
 {% endif %}{% if i18n %}            #[cfg(feature = "i18n")]
             i18n_bundle,
 {% endif %}            // kitchen:handlers
-        ]{% if webview %}){% endif %})
+        ]{% if webview or web_wrapper %}){% endif %})
         .build(tauri::generate_context!())
         .expect("error while building the app")
         .run(|app, event| {
@@ -1514,15 +1551,33 @@ pub fn run() {
         });
 }
 
-{% if webview %}/// Every command call goes through here: calls from embedded web views (feature `webview`)
-/// are refused before any command runs.
-#[cfg(all(desktop, feature = "webview"))]
+{% if webview or web_wrapper %}/// Every command call goes through here: calls from embedded web views (feature `webview`)
+/// and the web app's window (feature `web-wrapper`), all labelled `web-*`, are refused
+/// before any command runs.
+#[cfg(all(desktop, any(feature = "webview", feature = "web-wrapper")))]
 fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    move |invoke| webview::guard_invoke(invoke, handler)
+    move |invoke| refuse_web_pages(invoke, handler)
 }
 
-/// Without feature `webview` there are no web view windows to refuse.
-#[cfg(not(all(desktop, feature = "webview")))]
+{% if webview %}#[cfg(all(desktop, feature = "webview"))]
+fn refuse_web_pages(invoke: tauri::ipc::Invoke, handler: fn(tauri::ipc::Invoke) -> bool) -> bool {
+    webview::guard_invoke(invoke, handler)
+}
+
+{% endif %}/// The same check without the `webview` module (feature `web-wrapper` alone).
+#[cfg(all(desktop, feature = "web-wrapper", not(feature = "webview")))]
+fn refuse_web_pages(invoke: tauri::ipc::Invoke, handler: fn(tauri::ipc::Invoke) -> bool) -> bool {
+    let label = invoke.message.webview_ref().label().to_string();
+    if !desktop_core::webview::is_webview_label(&label) {
+        return handler(invoke);
+    }
+    log::warn!("{label}: refused command {}", invoke.message.command());
+    invoke.resolver.reject("commands are not available to web pages");
+    true
+}
+
+/// Without features `webview` and `web-wrapper` there are no web view windows to refuse.
+#[cfg(not(all(desktop, any(feature = "webview", feature = "web-wrapper"))))]
 fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> fn(tauri::ipc::Invoke) -> bool {
     handler
 }
@@ -1643,7 +1698,7 @@ mod tests {
             "target_os" => value.map(|os| os == std::env::consts::OS),
             "feature" => features!(
                 "embed", "postgres", "bm25", "watch", "ai", "llama", "mcp", "tts", "stt", "mail", "oauth", "telemetry", "plugins", "jobs-queue", "rclone", "tailscale",
-                "http-api", "webview", "single-instance", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "daemon", "python-example", "claude-mcp",
+                "http-api", "webview", "web-wrapper", "single-instance", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "daemon", "python-example", "claude-mcp",
                 "tray-menu", "app-shell", "supply-chain", "release-channels", "ts", "i18n", "kv", "cache",
             ),
             _ => None,
