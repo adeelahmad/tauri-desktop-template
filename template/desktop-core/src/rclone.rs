@@ -272,7 +272,9 @@ pub fn install(data_dir: &Path, progress: &mut dyn FnMut(u64, Option<u64>)) -> R
     let mut found = false;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| RcloneError::Download(e.to_string()))?;
-        if entry.name().rsplit('/').next() == Some(want.as_str()) {
+        // `name()` is fallible since zip 9 (bad UTF-8 or a corrupt header).
+        let hit = entry.name().map_err(|e| RcloneError::Download(e.to_string()))?.rsplit('/').next() == Some(want.as_str());
+        if hit {
             std::io::copy(&mut entry, &mut std::fs::File::create(&tmp)?)?;
             found = true;
             break;
