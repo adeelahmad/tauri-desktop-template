@@ -7,6 +7,13 @@
 //! Vector search runs on an HNSW cosine index; keyword search uses BM25 when it is on and
 //! installed, else Postgres full text; hybrid mode fuses both (see `fuse`).
 //!
+//! The server binaries come from their direct release download URL
+//! (`github.com/theseus-rs/postgresql-binaries/releases/download/...`), checked against a
+//! SHA-256 pinned here, so the first start makes no GitHub API call (that API allows only
+//! 60 unauthenticated requests an hour per IP). They are kept in the data folder, so later
+//! starts work offline. If the direct download fails and `GITHUB_TOKEN` is set, the crate's
+//! own API-based download is tried instead.
+//!
 //! - `APP_PG_URL`: use an existing server instead (it needs pgvector; BM25 is used when
 //!   `vchord_bm25` and `pg_tokenizer` are installed there).
 //! - `APP_PG_EXT_DIR`: install the bundle from a local folder (`lib/`, `share/extension/`)
@@ -46,6 +53,15 @@ const EXT_SHA256: &str = include_str!("../pg-ext.sha256");
 const TARGET: &str = env!("APP_TARGET");
 
 const DATABASE: &str = "app";
+
+/// Where the server archives are published (no API: plain release downloads).
+const SERVER_RELEASES: &str = "https://github.com/theseus-rs/postgresql-binaries/releases/download";
+/// SHA-256 of each `postgresql-{PG_VERSION}-{target}.tar.gz` (from the release's `.sha256` files).
+const SERVER_SHA256: &[(&str, &str)] = &[
+    ("aarch64-apple-darwin", "b7f002d554cd8a916d189e24b8f885d088b7909bb6d2de092f82c10274cb8251"),
+    ("x86_64-pc-windows-msvc", "4557b8251bb967c1c09eab57439fb2f1179d35c70debfc692fe637bb08d2f20c"),
+    ("x86_64-unknown-linux-gnu", "f668fbc685cdcb71d6a82f57035bed7d97b059e2d8a1d3adf317ec36c5e861d2"),
+];
 
 static SERVERS: OnceLock<Mutex<HashMap<PathBuf, (PostgreSQL, String)>>> = OnceLock::new();
 
@@ -174,6 +190,47 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The server archive's file name for `target`.
+fn server_asset(target: &str) -> String {
+    format!("postgresql-{PG_VERSION}-{target}.tar.gz")
+}
+
+/// The pinned SHA-256 of the server archive for `target`, if this build knows it.
+fn server_sha256(target: &str) -> Option<&'static str> {
+    SERVER_SHA256.iter().find(|(t, _)| *t == target).map(|(_, h)| *h)
+}
+
+/// The first SHA-256 in a `.sha256` file (`<hex>  <file>`).
+fn parse_sha256_file(text: &str) -> Option<&str> {
+    text.split_whitespace().next().filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Download the server archive from its direct release URL (no GitHub API), check its
+/// SHA-256 and unpack it into `dir` (the crate's versioned install folder).
+fn install_server(dir: &Path) -> Result<()> {
+    let target = postgresql_archive::matcher::target();
+    let asset = server_asset(target);
+    let url = format!("{SERVER_RELEASES}/{PG_VERSION}/{asset}");
+    let bytes = crate::net::get_bytes(&url, 512 * 1024 * 1024).map_err(|e| pg_err(format!("server download ({url}): {e}")))?;
+    let got = sha256_hex(&bytes);
+    let want = match server_sha256(target) {
+        Some(h) => h.to_string(),
+        None => {
+            // Not pinned in this build: use the release's own checksum file.
+            let sums = crate::net::get_bytes(&format!("{url}.sha256"), 4096).map_err(pg_err)?;
+            parse_sha256_file(&String::from_utf8_lossy(&sums)).ok_or_else(|| pg_err(format!("no SHA-256 in {url}.sha256")))?.to_string()
+        }
+    };
+    if !want.eq_ignore_ascii_case(&got) {
+        return Err(pg_err(format!("{asset}: SHA-256 {got} does not match {want}")));
+    }
+    let mut dirs = postgresql_archive::extractor::ExtractDirectories::default();
+    let all = regex_lite::Regex::new(".*").map_err(pg_err)?;
+    dirs.add_mapping(all, dir.to_path_buf());
+    postgresql_archive::configuration::theseus::extract(&bytes, &dirs).map_err(pg_err)?;
+    Ok(())
+}
+
 /// Whether the embedded server can run here (or `APP_PG_URL` is set).
 pub fn available() -> bool {
     std::env::var("APP_PG_URL").is_ok_and(|u| !u.is_empty()) || embedded_supported()
@@ -223,6 +280,19 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
         crate::net::check("https://github.com/").map_err(|e| pg_err(format!("Postgres is not installed yet: {e}")))?;
     }
     let mut pg = PostgreSQL::new(settings);
+    // `new` appends the exact version, so this is `install/<PG_VERSION>`; once it exists the
+    // crate uses it as is and never goes online.
+    let install_dir = pg.settings().installation_dir.clone();
+    if !install_dir.is_dir() {
+        if let Err(e) = install_server(&install_dir) {
+            // The crate's own download lists releases through the GitHub API, which only works
+            // reliably with a token.
+            if std::env::var("GITHUB_TOKEN").map_or(true, |t| t.is_empty()) {
+                return Err(e);
+            }
+            log::warn!("{e}; trying the GitHub API with GITHUB_TOKEN");
+        }
+    }
     pg.setup().map_err(pg_err)?;
     let root = pg.settings().binary_dir().parent().map(Path::to_path_buf).ok_or_else(|| pg_err("no install folder"))?;
     install_extensions(&root)?;
@@ -543,6 +613,33 @@ fn plain_path(path: std::path::PathBuf) -> std::path::PathBuf {
         }
     }
     path
+}
+
+#[cfg(test)]
+mod server_tests {
+    use super::*;
+
+    #[test]
+    fn every_supported_target_is_pinned() {
+        for target in ["aarch64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] {
+            let h = server_sha256(target).unwrap();
+            assert_eq!(parse_sha256_file(h), Some(h));
+        }
+        assert_eq!(server_sha256("riscv64gc-unknown-linux-gnu"), None);
+    }
+
+    #[test]
+    fn asset_name_matches_the_release() {
+        assert_eq!(server_asset("x86_64-unknown-linux-gnu"), format!("postgresql-{PG_VERSION}-x86_64-unknown-linux-gnu.tar.gz"));
+    }
+
+    #[test]
+    fn sha256_file_is_parsed() {
+        let h = "f668fbc685cdcb71d6a82f57035bed7d97b059e2d8a1d3adf317ec36c5e861d2";
+        assert_eq!(parse_sha256_file(&format!("{h}  postgresql.tar.gz\n")), Some(h));
+        assert_eq!(parse_sha256_file("not a hash  file"), None);
+        assert_eq!(parse_sha256_file(""), None);
+    }
 }
 
 #[cfg(test)]

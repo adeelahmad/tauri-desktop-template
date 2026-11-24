@@ -664,7 +664,9 @@ macOS, Windows and Linux, smoke-tests it on a real server and attaches it to thi
 `APP_PG_EXT_URL` at it and paste its `SHA256SUMS` into `desktop-core/pg-ext.sha256`. The
 release must download without a login. `APP_PG_EXT_DIR` installs it from a local folder instead.
 pgvector there is built without `-march=native`, so no AVX-512 is needed.
-The first server download calls the GitHub API; set `GITHUB_TOKEN` if you hit its rate limit.
+The server itself comes from its direct release download (no GitHub API call, so no rate
+limit), checked against a pinned SHA-256 and kept in the app data folder, so later starts are
+offline. If that download fails and `GITHUB_TOKEN` is set, the API-based download is tried.
 {% if bm25 %}
 VectorChord-BM25 is dual-licensed AGPLv3 / Elastic License 2.0 (pg_tokenizer is Apache-2.0).
 If you ship it, follow one of them: ELv2 forbids offering it as a managed service; AGPLv3

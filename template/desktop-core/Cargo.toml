@@ -17,7 +17,7 @@ embed = ["dep:fastembed", "dep:ort"]
 {% endif -%}
 {% if postgres -%}
 # Embedded Postgres 16 + pgvector store (server and extension download on first use).
-postgres = ["dep:postgresql_embedded", "dep:postgres", "dep:zip", "dep:getrandom"]
+postgres = ["dep:postgresql_embedded", "dep:postgresql_archive", "dep:regex-lite", "dep:postgres", "dep:zip", "dep:getrandom"]
 {% if bm25 -%}
 # BM25 keyword ranking in Postgres (VectorChord-BM25 + pg_tokenizer), for hybrid search.
 bm25 = ["postgres"]
@@ -139,6 +139,9 @@ zip = { version = "2", optional = true, default-features = false, features = ["d
 {% endif -%}
 {% if postgres -%}
 postgresql_embedded = { version = "0.22", optional = true, features = ["blocking"] }
+# Already in the tree through postgresql_embedded: unpacks the server archive we download directly.
+postgresql_archive = { version = "0.22", optional = true, default-features = false, features = ["theseus"] }
+regex-lite = { version = "0.1", optional = true }
 postgres = { version = "0.19", optional = true }
 getrandom = { version = "0.3", optional = true }
 {% endif -%}
