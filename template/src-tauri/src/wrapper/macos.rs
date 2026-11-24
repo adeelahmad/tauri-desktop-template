@@ -6,7 +6,8 @@
 //!   server-trust challenge from the site's host and port (and only with `insecureTls`), the
 //!   leaf certificate's SHA-256 is checked against the pin: a match (or the first use) is
 //!   accepted with `NSURLCredential credentialForTrust:`, anything else is cancelled. Every
-//!   other challenge gets the default handling.
+//!   other challenge gets the default handling. The delegate is set again afterwards so
+//!   WebKit sees the new method, and the window loads the site only after this is in place.
 //! - **Mute** uses WKWebView's `_setPageMuted:` where it exists (macOS 11+), plus the page
 //!   script's fallback.
 //! - **Key capture** is a session-level `CGEventTap` on the main run loop. Taking keys away
@@ -122,9 +123,23 @@ unsafe fn add_challenge_handler(wv: *mut AnyObject) {
         };
         let cls: &AnyClass = delegate.class();
         let sel = sel!(webView:didReceiveAuthenticationChallenge:completionHandler:);
-        if cls.instance_method(sel).is_some() {
-            return; // added before, or the delegate answers challenges itself
+        if cls.instance_method(sel).is_none() {
+            add_method(cls, sel);
         }
+        // WebKit reads which optional methods a navigation delegate has when the delegate is
+        // set, so a method added afterwards is never called. Setting the same delegate again
+        // makes it look again.
+        let _: () = msg_send![wv, setNavigationDelegate: delegate];
+    }
+}
+
+/// Add `did_receive_challenge` to `cls` as `sel`.
+///
+/// # Safety
+/// `cls` must be the navigation delegate's class and `sel` the challenge selector.
+unsafe fn add_method(cls: &AnyClass, sel: Sel) {
+    // SAFETY: see the callers; the IMP's arguments match the type string.
+    unsafe {
         type Imp = unsafe extern "C-unwind" fn(
             *mut AnyObject,
             Sel,

@@ -260,7 +260,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
         let app = app.clone();
         move |_w: tauri::Webview, event: DownloadEvent<'_>| download(&app, event)
     };
-    let mut b = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
+    let mut b = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url.clone()))
         .title(title)
         .inner_size(1280.0, 800.0)
         .min_inner_size(480.0, 360.0)
@@ -287,7 +287,13 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
         features: c.config.features,
         headers: if state.proxy.is_none() { Some((c.clone(), app.config().identifier.clone())) } else { None },
     };
+    let reload = hooks.pins.is_some();
     w.with_webview(move |pv| platform::install(pv, hooks))?;
+    if reload {
+        // The first request can reach the server before the certificate hook is in place
+        // (macOS), so load the site again once it is. Runs after `install` on the UI thread.
+        w.navigate(url.clone())?;
+    }
     let app2 = app.clone();
     w.on_window_event(move |e| match e {
         tauri::WindowEvent::Focused(true) => {

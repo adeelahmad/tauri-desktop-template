@@ -961,6 +961,8 @@ impl WebAnswers {
             set.push(("release_shortcut".into(), self.release_shortcut.clone()));
         }
         if !self.scheme.is_empty() {
+            // The scheme is only registered (Info.plist, tauri.conf.json) with the plugin on.
+            on.extend(["tauri_plugins".into(), "tauri_deep_link".into()]);
             set.push(("deep_link_scheme".into(), self.scheme.clone()));
         }
         (on, set)

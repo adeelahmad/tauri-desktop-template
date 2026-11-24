@@ -111,7 +111,7 @@ pub fn stop() {
     platform::capture_stop(&s.app);
     let mut k = lock(s);
     if !platform::KEYS_ARRIVE_IN_PAGE {
-        let held: Vec<&'static str> = k.down.drain(..).collect();
+        let held: Vec<&'static str> = std::mem::take(&mut k.down);
         for code in held.into_iter().rev() {
             let mods = k.mods.update(code, false);
             eval(KeyEvent { down: false, code, mods, repeat: false }.script());
