@@ -59,6 +59,9 @@ Everything runs on the user's machine.
 {% if email -%}
 | Email over SMTP in Rust (SSL/TLS on 465, STARTTLS on 587, `AUTH PLAIN`/`LOGIN`, HTML, attachments) on the rustls already in the tree; the password stays in an owner-only file. Turn on under Settings → Email | `desktop-core/src/mail.rs` | `mail` |
 {% endif -%}
+{% if evals -%}
+| Search and RAG evals: recall@k, MRR, nDCG@k and p50/p95 latency for keyword (BM25), vector and hybrid search, an optional AI answer path with an LLM faithfulness judge (skipped without an API key), and a baseline check that fails on a regression. `<app> --eval [dataset] [--baseline file]`, `kitchen eval`, `make eval`; sample data in `evals/` (see [docs/GUIDE.md](docs/GUIDE.md#search-evals)) | `desktop-core/src/eval.rs`, `src-tauri/src/eval.rs` | `evals` |
+{% endif -%}
 {% if oauth -%}
 | Sign-in with OAuth 2 / OpenID Connect: Google, GitHub, Microsoft or any OIDC provider (discovery). Authorization code + PKCE in the system browser, back through a loopback server on `127.0.0.1` (random port) or the app's deep link; `state`, `nonce` and the ID token's signature checked; tokens refreshed before they expire, revoked on sign-out; tokens and client secrets in the OS keychain only. Settings → Sign-in (see [Sign-in](#sign-in-oauth)) | `desktop-core/src/oauth.rs` | `oauth` |
 {% endif -%}

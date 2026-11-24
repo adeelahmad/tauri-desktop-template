@@ -12,7 +12,7 @@
 
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
-use crate::{audit, doctor, generate, hooks, service, Error, Options, Report, Result};
+use crate::{audit, doctor, eval, generate, hooks, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -56,6 +56,9 @@ Usage:
   kitchen eject vite|tauri|cargo       where that tool's own config lives, and what Kitchen adds
   kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
                                        the app's daemon as an OS service (feature daemon)
+  kitchen eval [dataset] [--baseline <file>] [--threshold 0.02] [--k 5] [--answers]
+                                       the app's search evals (<app> --eval, feature evals);
+                                       fails on a regression against the baseline
   kitchen build                        cargo tauri build, as is
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
@@ -82,6 +85,9 @@ const VALUED: &[&str] = &[
     "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "lines", "tag",
 ];
 
+/// `kitchen eval`'s options that take a value.
+const EVAL_VALUED: &[&str] = &["baseline", "threshold", "k"];
+
 impl Args {
     /// Parse `argv` (without the program name).
     pub fn parse<I, S>(argv: I) -> Self
@@ -95,7 +101,9 @@ impl Args {
             if let Some(opt) = w.strip_prefix("--") {
                 match opt.split_once('=') {
                     Some((k, v)) => a.options.push((k.to_string(), Some(v.to_string()))),
-                    None if VALUED.contains(&opt) => a.options.push((opt.to_string(), it.next())),
+                    None if VALUED.contains(&opt) || EVAL_VALUED.contains(&opt) => {
+                        a.options.push((opt.to_string(), it.next()))
+                    }
                     None => a.options.push((opt.to_string(), None)),
                 }
             } else if w == "-h" {
@@ -297,6 +305,20 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             lifecycle::execute(&plan, io_mode, "The app stopped.")
         }
         "test" => test(args, &project()?.root, io_mode),
+        "eval" => {
+            let p = project()?;
+            let abs = |s: Option<&str>| s.map(|s| eval::absolute(cwd, s));
+            let dataset = abs(args.words.get(1).map(String::as_str));
+            let baseline = abs(args.value("baseline"));
+            let a = eval::eval_args(
+                dataset.as_deref(),
+                baseline.as_deref(),
+                args.value("threshold"),
+                args.value("k"),
+                args.flag("answers"),
+            );
+            eval::run(&p, &a, &opts)
+        }
         "package" => {
             let root = project()?.root;
             let host = host()?;

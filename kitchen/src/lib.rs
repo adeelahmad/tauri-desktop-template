@@ -21,6 +21,7 @@
 //! kitchen publish --yes                    # a GitHub release with them
 //! kitchen audit                            # cargo-deny, cargo-audit, npm audit, pip-audit
 //! kitchen service install                  # run the app's daemon as a user service
+//! kitchen eval --baseline evals/baseline.json  # search evals; fails on a regression
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
 //!
@@ -50,12 +51,13 @@
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
 //! generators), [`lifecycle`] (start, test, package, publish, eject), [`audit`] (supply-chain checks), [`doctor`] (machine
 //! checks), [`hooks`] (the app's git hooks), [`service`] (the app's daemon as a service),
-//! [`mcp`] (the MCP server), [`cli`] (arguments).
+//! [`eval`] (the app's search evals), [`mcp`] (the MCP server), [`cli`] (arguments).
 
 pub mod audit;
 pub mod cli;
 pub mod compat;
 pub mod doctor;
+pub mod eval;
 pub mod generate;
 pub mod hooks;
 pub mod lifecycle;

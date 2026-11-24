@@ -58,7 +58,7 @@
 //! [`app_config`]; the user's run-time settings are `settings.json`.
 //!
 //! Modules: `app_config` and `config_layers` (build-time config), `service` (the backend), `paths` (folders and profiles), `guard` (window
-//! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
+//! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`, `eval` (`--eval`),
 //! `update`, `single`, `python`, `claude`, `webview`, `http` (the local REST API), `shell`
 //! (titlebar, themes, Settings window).
 //!
@@ -99,6 +99,8 @@ mod mcp;
 mod webview;
 {% endif %}{% if http_api %}#[cfg(all(desktop, feature = "http-api"))]
 mod http;
+{% endif %}{% if evals %}#[cfg(feature = "evals")]
+mod eval;
 {% endif %}pub mod app_config;
 pub mod config_layers;
 pub mod error;
@@ -260,6 +262,8 @@ struct Features {
     supply_chain: bool,
     /// Update channels, staged rollout and rollback (`release-channels`, desktop).
     release_channels: bool,
+    /// Search and RAG evals, `--eval` (`evals`).
+    evals: bool,
 }
 
 fn features() -> Features {
@@ -296,6 +300,7 @@ fn features() -> Features {
         tray_menu: cfg!(all(desktop, feature = "tray-menu")),
         supply_chain: cfg!(feature = "supply-chain"),
         release_channels: cfg!(all(desktop, feature = "release-channels")),
+        evals: cfg!(feature = "evals"),
     }
 }
 
@@ -953,6 +958,21 @@ pub fn service_main(args: &[String]) -> i32 {
 #[cfg(not(all(desktop, feature = "daemon")))]
 pub fn service_main(_args: &[String]) -> i32 {
     eprintln!("this build has no service support (feature daemon)");
+    2
+}
+
+/// `<app> --eval [dataset] [--baseline file] ...`: score search (and optionally AI answers)
+/// on a labelled dataset and print a JSON report (feature `evals`). Returns the exit code:
+/// 0 passed, 1 a regression against the baseline, 2 an error.
+#[cfg(feature = "evals")]
+pub fn eval_main(args: &[String]) -> i32 {
+    eval::main(args)
+}
+
+/// `<app> --eval` where evals are not built in: says so and returns 2.
+#[cfg(not(feature = "evals"))]
+pub fn eval_main(_args: &[String]) -> i32 {
+    eprintln!("this build has no evals (feature evals)");
     2
 }
 
