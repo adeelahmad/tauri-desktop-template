@@ -92,7 +92,9 @@ pub fn serve() -> i32 {
         }
     };
     let local = Arc::new(Local::default());
-    for conn in listener.incoming() {
+{% if background_jobs %}{% if background_agent %}    #[cfg(all(feature = "background-agent", feature = "jobs-queue"))]
+    crate::jobs_autostart(&local);
+{% endif %}{% endif %}    for conn in listener.incoming() {
         let Ok(conn) = conn else { continue };
         let local = local.clone();
         std::thread::spawn(move || {

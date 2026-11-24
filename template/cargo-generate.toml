@@ -60,6 +60,11 @@ type = "bool"
 prompt = "Send email over SMTP (native Rust: SSL/TLS on 465, STARTTLS on 587, login, attachments)?"
 default = false
 
+[placeholders.background_jobs]
+type = "bool"
+prompt = "Background jobs: a persistent queue with retries (exponential backoff), dead letters, cron and interval schedules, cancel and timeouts?"
+default = false
+
 [placeholders.plugins]
 type = "bool"
 prompt = "Plugin API: compiled-in app extensions (ingest hooks, extra search sources, their own methods and settings), with an example plugin?"
@@ -275,6 +280,9 @@ ignore = ["desktop-core/src/mail.rs"]
 
 [conditional.'!stt']
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
+
+[conditional.'!background_jobs']
+ignore = ["desktop-core/src/queue.rs", "desktop-core/src/job_types"]
 
 [conditional.'!plugins']
 ignore = ["desktop-core/src/plugin.rs"]

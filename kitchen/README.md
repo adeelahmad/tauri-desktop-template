@@ -29,6 +29,7 @@ kitchen generate module invoices --config                     # desktop-core mod
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_csv                           # Tauri command + backend method
 kitchen generate page Reports                                 # React page on the main screen
+kitchen generate job send_digest                              # background job type (needs background_jobs)
 
 kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers
 kitchen dev | kitchen build       # cargo tauri dev / build
@@ -61,9 +62,20 @@ Each generator writes a new file that already has docs and a test. It wires that
 the `// kitchen:…` marker comments in the app (`kitchen doctor` checks they are there).
 
 To change what a generator writes, put your own copy of the file template in
-`.kitchen/templates/`. The files are `module.rs`, `module_config.rs`, `command.rs` and
-`page.jsx`; copy the originals from [`templates/`](templates). They use the variables
+`.kitchen/templates/`. The files are `module.rs`, `module_config.rs`, `command.rs`,
+`page.jsx` and `job.rs`; copy the originals from [`templates/`](templates). They use the variables
 `{{name}}`, `{{Name}}`, `{{camelName}}` and `{{Title}}`.
+
+### Background jobs
+
+`kitchen generate job <name>` needs the `background_jobs` feature (`kitchen enable
+background_jobs`). It writes `desktop-core/src/job_types/<name>.rs`: a job type with a typed
+payload, a doc example that runs it through a queue, and a test. It registers the type at the
+`// kitchen:job-mods` and `// kitchen:jobs` markers in `desktop-core/src/job_types/mod.rs`.
+After that the job can be enqueued from the UI (`invoke('jobs_enqueue', { kind: '<name>', payload })`),
+from Rust (`queue.enqueue_job::<Name>(&payload, Enqueue::default())`), or put on a cron or
+interval schedule in Settings → Jobs. Failed attempts retry with exponential backoff and
+jitter, then wait in the dead letters until retried.
 
 ## MCP
 
@@ -71,7 +83,7 @@ To change what a generator writes, put your own copy of the file template in
 claude mcp add kitchen -- kitchen mcp
 ```
 
-The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor` and
+The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor` and
 `new`. Each one takes an optional `project` folder, and the ones that change files also take
 `dry_run`.
 

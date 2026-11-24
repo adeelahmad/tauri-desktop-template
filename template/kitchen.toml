@@ -45,6 +45,7 @@ linux = {% if linux %}true{% else %}false{% endif %}
 claude_mcp = {% if claude_mcp %}true{% else %}false{% endif %}
 mobile = {% if mobile %}true{% else %}false{% endif %}
 plugins = {% if plugins %}true{% else %}false{% endif %}
+background_jobs = {% if background_jobs %}true{% else %}false{% endif %}
 rclone = {% if rclone %}true{% else %}false{% endif %}
 tailscale = {% if tailscale %}true{% else %}false{% endif %}
 tauri_plugins = {% if tauri_plugins %}true{% else %}false{% endif %}
