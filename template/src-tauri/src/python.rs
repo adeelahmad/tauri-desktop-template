@@ -58,6 +58,9 @@ fn interpreters(script: &Path) -> Vec<Command> {
         let mut c = Command::new(prog);
         c.args(pre).arg(script);
         desktop_core::net::apply_env(&mut c);
+        // python.exe is a console program: without this the windowed app opens a console for it.
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000); // CREATE_NO_WINDOW
         c
     };
     if let Ok(p) = std::env::var("APP_PYTHON") {
