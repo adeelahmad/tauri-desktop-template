@@ -27,38 +27,43 @@ fn schema(props: Value, required: &[&str]) -> Value {
     json!({"type": "object", "properties": props, "required": required, "additionalProperties": false})
 }
 
+/// Every tool this app offers (before the policy in `McpConfig` filters them).
+pub fn tool_list() -> Vec<Tool> {
+    let mut t = vec![
+        Tool {
+            name: "search".into(),
+            description: "Search the documents indexed in this app. Returns the best passages with their source file and page.".into(),
+            input_schema: schema(json!({"query": {"type": "string"}, "k": {"type": "integer", "minimum": 1, "maximum": 100}}), &["query"]),
+            read_only: true,
+        },
+        Tool { name: "status".into(), description: "How many chunks are indexed, and with which store and model.".into(), input_schema: schema(json!({}), &[]), read_only: true },
+        Tool {
+            name: "ingest_text".into(),
+            description: "Add text to the index under a source name.".into(),
+            input_schema: schema(json!({"source": {"type": "string"}, "text": {"type": "string"}}), &["source", "text"]),
+            read_only: false,
+        },
+        Tool {
+            name: "remove_source".into(),
+            description: "Remove everything indexed from one source.".into(),
+            input_schema: schema(json!({"source": {"type": "string"}}), &["source"]),
+            read_only: false,
+        },
+    ];
+    if cfg!(feature = "ai") {
+        t.push(Tool {
+            name: "ask".into(),
+            description: "Answer a question from the indexed documents with this app's own AI settings, with numbered citations.".into(),
+            input_schema: schema(json!({"question": {"type": "string"}}), &["question"]),
+            read_only: true,
+        });
+    }
+    t
+}
+
 impl Handler for Tools {
     fn tools(&self) -> Vec<Tool> {
-        let mut t = vec![
-            Tool {
-                name: "search".into(),
-                description: "Search the documents indexed in this app. Returns the best passages with their source file and page.".into(),
-                input_schema: schema(json!({"query": {"type": "string"}, "k": {"type": "integer", "minimum": 1, "maximum": 100}}), &["query"]),
-                read_only: true,
-            },
-            Tool { name: "status".into(), description: "How many chunks are indexed, and with which store and model.".into(), input_schema: schema(json!({}), &[]), read_only: true },
-            Tool {
-                name: "ingest_text".into(),
-                description: "Add text to the index under a source name.".into(),
-                input_schema: schema(json!({"source": {"type": "string"}, "text": {"type": "string"}}), &["source", "text"]),
-                read_only: false,
-            },
-            Tool {
-                name: "remove_source".into(),
-                description: "Remove everything indexed from one source.".into(),
-                input_schema: schema(json!({"source": {"type": "string"}}), &["source"]),
-                read_only: false,
-            },
-        ];
-        if cfg!(feature = "ai") {
-            t.push(Tool {
-                name: "ask".into(),
-                description: "Answer a question from the indexed documents with this app's own AI settings, with numbered citations.".into(),
-                input_schema: schema(json!({"question": {"type": "string"}}), &["question"]),
-                read_only: true,
-            });
-        }
-        t
+        tool_list()
     }
 
     fn call(&self, name: &str, args: Value) -> Result<Value, String> {
@@ -108,6 +113,7 @@ pub fn main(load: impl Fn(&Path) -> Settings, service: Arc<dyn Service>) -> i32 
         }
     }
     let tools = Tools { service };
+    let approvals = desktop_core::mcp::Approvals::new(&data_dir);
     let server = Server {
         name: NAME.into(),
         version: env!("CARGO_PKG_VERSION").into(),
@@ -115,6 +121,8 @@ pub fn main(load: impl Fn(&Path) -> Settings, service: Arc<dyn Service>) -> i32 
         config: settings.config.mcp.clone(),
         audit_file: Some(data_dir.join("mcp-audit.jsonl")),
         handler: &tools,
+        // Tools set to "ask" wait for an answer in the running app (Settings → MCP server).
+        approver: Some(&approvals),
     };
     match server.serve_stdio() {
         Ok(()) => 0,
@@ -144,6 +152,8 @@ pub struct Setup {
     /// For Claude Code: `claude mcp add ...`.
     pub claude_code: String,
     pub claude_desktop_file: String,
+    /// Every tool name, for the per-tool policy in Settings.
+    pub tools: Vec<String>,
 }
 
 pub fn entry() -> Result<Value, String> {
@@ -161,7 +171,7 @@ pub fn setup() -> Result<Setup, String> {
     Ok(Setup { claude_code: match crate::paths::profile() {
             crate::paths::DEFAULT => format!("claude mcp add {NAME} -- \"{exe}\" --mcp"),
             p => format!("claude mcp add {NAME} -e APP_PROFILE={p} -- \"{exe}\" --mcp"),
-        }, claude_desktop_file: claude_desktop_config().display().to_string(), entry })
+        }, claude_desktop_file: claude_desktop_config().display().to_string(), entry, tools: tool_list().into_iter().map(|t| t.name).collect() })
 }
 
 /// Add (or update) `mcpServers.<NAME>` in an MCP client's JSON config, keeping everything

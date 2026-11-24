@@ -9,7 +9,8 @@
 //! - `check_update` / `install_update` (feature `updater`),
 //! - `agent_status` / `set_agent` (feature `background-agent`),
 //! - `python_call` (feature `python-example`),
-//! - `register_claude` (feature `claude-mcp`).
+//! - `register_claude` (feature `claude-mcp`),
+//! - `mcp_setup`, `mcp_register_claude`, `mcp_pending` and `mcp_decide` (feature `mcp`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -463,6 +464,41 @@ fn mcp_register_claude() -> Result<&'static str, String> {
     mcp::register(&mcp::claude_desktop_config(), mcp::entry()?)
 }
 
+/// MCP calls waiting for approval (tools set to "ask"), oldest first.
+#[cfg(feature = "mcp")]
+#[tauri::command(async)]
+fn mcp_pending(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "mcp_pending", Value::Null)
+}
+
+/// Approve or refuse a waiting MCP call; returns the calls still waiting.
+#[cfg(feature = "mcp")]
+#[tauri::command(async)]
+fn mcp_decide(state: tauri::State<AppState>, id: String, allow: bool) -> Result<Value, String> {
+    call(&state, "mcp_decide", json!({"id": id, "allow": allow}))
+}
+
+/// While the window runs (and the MCP server is on), tell `--mcp` processes that someone
+/// can answer "ask" calls; without this, they refuse those calls at once.
+#[cfg(feature = "mcp")]
+fn mcp_heartbeat() {
+    let spawned = std::thread::Builder::new().name("mcp-heartbeat".into()).spawn(|| loop {
+        let (config_dir, data_dir) = paths::app_dirs();
+        let q = desktop_core::mcp::Approvals::new(&data_dir);
+        if settings_at(&config_dir.join("settings.json")).config.mcp.enabled {
+            if let Err(e) = q.heartbeat() {
+                log::warn!("MCP approvals heartbeat: {e}");
+            }
+        } else {
+            q.stopped();
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    });
+    if let Err(e) = spawned {
+        log::warn!("MCP approvals heartbeat did not start: {e}");
+    }
+}
+
 #[cfg(all(desktop, feature = "ipc-worker"))]
 pub fn worker_main() -> i32 {
     let (config, data) = paths::app_dirs();
@@ -607,6 +643,8 @@ pub fn run() {
             paths::set_mobile_root(app.path().app_data_dir()?);
             start_logging();
         }
+        #[cfg(feature = "mcp")]
+        mcp_heartbeat();
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
         {
@@ -675,6 +713,10 @@ pub fn run() {
             mcp_setup,
             #[cfg(all(desktop, feature = "mcp"))]
             mcp_register_claude,
+            #[cfg(feature = "mcp")]
+            mcp_pending,
+            #[cfg(feature = "mcp")]
+            mcp_decide,
             remove_source,
             clear,
             #[cfg(all(desktop, feature = "updater"))]
@@ -709,6 +751,9 @@ fn on_exit(app: &tauri::AppHandle) {
     }
     #[cfg(feature = "telemetry")]
     desktop_core::telemetry::flush(std::time::Duration::from_secs(2));
+    // MCP "ask" calls are refused at once from now on, instead of waiting for a timeout.
+    #[cfg(feature = "mcp")]
+    desktop_core::mcp::Approvals::new(&paths::app_dirs().1).stopped();
     #[cfg(all(desktop, feature = "ipc-worker"))]
     {
         #[cfg(all(desktop, feature = "background-agent"))]

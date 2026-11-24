@@ -3,7 +3,13 @@
 //! The model is chosen at build time (`APP_EMBED_MODEL` in `.cargo/config.toml`) and can be
 //! overridden at run time with the same environment variable. Each model gets its task
 //! prefixes; Nomic v1.5 is cut to `APP_EMBED_DIM` (default 256) Matryoshka dimensions.
+//!
+//! `resources.onnxProvider` picks the ONNX Runtime execution provider. This build links
+//! ONNX Runtime's CPU provider only (`BUILT_PROVIDERS`), so another choice falls back to the
+//! CPU with a log line; enabling ort's `coreml`, `directml` or `cuda` feature and listing it
+//! there is all a GPU build needs.
 
+use crate::governor::OnnxProvider;
 use crate::{normalise, Embedder, Error, Result};
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use std::path::Path;
@@ -12,6 +18,9 @@ use std::sync::Mutex;
 /// Long chunks would pad a whole batch; embed the first ~200 tokens.
 pub const MAX_CHARS: usize = 800;
 const BATCH: usize = 16;
+
+/// The ONNX Runtime execution providers this binary has.
+pub const BUILT_PROVIDERS: &[OnnxProvider] = &[OnnxProvider::Cpu];
 
 pub const MODELS: &[&str] = &["nomic-embed-text-v1.5", "bge-small-en-v1.5", "all-MiniLM-L6-v2", "multilingual-e5-small"];
 
@@ -55,6 +64,15 @@ pub struct LocalEmbedder {
 impl LocalEmbedder {
     /// Load the configured model, downloading it into `cache` the first time.
     pub fn new(cache: &Path) -> Result<Self> {
+        Self::with_provider(cache, OnnxProvider::Cpu)
+    }
+
+    /// `new`, preferring the execution provider `preferred` when this build has it.
+    pub fn with_provider(cache: &Path, preferred: OnnxProvider) -> Result<Self> {
+        let provider = preferred.resolve(BUILT_PROVIDERS);
+        if provider != preferred {
+            log::info!("ONNX execution provider {preferred:?} is not in this build or on this platform; using {provider:?}");
+        }
         let name = model_name();
         let spec = spec(&name)?;
         // fastembed downloads through its own client, so ask the network policy first.

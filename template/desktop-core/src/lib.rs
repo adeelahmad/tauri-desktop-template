@@ -26,6 +26,8 @@ pub mod pgstore;
 {% endif %}{% if watch_folders %}{% if mobile %}#[cfg(all(feature = "watch", not(any(target_os = "android", target_os = "ios"))))]{% else %}#[cfg(feature = "watch")]{% endif %}
 pub mod watch;
 {% endif %}{% if ai %}#[cfg(feature = "ai")]
+pub mod cache;
+#[cfg(feature = "ai")]
 pub mod llm;
 {% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
 pub mod mcp;
