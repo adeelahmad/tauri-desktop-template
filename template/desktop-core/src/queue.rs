@@ -1182,9 +1182,20 @@ impl Queue {
         if let Err(e) = self.save(&s) {
             log::warn!("background jobs: could not save the queue: {e}");
         }
-        drop(s);
+        // The history line is written before the lock is let go, so whoever sees the job
+        // finished (`list`, `shutdown`) also sees its run.
         self.log_run(&run);
+        drop(s);
         self.inner.wake.notify_all();
+    }
+
+    /// Wait until `done` holds for the queue's state, woken by every change (each finished
+    /// attempt notifies). `false` when `timeout` passes first. For tests.
+    #[cfg(test)]
+    fn wait_until(&self, timeout: Duration, done: impl Fn(&Shared) -> bool) -> bool {
+        let s = self.lock();
+        let (_s, r) = self.inner.wake.wait_timeout_while(s, timeout, |s| !done(s)).unwrap_or_else(std::sync::PoisonError::into_inner);
+        !r.timed_out()
     }
 
     /// Milliseconds the dispatcher may sleep: until the next job or schedule is due.
@@ -1311,6 +1322,8 @@ fn dispatch(q: &Queue, stop: &AtomicBool) {
             s = q.inner.wake.wait_timeout(s, wait).unwrap_or_else(std::sync::PoisonError::into_inner).0;
             continue;
         }
+        // Waiters (`shutdown`, tests) see the claimed jobs as running.
+        q.inner.wake.notify_all();
         drop(s);
         for c in claims {
             let runner = q.clone();
@@ -1622,25 +1635,25 @@ mod tests {
 
     #[test]
     fn the_runtime_runs_jobs_on_its_threads() {
+        // No sleeps: every wait is on the queue's condition variable, which each claim and
+        // each finished attempt notifies. One job at a time, so a one-core machine (where
+        // `resources` allows a single worker) runs it the same way.
         let dir = tempfile::tempdir().unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let mut r = Registry::new();
         r.register(Flaky { calls: calls.clone(), fail_first: 0, fatal: false }).register(Slow);
         let q = Queue::open(dir.path(), r, JobsConfig { enabled: true, ..JobsConfig::default() }).unwrap();
         let rt = Runtime::start(q.clone()).unwrap();
-        let slow = q.enqueue("slow", Value::Null, Enqueue::default()).unwrap();
+        let limit = Duration::from_secs(30);
         q.enqueue("flaky", json!({"n": 1}), Enqueue::default()).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while calls.load(Ordering::SeqCst) == 0 || q.list().jobs.iter().all(|j| j.state != State::Running) {
-            assert!(std::time::Instant::now() < deadline, "the runtime did not run the jobs");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(q.wait_until(limit, |s| s.file.jobs.is_empty()), "the runtime did not run the job");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(q.list().history[0].outcome, Outcome::Ok, "its run is recorded by the time it is gone");
+        let slow = q.enqueue("slow", Value::Null, Enqueue::default()).unwrap();
+        assert!(q.wait_until(limit, |s| s.running.contains_key(&slow.id)), "the runtime did not start the job");
         assert!(q.cancel(&slow.id).unwrap(), "a running job is told to stop");
-        while !q.list().jobs.is_empty() {
-            assert!(std::time::Instant::now() < deadline, "the cancelled job did not stop");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(q.list().history.iter().any(|h| h.outcome == Outcome::Cancelled));
+        assert!(q.wait_until(limit, |s| s.file.jobs.is_empty()), "the cancelled job did not stop");
+        assert_eq!(q.list().history[0].outcome, Outcome::Cancelled);
         drop(rt);
     }
     #[test]
@@ -1651,11 +1664,7 @@ mod tests {
         let q = Queue::open(dir.path(), r, JobsConfig { enabled: true, ..JobsConfig::default() }).unwrap();
         let rt = Runtime::start(q.clone()).unwrap();
         let slow = q.enqueue("slow", Value::Null, Enqueue::default()).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while q.list().jobs.iter().all(|j| j.state != State::Running) {
-            assert!(std::time::Instant::now() < deadline, "the runtime did not start the job");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(q.wait_until(Duration::from_secs(30), |s| s.running.contains_key(&slow.id)), "the runtime did not start the job");
         drop(rt);
         assert_eq!(q.shutdown(Duration::from_secs(5)), 1);
         let jobs = q.list().jobs;
