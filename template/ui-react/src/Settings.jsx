@@ -239,6 +239,7 @@ const TITLES = {
   httpApi: 'HTTP API',
   webview: 'Web views',
   watch: 'Watch folders',
+  service: 'Service',
   tray: 'Tray & shortcuts',
   // kitchen:titles
 };
@@ -645,6 +646,50 @@ function TailscaleStatus() {
         </button>
         <span className="hint">{msg || 'Save settings first.'}</span>
       </div>
+    </>
+  );
+}
+
+// The backend as a service (feature `daemon`): headless, at login, restarted on failure.
+function ServiceSetup() {
+  const [st, setSt] = useState(null);
+  const [hint, setHint] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    invoke('service_status').then(setSt, (e) => setMsg(String(e)));
+    invoke('service_system_hint').then(setHint, () => {});
+  }, []);
+  const toggle = async (enabled) => {
+    setBusy(true);
+    try {
+      setSt(await invoke('set_service', { enabled }));
+      setMsg(enabled ? 'Installed.' : 'Removed.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="row">
+        <label className="field">
+          <input type="checkbox" checked={!!st?.installed} disabled={busy || !st} onChange={(e) => toggle(e.target.checked)} /> Run the
+          backend as a service: no window needed, starts at login, restarts if it fails
+        </label>
+      </div>
+      <div className="hint">
+        {st &&
+          `${st.manager}: ${st.installed ? 'installed' : 'not installed'}, ${
+            st.running ? `running${st.pid ? ` (pid ${st.pid})` : ''}` : 'not running'
+          }. Log: ${st.log}. `}
+        {st?.note}
+      </div>
+      <div className="hint">
+        To start it at boot for the whole machine instead, run as administrator: <code>{hint}</code>
+      </div>
+      <p className="status">{msg}</p>
     </>
   );
 }
@@ -1321,6 +1366,7 @@ export default function Settings({ features }) {
     httpApi: 'httpApi',
     webview: 'webview',
     telemetry: 'telemetry',
+    service: 'daemon',
     tray: 'trayMenu',
   };
   const sections = [
@@ -1343,6 +1389,7 @@ export default function Settings({ features }) {
     'telemetry',
     'log',
     'watch',
+    'service',
     'tray',
     // kitchen:sections
   ].filter((s) => !needs[s] || features[needs[s]]);
@@ -1388,6 +1435,7 @@ export default function Settings({ features }) {
           {s === 'jobs' && <JobsPanel />}
           {s === 'rclone' && <RcloneSetup />}
           {s === 'tailscale' && <TailscaleStatus />}
+          {s === 'service' && <ServiceSetup />}
           {s === 'httpApi' && <HttpApiInfo />}
           {s === 'webview' && <WebviewTry />}
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}

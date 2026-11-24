@@ -12,7 +12,7 @@
 
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
-use crate::{doctor, generate, Error, Options, Report, Result};
+use crate::{doctor, generate, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -43,6 +43,8 @@ Usage:
   kitchen publish [--tag v1.2.3] [--yes]
                                        GitHub release with ./packages via gh (dry run without --yes)
   kitchen eject vite|tauri|cargo       where that tool's own config lives, and what Kitchen adds
+  kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
+                                       the app's daemon as an OS service (feature daemon)
   kitchen build                        cargo tauri build, as is
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
@@ -65,7 +67,7 @@ pub struct Args {
 
 /// Options that take a value (all others are flags).
 const VALUED: &[&str] = &[
-    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "tag",
+    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "lines", "tag",
 ];
 
 impl Args {
@@ -333,6 +335,22 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             &project()?.root,
             args.word(1, "a tool: vite, tauri or cargo")?,
         ),
+        "service" => {
+            let lines = args
+                .value("lines")
+                .map(|n| {
+                    n.parse()
+                        .map_err(|_| Error::Usage(format!("--lines {n}: give a number")))
+                })
+                .transpose()?;
+            service::run(
+                &project()?,
+                args.words.get(1).map(String::as_str).unwrap_or("status"),
+                args.flag("system"),
+                lines,
+                &opts,
+            )
+        }
         "help" => Ok(Report::new(HELP.trim_end())),
         other => Err(Error::Usage(format!(
             "unknown command {other:?}; see `kitchen --help`"

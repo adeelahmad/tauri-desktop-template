@@ -179,6 +179,20 @@ impl Local {
         Ok(())
     }
 
+    /// Stop the job runtime and hand running jobs back to the queue (the daemon's clean
+    /// stop); returns how many went back.
+    #[cfg(all(desktop, feature = "daemon", feature = "jobs-queue"))]
+    pub fn stop_jobs(&self, grace: std::time::Duration) -> usize {
+        let queue = match self.jobs.lock() {
+            Ok(mut j) => {
+                j.runtime = None; // no new attempts; the dispatcher thread ends
+                j.queue.clone()
+            }
+            Err(_) => None,
+        };
+        queue.map_or(0, |q| q.shutdown(grace))
+    }
+
     #[cfg(feature = "jobs-queue")]
     fn queue(&self) -> Result<desktop_core::queue::Queue, String> {
         self.jobs.lock().map_err(err)?.queue.clone().ok_or_else(|| "Still starting; try again in a moment.".into())

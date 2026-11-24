@@ -61,6 +61,13 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"tag": {"type": "string"}, "yes": {"type": "boolean"}, "project": project}}},
         {"name": "eject", "description": "Where a tool's own config lives (vite, tauri or cargo) and what Kitchen sets on top of it.",
          "inputSchema": {"type": "object", "properties": {"tool": {"type": "string", "enum": ["vite", "tauri", "cargo"]}, "project": project}, "required": ["tool"]}},
+        {"name": "service", "description": "The app's daemon as an OS service (template feature `daemon`): action status (default), logs, install, uninstall, start, stop or restart; system for the machine-wide service. Builds the app if needed. Only status and logs run unless allow_changes is true; otherwise it reports what it would run.",
+         "inputSchema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": crate::service::ACTIONS},
+             "system": {"type": "boolean", "description": "LaunchDaemon / system unit / Windows Service (needs administrator rights)"},
+             "lines": {"type": "integer", "description": "logs: how many lines"},
+             "allow_changes": {"type": "boolean", "description": "Really install, start, stop ... (default: only say what would run)"},
+             "project": project}}},
         {"name": "new", "description": "Create a new app from the template in folder `dir` (default: the server's folder).",
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
     ])
@@ -160,6 +167,23 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
                 if let Some(x) = s(k) {
                     v.extend([format!("--{k}"), x]);
                 }
+            }
+            v
+        }
+        "service" => {
+            let action = s("action").unwrap_or_else(|| "status".into());
+            let mut v = vec!["service".to_string(), action.clone()];
+            if a.get("system").and_then(Value::as_bool) == Some(true) {
+                v.push("--system".into());
+            }
+            if let Some(n) = a.get("lines").and_then(Value::as_u64) {
+                v.extend(["--lines".into(), n.to_string()]);
+            }
+            // Dry-run safe: anything that changes the machine needs allow_changes.
+            if !crate::service::read_only(&action)
+                && a.get("allow_changes").and_then(Value::as_bool) != Some(true)
+            {
+                v.push("--dry-run".into());
             }
             v
         }
@@ -293,6 +317,15 @@ mod tests {
             ["package", "linux", "--release"]
         );
         assert_eq!(argv("publish", &json!({})).unwrap(), ["publish"]);
+        assert_eq!(argv("service", &json!({})).unwrap(), ["service", "status"]);
+        assert_eq!(
+            argv("service", &json!({"action": "install", "system": true})).unwrap(),
+            ["service", "install", "--system", "--dry-run"]
+        );
+        assert_eq!(
+            argv("service", &json!({"action": "stop", "allow_changes": true})).unwrap(),
+            ["service", "stop"]
+        );
     }
 
     #[test]

@@ -51,6 +51,27 @@ fn main() -> ExitCode {
                 Err(e) => fail(&e),
             }
         }
+        // `kitchen service logs --follow` streams until ctrl-c: hand the terminal over.
+        "service" if args.flag("follow") => {
+            let project = match kitchen::project::Project::find(&cwd) {
+                Ok(p) => p,
+                Err(e) => return fail(&e),
+            };
+            let Some(bin) =
+                kitchen::service::find_binary(&project.root, &project.manifest.app.name)
+            else {
+                return fail(&"no built app binary: run `kitchen service status` once to build it");
+            };
+            let mut a = vec!["--service".to_string(), "logs".into(), "--follow".into()];
+            if args.flag("system") {
+                a.push("--system".into());
+            }
+            match std::process::Command::new(bin).args(a).status() {
+                Ok(s) if s.success() => ExitCode::SUCCESS,
+                Ok(_) => ExitCode::FAILURE,
+                Err(e) => fail(&e),
+            }
+        }
         _ => match cli::run(&args, &cwd) {
             Ok(report) if args.flag("json") => {
                 println!(

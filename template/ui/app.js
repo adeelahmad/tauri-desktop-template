@@ -22,6 +22,7 @@ async function start() {
   show('claude', f.claudeMcp);
   show('python', f.pythonExample);
   if (f.backgroundAgent) { show('agent'); refreshAgent(); }
+  if (f.daemon) { show('service'); refreshService(); invoke('service_system_hint').then((h) => { $('service-hint').textContent = h; }).catch(() => {}); }
   if (f.mcp) { show('mcp'); invoke('mcp_setup').then((s) => { $('mcp-cmd').textContent = s.claude_code; }).catch(() => {}); }
   show('llama', f.llama);
   show('tts', f.tts);
@@ -186,6 +187,17 @@ async function refreshAgent(set) {
   } catch (e) { say('agent-status', String(e), true); }
 }
 $('agent-on').onchange = () => refreshAgent($('agent-on').checked);
+
+// ---- the backend as a service (feature `daemon`) ----
+async function refreshService(set) {
+  try {
+    const s = set === undefined ? await invoke('service_status') : await invoke('set_service', { enabled: set });
+    $('service-on').checked = s.installed;
+    const run = s.running ? `running${s.pid ? ` (pid ${s.pid})` : ''}` : 'not running';
+    say('service-status', `${s.manager}: ${s.installed ? 'installed' : 'not installed'}, ${run}. Log: ${s.log}. ${s.note || ''}`);
+  } catch (e) { say('service-status', String(e), true); }
+}
+$('service-on').onchange = () => refreshService($('service-on').checked);
 
 // ---- Python example (feature `python-example`) ----
 $('python-go').onclick = async () => {

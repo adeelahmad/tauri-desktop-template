@@ -8,6 +8,8 @@
 //! - `ingest_text`, `ingest_file` (PDF or text), `search`, `remove_source`, `clear`,
 //! - `check_update` / `install_update` (feature `updater`),
 //! - `agent_status` / `set_agent` (feature `background-agent`),
+//! - `service_status`, `set_service` and `service_system_hint` (feature `daemon`: the
+//!   backend as a service, see `daemon`),
 //! - `python_call` (feature `python-example`),
 //! - `register_claude` (feature `claude-mcp`),
 //! - `mcp_setup`, `mcp_register_claude`, `mcp_pending` and `mcp_decide` (feature `mcp`).
@@ -78,6 +80,8 @@ use tauri::{Emitter, Manager};
 
 {% if ipc_worker %}{% if background_agent %}#[cfg(all(desktop, feature = "background-agent"))]
 mod agent;
+{% endif %}{% if daemon %}#[cfg(all(desktop, feature = "daemon"))]
+mod daemon;
 {% endif %}{% endif %}{% if claude_mcp %}#[cfg(all(desktop, feature = "claude-mcp"))]
 mod claude;
 {% endif %}{% if ipc_worker %}#[cfg(all(desktop, feature = "ipc-worker"))]
@@ -203,6 +207,7 @@ fn features() -> Value {
         "updater": cfg!(all(desktop, feature = "updater")),
         "ipcWorker": cfg!(all(desktop, feature = "ipc-worker")),
         "backgroundAgent": cfg!(all(desktop, feature = "background-agent")),
+        "daemon": cfg!(all(desktop, feature = "daemon")),
         "pythonExample": cfg!(all(desktop, feature = "python-example")),
         "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
         "trayMenu": cfg!(all(desktop, feature = "tray-menu")),
@@ -737,6 +742,39 @@ pub fn worker_main() -> i32 {
     2
 }
 
+/// `<app> --daemon`: the backend with no window, until SIGTERM, ctrl-c or the Windows
+/// service stop control (feature `daemon`). Opens the store with the saved settings.
+#[cfg(all(desktop, feature = "daemon"))]
+pub fn daemon_main(args: &[String]) -> i32 {
+    let (config, data) = paths::app_dirs();
+    let settings = settings_at(&config.join("settings.json"));
+    desktop_core::logging::init(&data.join("logs"), "daemon", settings.config.log.clone());
+    desktop_core::net::configure(settings.config.net.clone());
+    let setup = settings.setup_done.then(|| {
+        let opts = EngineOptions { data_dir: data.clone(), backend: store_for(settings.backend), embeddings: settings.embeddings && cfg!(feature = "embed"), config: settings.config.clone(), app_name: Some(env!("CARGO_PKG_NAME").into()) };
+        serde_json::to_value(opts).unwrap_or(Value::Null)
+    });
+    daemon::main(args, setup)
+}
+
+#[cfg(not(all(desktop, feature = "daemon")))]
+pub fn daemon_main(_args: &[String]) -> i32 {
+    eprintln!("this build has no daemon mode (feature daemon)");
+    2
+}
+
+/// `<app> --service <action> [--system]`: install and control the daemon as a service.
+#[cfg(all(desktop, feature = "daemon"))]
+pub fn service_main(args: &[String]) -> i32 {
+    daemon::cli(args)
+}
+
+#[cfg(not(all(desktop, feature = "daemon")))]
+pub fn service_main(_args: &[String]) -> i32 {
+    eprintln!("this build has no service support (feature daemon)");
+    2
+}
+
 const SAMPLE: &str = "Tauri apps draw their interface with the system web view.\n\n\
     The heart pumps blood through the arteries to the body.\n\n\
     Rust programs compile to fast native code without a garbage collector.";
@@ -1030,6 +1068,12 @@ pub fn run() {
             agent::agent_status,
             #[cfg(all(desktop, feature = "background-agent"))]
             agent::set_agent,
+            #[cfg(all(desktop, feature = "daemon"))]
+            daemon::service_status,
+            #[cfg(all(desktop, feature = "daemon"))]
+            daemon::set_service,
+            #[cfg(all(desktop, feature = "daemon"))]
+            daemon::service_system_hint,
             #[cfg(all(desktop, feature = "python-example"))]
             python::python_call,
             #[cfg(all(desktop, feature = "claude-mcp"))]
@@ -1088,6 +1132,9 @@ fn on_exit(app: &tauri::AppHandle) {
         let keep = agent::installed();
         #[cfg(not(all(desktop, feature = "background-agent")))]
         let keep = false;
+        // A daemon (feature `daemon`) runs on after the window closes.
+        #[cfg(all(desktop, feature = "daemon"))]
+        let keep = keep || ipc::backend_is_daemon();
         if !keep {
             ipc::shutdown_worker();
         }

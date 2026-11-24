@@ -107,6 +107,9 @@ Everything runs on the user's machine.
 {% if background_agent -%}
 | Background agent: macOS LaunchAgent, Windows Run entry, Linux systemd user unit | `src-tauri/src/agent.rs` | `background-agent` |
 {% endif -%}
+{% if daemon -%}
+| Daemon: `<app> --daemon` runs the backend headless (SIGTERM / ctrl-c / Windows stop, pid and health file, crash backoff); `<app> --service install\|uninstall\|start\|stop\|restart\|status\|logs [--system]` makes it a LaunchAgent/LaunchDaemon, systemd user/system unit or Windows Service that restarts on failure. Settings → Service | `src-tauri/src/daemon.rs`, `desktop-core/src/daemon.rs` | `daemon` |
+{% endif -%}
 {% endif -%}
 {% if python_example -%}
 | Python worker example (child process, JSON over stdio) | `python/`, `src-tauri/src/python.rs` | `python-example` |
@@ -278,6 +281,34 @@ The **Background** switch installs the agent: `~/Library/LaunchAgents/{{identifi
 needed), or a systemd user unit on Linux. With it on, closing the window leaves the
 worker running.
 {% endif -%}
+{% if daemon %}
+### Daemon and service
+
+`<app> --daemon` is the worker as a proper daemon: no window, the store opened with the
+saved settings, headless tasks started (the job queue's workers and scheduler when that
+feature is built in), JSON-lines log in `<data>/logs/daemon.log`, pid and health in
+`<data>/daemon.json`. SIGTERM, ctrl-c and the Windows service stop control stop it
+cleanly. The window and `--mcp` use it through the same socket, and leave it running when
+they close.
+
+```
+<app> --service install            # user level: LaunchAgent / systemd --user / Windows Run entry
+<app> --service status             # installed, running, pid, log file (--json for tools)
+<app> --service logs -n 100 --follow
+<app> --service stop | start | restart | uninstall
+sudo <app> --service install --system   # LaunchDaemon / system unit, runs as you, starts at boot
+```
+
+On Windows `--system` installs a Windows Service (from an Administrator terminal); it runs
+as LocalSystem with its own data folder. Without the rights, the app prints the command
+to run instead of asking for a password. launchd and systemd restart the daemon after a
+failure (systemd with a growing delay), the Windows Service after 5 s, 30 s, then 2
+minutes; the daemon itself waits longer after each crash in a row (up to 5 minutes).
+Settings → Service installs or removes the user-level service. Installing it replaces the
+background agent{% if background_agent %} (the Background switch){% endif %}; use one or the other.
+From the app's folder, `kitchen service status` (and `install`, `logs` ...) runs the
+same commands on the built binary.
+{% endif -%}
 {% endif -%}
 {% if python_example %}
 ## Python example
@@ -343,6 +374,9 @@ is off by default; values are clamped to safe ranges.
 | `rclone.enabled`, `rclone.remote`, `rclone.path` | off, empty, empty | remote name in the rclone config, folder on it |
 | `rclone.folder`, `rclone.direction` | `backups`, `push` | `data` (up only); `pull`, `mirror` (deletes extras there), `bisync` |
 | `rclone.intervalMinutes`, `rclone.bandwidth` | 0, empty | 0 = only when asked (else at least 5); `--bwlimit`, e.g. `2M` or `10M:1M` |
+{% endif -%}
+{% if daemon -%}
+| Settings → Service (not a saved key) | off | installs or removes the user-level service; the system level needs `sudo <app> --service install --system` (or an Administrator terminal) |
 {% endif -%}
 {% if tray_menu -%}
 | `tray.enabled`, `tray.items` | off, show/hide · search · clipboard · pause · settings · quit | each item `{id, label, action, shortcutHint?, enabled}`; `action` `separator` draws a line |

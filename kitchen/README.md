@@ -44,6 +44,10 @@ kitchen test --feature            # e2e/: tauri-driver on Linux/Windows; --self-
 kitchen package --release         # this OS's installers (dmg/app, nsis/msi, appimage/deb) into ./packages
 kitchen publish                   # the `gh release create` it would run; --yes runs it
 kitchen eject vite|tauri|cargo    # where that tool's own config lives, and what Kitchen adds
+kitchen service install           # the app's daemon as a user service (template feature `daemon`)
+kitchen service status            # installed? running? pid, log file
+kitchen service logs --lines 100 --follow
+kitchen service stop | start | restart | uninstall [--system]
 kitchen build                     # cargo tauri build, as is
 kitchen mcp                       # MCP server over stdio
 ```
@@ -145,12 +149,26 @@ claude mcp add kitchen -- kitchen mcp
 ```
 
 The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
-`start`, `test`, `package`, `publish`, `eject` and `new`. Each one takes an optional
+`start`, `test`, `package`, `publish`, `eject`, `service` and `new`. Each one takes an optional
 `project` folder, and the ones that change files also take `dry_run`. `start` keeps
 running, so it answers with the command to run in a terminal instead of blocking; `test`
 and `package` run and return the report (the commands, the test results, and the last
 lines of output of a step that failed); `publish` only shows the release unless `yes` is
 true.
+`service` only runs `status` and `logs` by itself; for `install`, `uninstall`,
+`start`, `stop` and `restart` it reports the command it would run unless `allow_changes` is
+true.
+
+## Services
+
+`kitchen service <action> [--system]` runs `<app> --service <action>` on the app's built
+binary (`target/debug/<name>` or `target/release/<name>`, the newer one; `CARGO_TARGET_DIR`
+is honoured), and builds it with `cargo build -p <name>` first when there is none. The app
+needs the `daemon` answer (`kitchen enable daemon`, which needs `ipc_worker`). The user
+level is a LaunchAgent, a `systemctl --user` unit or a Windows Run entry; `--system` is a
+LaunchDaemon, a system unit or a Windows Service and needs administrator rights (the app
+prints the `sudo` or Administrator command instead of asking). `--dry-run` shows the command
+without running it.
 
 ## For AI agents
 

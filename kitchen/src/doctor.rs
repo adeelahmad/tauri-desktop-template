@@ -266,6 +266,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
                 ("bm25", "postgres"),
                 ("local_llm", "ai"),
                 ("background_agent", "ipc_worker"),
+                ("daemon", "ipc_worker"),
             ] {
                 if m.is_on(child) && !m.is_on(parent) {
                     out.push(check(

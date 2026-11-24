@@ -18,6 +18,7 @@
 //! kitchen test                             # unit tests + the real app over WebDriver
 //! kitchen package --release                # installers for this OS, in ./packages
 //! kitchen publish --yes                    # a GitHub release with them
+//! kitchen service install                  # run the app's daemon as a user service
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
 //!
@@ -45,7 +46,9 @@
 //!
 //! Modules: [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
-//! generators), [`lifecycle`] (start, test, package, publish, eject), [`doctor`] (machine checks), [`mcp`] (the MCP server), [`cli`] (arguments).
+//! generators), [`lifecycle`] (start, test, package, publish, eject), [`doctor`] (machine
+//! checks), [`service`] (the app's daemon as a service), [`mcp`] (the MCP server), [`cli`]
+//! (arguments).
 
 pub mod cli;
 pub mod doctor;
@@ -55,6 +58,7 @@ pub mod manifest;
 pub mod mcp;
 pub mod merge;
 pub mod project;
+pub mod service;
 pub mod template;
 
 use std::fmt;
