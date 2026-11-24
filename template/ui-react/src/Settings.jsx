@@ -80,6 +80,7 @@ const FIELDS = [
   ['resources', 'resumeInterrupted', 'Finish an interrupted import at the next start', 'bool', {}],
   ['backup', 'intervalHours', 'Back up every (hours; 0 = only when asked)', 'number', { min: 0 }],
   ['backup', 'keep', 'Backups to keep (0 = all)', 'number', { min: 0 }],
+  ['backup', 'encrypt', 'Encrypt backups (keep the recovery key below somewhere safe)', 'bool', {}],
   ['backup', 'folder', 'Backup folder (empty = app data; a synced folder keeps a copy off this computer)', 'text', { nullable: true }],
   ['net', 'offline', 'Offline mode (nothing leaves this computer)', 'bool', {}],
   ['net', 'allow', 'Only these hosts (*.example.com for subdomains; empty = any)', 'list', {}],
@@ -332,6 +333,8 @@ function Backups() {
   const [list, setList] = useState([]);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = useState('');
+  const [key, setKey] = useState('');
   const load = () =>
     invoke('list_backups')
       .then(setList)
@@ -353,7 +356,7 @@ function Backups() {
   const now = () => run('Backing up…', async () => `Backed up ${(await invoke('backup_now')).chunks} chunks.`);
   const restore = (b) =>
     run('Restoring…', async () => {
-      const s = await invoke('restore_backup', { path: b.path });
+      const s = await invoke('restore_backup', { path: b.path, key: key || null });
       return `Restored ${s.chunks} chunks. The index it replaced was backed up first.`;
     });
   return (
@@ -367,13 +370,33 @@ function Backups() {
       <ul className="backups">
         {list.map((b) => (
           <li key={b.path}>
-            {new Date(b.created).toLocaleString()}: {b.chunks} chunks from {b.sources} sources ({Math.ceil(b.bytes / 1024)} KB){' '}
+            {new Date(b.created).toLocaleString()}: {b.chunks} chunks from {b.sources} sources ({Math.ceil(b.bytes / 1024)} KB)
+            {b.encrypted ? ', encrypted' : ''}{' '}
             <button className="link" disabled={busy} onClick={() => restore(b)}>
               Restore
             </button>
           </li>
         ))}
       </ul>
+      <div className="row">
+        <button
+          className="link"
+          onClick={() =>
+            invoke('backup_recovery_key').then(
+              (r) => setRecovery(r.key),
+              (e) => setMsg(String(e)),
+            )
+          }
+        >
+          Show the recovery key
+        </button>
+        {recovery && <code>{recovery}</code>}
+      </div>
+      {recovery && <p className="hint">Keep it somewhere safe: an encrypted backup cannot be restored on another computer without it.</p>}
+      <label className="field">
+        Recovery key for a backup from another computer (optional)
+        <input value={key} onChange={(e) => setKey(e.target.value)} />
+      </label>
     </div>
   );
 }

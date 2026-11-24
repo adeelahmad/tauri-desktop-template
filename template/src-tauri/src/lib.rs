@@ -284,8 +284,14 @@ fn list_backups(state: tauri::State<AppState>) -> Result<Value, String> {
 
 /// Replace the index with a backup (the current one is backed up first).
 #[tauri::command(async)]
-fn restore_backup(state: tauri::State<AppState>, path: String) -> Result<Status, String> {
-    typed(call(&state, "restore", json!({ "path": path })))
+fn restore_backup(state: tauri::State<AppState>, path: String, key: Option<String>) -> Result<Status, String> {
+    typed(call(&state, "restore", json!({ "path": path, "key": key })))
+}
+
+/// The recovery key for encrypted backups (shown so it can be kept somewhere safe).
+#[tauri::command(async)]
+fn backup_recovery_key(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "backup_key", Value::Null)
 }
 
 #[tauri::command(async)]
@@ -581,6 +587,7 @@ pub fn run() {
             backup_now,
             list_backups,
             restore_backup,
+            backup_recovery_key,
             #[cfg(feature = "ai")]
             ask,
             #[cfg(feature = "ai")]

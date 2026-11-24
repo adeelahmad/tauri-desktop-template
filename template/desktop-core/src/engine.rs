@@ -470,10 +470,17 @@ impl Engine {
     /// Write a backup of every chunk now, then delete the oldest beyond `backup.keep`.
     pub fn backup(&self) -> Result<crate::backup::BackupInfo> {
         let dir = self.backup_dir();
-        let info = crate::backup::write(&dir, &self.store.all()?, &self.model_name()).map_err(|e| Error::Store(format!("backup to {}: {e}", dir.display())))?;
+        let key = if self.config().backup.encrypt { Some(self.backup_key()?) } else { None };
+        let info = crate::backup::write(&dir, &self.store.all()?, &self.model_name(), key.as_ref())
+            .map_err(|e| Error::Store(format!("backup to {}: {e}", dir.display())))?;
         let pruned = crate::backup::prune(&dir, self.config().backup.keep);
         log::info!("backup written: {} chunks, {} bytes ({pruned} old backups removed)", info.chunks, info.bytes);
         Ok(info)
+    }
+
+    /// This computer's backup key (made the first time it is needed).
+    pub fn backup_key(&self) -> Result<crate::backup::BackupKey> {
+        crate::backup::BackupKey::load_or_create(&self.data_dir).map_err(|e| Error::Store(format!("backup key: {e}")))
     }
 
     /// Backups in the backup folder, newest first.
@@ -488,9 +495,23 @@ impl Engine {
 
     /// Replace the index with a backup. The file is verified first, and the current index
     /// is backed up before it is replaced (unless it is empty). Chunks are embedded again
-    /// with the current model. Returns the chunks restored.
-    pub fn restore(&self, path: &Path) -> Result<usize> {
-        let (manifest, chunks) = crate::backup::read(path).map_err(|e| Error::Store(format!("{}: {e}", path.display())))?;
+    /// with the current model. An encrypted backup opens with this computer's key or the
+    /// `recovery_key` given; a recovery key that works becomes this computer's key when it
+    /// has none yet. Returns the chunks restored.
+    pub fn restore(&self, path: &Path, recovery_key: Option<&str>) -> Result<usize> {
+        let given = match recovery_key.filter(|k| !k.trim().is_empty()) {
+            Some(text) => Some(crate::backup::BackupKey::from_text(text).ok_or_else(|| Error::Store("that is not a recovery key (64 hex digits)".into()))?),
+            None => None,
+        };
+        let key_file = self.data_dir.join("backup.key");
+        let local = if key_file.exists() { Some(self.backup_key()?) } else { None };
+        let keys: Vec<_> = given.iter().chain(local.iter()).cloned().collect();
+        let (manifest, chunks) = crate::backup::read(path, &keys).map_err(|e| Error::Store(format!("{}: {e}", path.display())))?;
+        if let (Some(k), None) = (&given, &local) {
+            if manifest.encrypted {
+                k.save(&self.data_dir)?;
+            }
+        }
         if self.store.count()? > 0 {
             self.backup()?;
         }
