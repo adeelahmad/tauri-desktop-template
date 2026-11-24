@@ -224,7 +224,7 @@ fn backup_and_restore_across_models_and_stores() {
     // Another store and another model: restoring embeds again and search still works.
     let b = open("b", "bag-2");
     b.ingest_text("other.md", "Something else entirely.").unwrap();
-    assert_eq!(b.restore(&info.path).unwrap(), before);
+    assert_eq!(b.restore(&info.path, None).unwrap(), before);
     assert_eq!(b.status().unwrap().chunks, before);
     assert_eq!(b.search("heart blood", 1).unwrap()[0].source, "notes.md");
     assert_eq!(b.backups().len(), 2, "the replaced index was backed up first");
@@ -239,6 +239,29 @@ fn backup_and_restore_across_models_and_stores() {
     assert!(b.backup_if_due().is_none());
     b.backup().unwrap();
     assert_eq!(b.backups().len(), 1);
+}
+
+#[test]
+fn encrypted_backup_restores_elsewhere_with_the_recovery_key() {
+    let (home, away) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let open = |dir: &std::path::Path| {
+        let store = FileStore::open(&dir.join("store")).unwrap();
+        Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir, &mut |_| {}).unwrap()
+    };
+    let a = open(home.path());
+    let mut cfg = a.config();
+    cfg.backup.encrypt = true;
+    a.configure(cfg).unwrap();
+    a.ingest_text("notes.md", DOCS).unwrap();
+    let info = a.backup().unwrap();
+    assert!(info.encrypted);
+    let recovery = a.backup_key().unwrap().to_text();
+
+    let b = open(away.path());
+    assert!(b.restore(&info.path, None).unwrap_err().to_string().contains("recovery key"));
+    assert!(b.restore(&info.path, Some("not a key")).is_err());
+    assert_eq!(b.restore(&info.path, Some(&recovery)).unwrap(), a.status().unwrap().chunks);
+    assert_eq!(b.backup_key().unwrap().to_text(), recovery, "the recovery key became this computer's key");
 }
 
 /// Needs a Postgres with pgvector (and, for BM25, vchord_bm25 + pg_tokenizer):

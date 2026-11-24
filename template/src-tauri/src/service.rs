@@ -206,9 +206,10 @@ impl Local {
             }
             "backup" => to(self.engine()?.backup()),
             "backups" => to(Ok(self.engine()?.backups())),
+            "backup_key" => Ok(json!({ "key": self.engine()?.backup_key().map_err(err)?.to_text() })),
             "restore" => {
                 let e = self.engine()?;
-                e.restore(Path::new(&arg::<String>(&params, "path")?)).map_err(err)?;
+                e.restore(Path::new(&arg::<String>(&params, "path")?), arg::<Option<String>>(&params, "key")?.as_deref()).map_err(err)?;
                 to(e.status())
             }
             "remove_source" => to(self.engine()?.remove_source(&arg::<String>(&params, "source")?)),
