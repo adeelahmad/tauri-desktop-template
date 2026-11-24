@@ -18,7 +18,7 @@
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`]. Feature modules: `embed`,
 //! `pdf`, `pgstore`, `watch`, `llm` (feature `ai`), `local` (feature `llama`), `mcp`,
-//! `tts`, `stt`, `mail`, `telemetry`, `http_api` (a local REST API).
+//! `tts`, `stt`, `mail`, `telemetry`, `webview`, `http_api` (a local REST API, feature `http-api`).
 //!
 //! # Example
 //!
@@ -76,14 +76,22 @@ pub mod stt;
 pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
+{% endif %}{% if background_jobs %}#[cfg(feature = "jobs-queue")]
+pub mod job_types;
+#[cfg(feature = "jobs-queue")]
+pub mod queue;
 {% endif %}{% if plugins %}#[cfg(feature = "plugins")]
 pub mod plugin;
 {% endif %}{% if rclone %}#[cfg(feature = "rclone")]
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
-{% endif %}{% if http_api %}#[cfg(feature = "http_api")]
+{% endif %}{% if http_api %}#[cfg(feature = "http-api")]
 pub mod http_api;
+{% endif %}{% if webview %}#[cfg(feature = "webview")]
+pub mod webview;
+{% endif %}{% if tray_menu %}#[cfg(feature = "tray-menu")]
+pub mod actions;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

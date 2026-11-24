@@ -1,5 +1,5 @@
 //! A local REST API over the app's backend, so scripts, agents and a browser UI can drive
-//! the app over HTTP (feature `http_api`, off by default).
+//! the app over HTTP (feature `http-api`, off by default).
 //!
 //! The design follows [ndelvalle/rustapi](https://github.com/ndelvalle/rustapi) (MIT): an
 //! [Axum](https://docs.rs/axum) router over one shared [`Context`], one uniform JSON error

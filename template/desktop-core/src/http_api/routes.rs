@@ -12,6 +12,9 @@
 //! | `POST /v1/documents` | `ingest_text` | `{source, text}` → `{source, chunks}` (`201`) |
 //! | `DELETE /v1/documents?source=` | `remove_source` | → `{removed}` |
 //! | `POST /v1/ask` (feature `ai`) | `ask` | `{question}` → the answer with its sources |
+//! | `GET /v1/jobs` (feature `jobs-queue`) | `jobs_list` | the queue, dead letters, recent runs, job types |
+//! | `POST /v1/jobs` (feature `jobs-queue`) | `jobs_enqueue` | `{kind, payload?, delaySecs?, runAt?, maxAttempts?, timeoutSecs?}` (`201`) |
+//! | `POST /v1/jobs/{id}/cancel`, `.../retry` (feature `jobs-queue`) | `jobs_cancel`, `jobs_retry` | |
 //!
 //! To add a route for a backend method, run `kitchen generate route <name>` (it adds
 //! `POST /v1/<name>` at the `kitchen:routes` marker), or write a handler like the ones here.
@@ -33,7 +36,9 @@
 use super::{middleware, ApiError, Context, FieldErrors, Page, Paginated, Validate, ValidJson, ValidQuery};
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
-use axum::extract::{DefaultBodyLimit, State};
+{% if background_jobs %}#[cfg(feature = "jobs-queue")]
+use axum::extract::{rejection::PathRejection, Path};
+{% endif %}use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::middleware::{from_fn, from_fn_with_state};
 use axum::routing::{get, post, MethodRouter};
@@ -66,6 +71,8 @@ pub fn routes() -> Router<Context> {
         .route("/v1/documents", post(add_document).delete(remove_document));
 {% if ai %}    #[cfg(feature = "ai")]
     let r = r.route("/v1/ask", post(ask));
+{% endif %}{% if background_jobs %}    #[cfg(feature = "jobs-queue")]
+    let r = r.route("/v1/jobs", get(jobs_list).post(jobs_enqueue)).route("/v1/jobs/{id}/cancel", post(jobs_cancel)).route("/v1/jobs/{id}/retry", post(jobs_retry));
 {% endif %}    // kitchen:routes (`kitchen generate route` adds routes above this line)
     r
 }
@@ -214,6 +221,55 @@ impl Validate for AskRequest {
 #[cfg(feature = "ai")]
 async fn ask(State(ctx): State<Context>, ValidJson(req): ValidJson<AskRequest>) -> Reply {
     ctx.call("ask", json!({"question": req.question})).await.map(Json)
+}
+{% endif %}{% if background_jobs %}
+#[cfg(feature = "jobs-queue")]
+async fn jobs_list(State(ctx): State<Context>) -> Reply {
+    ctx.call("jobs_list", Value::Null).await.map(Json)
+}
+
+/// `POST /v1/jobs` (feature `jobs-queue`).
+#[cfg(feature = "jobs-queue")]
+#[derive(Debug, Deserialize)]
+pub struct EnqueueRequest {
+    /// The job type (one of `types` in `GET /v1/jobs`).
+    pub kind: String,
+    /// The job's input.
+    #[serde(default)]
+    pub payload: Option<Value>,
+    /// `delaySecs`, `runAt`, `maxAttempts`, `timeoutSecs`, passed on as they are.
+    #[serde(flatten)]
+    pub options: serde_json::Map<String, Value>,
+}
+
+#[cfg(feature = "jobs-queue")]
+impl Validate for EnqueueRequest {
+    fn validate(&self) -> Result<(), FieldErrors> {
+        let mut e = FieldErrors::default();
+        e.check(!self.kind.trim().is_empty(), "kind", "must not be empty");
+        e.check(self.payload.as_ref().is_none_or(|p| p.is_object() || p.is_null()), "payload", "must be an object");
+        e.into_result()
+    }
+}
+
+#[cfg(feature = "jobs-queue")]
+async fn jobs_enqueue(State(ctx): State<Context>, ValidJson(req): ValidJson<EnqueueRequest>) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let mut params = Value::Object(req.options);
+    params["kind"] = json!(req.kind);
+    params["payload"] = req.payload.unwrap_or_else(|| json!({}));
+    Ok((StatusCode::CREATED, Json(ctx.call("jobs_enqueue", params).await?)))
+}
+
+#[cfg(feature = "jobs-queue")]
+async fn jobs_cancel(State(ctx): State<Context>, id: Result<Path<String>, PathRejection>) -> Reply {
+    let Path(id) = id?;
+    ctx.call("jobs_cancel", json!({ "id": id })).await.map(Json)
+}
+
+#[cfg(feature = "jobs-queue")]
+async fn jobs_retry(State(ctx): State<Context>, id: Result<Path<String>, PathRejection>) -> Reply {
+    let Path(id) = id?;
+    ctx.call("jobs_retry", json!({ "id": id })).await.map(Json)
 }
 {% endif %}
 #[cfg(test)]

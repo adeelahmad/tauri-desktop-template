@@ -60,6 +60,11 @@ type = "bool"
 prompt = "Send email over SMTP (native Rust: SSL/TLS on 465, STARTTLS on 587, login, attachments)?"
 default = false
 
+[placeholders.background_jobs]
+type = "bool"
+prompt = "Background jobs: a persistent queue with retries (exponential backoff), dead letters, cron and interval schedules, cancel and timeouts?"
+default = false
+
 [placeholders.plugins]
 type = "bool"
 prompt = "Plugin API: compiled-in app extensions (ingest hooks, extra search sources, their own methods and settings), with an example plugin?"
@@ -80,9 +85,19 @@ type = "bool"
 prompt = "Local REST API (Axum, 127.0.0.1 only, bearer token) so scripts, agents and a browser UI can drive the app? Off until switched on in Settings"
 default = false
 
+[placeholders.webview]
+type = "bool"
+prompt = "Embedded web view: open allowlisted remote pages in the app's own windows (no IPC for them, isolated cookies per profile, optional message bridge)?"
+default = false
+
 [placeholders.tauri_plugins]
 type = "bool"
 prompt = "Add official Tauri plugins (dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log)? Asks for each"
+default = false
+
+[placeholders.tray_menu]
+type = "bool"
+prompt = "System tray / macOS menu-bar icon with a menu, global shortcuts and an app menu, all from Settings (desktop)?"
 default = false
 
 [placeholders.stt]
@@ -281,6 +296,9 @@ ignore = ["desktop-core/src/mail.rs"]
 [conditional.'!stt']
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
 
+[conditional.'!background_jobs']
+ignore = ["desktop-core/src/queue.rs", "desktop-core/src/job_types"]
+
 [conditional.'!plugins']
 ignore = ["desktop-core/src/plugin.rs"]
 
@@ -293,8 +311,14 @@ ignore = ["desktop-core/src/tailscale.rs"]
 [conditional.'!http_api']
 ignore = ["desktop-core/src/http_api", "desktop-core/tests/http_api.rs", "src-tauri/src/http.rs"]
 
+[conditional.'!webview']
+ignore = ["desktop-core/src/webview.rs", "src-tauri/src/webview.rs", "src-tauri/capabilities/webview.json"]
+
 [conditional.'!tauri_plugins || !(tauri_global_shortcut || tauri_autostart || tauri_window_state || tauri_process)']
 ignore = ["src-tauri/capabilities/desktop.json"]
+
+[conditional.'!tray_menu']
+ignore = ["desktop-core/src/actions.rs", "src-tauri/src/tray.rs"]
 
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]

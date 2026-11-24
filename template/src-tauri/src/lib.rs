@@ -14,7 +14,11 @@
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
 //! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
-//! - `http_api_info`: the local REST API's URL and token (feature `http_api`).
+//! - `webview_open`, `webview_close`, `webview_post` (feature `webview`, desktop only),
+//! - `jobs_list`, `jobs_enqueue`, `jobs_cancel`, `jobs_retry`, `jobs_schedules` and
+//!   `jobs_set_schedule` (feature `jobs-queue`),
+//! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu),
+//! - `http_api_info`: the local REST API's URL and token (feature `http-api`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -46,7 +50,7 @@
 //!
 //! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
 //! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
-//! `update`, `single`, `python`, `claude`, `http` (the local REST API).
+//! `update`, `single`, `python`, `claude`, `webview`, `http` (the local REST API).
 //!
 //! # Example
 //!
@@ -79,7 +83,9 @@ mod ipc;
 mod python;
 {% endif %}{% if mcp_server %}#[cfg(all(desktop, feature = "mcp"))]
 mod mcp;
-{% endif %}{% if http_api %}#[cfg(all(desktop, feature = "http_api"))]
+{% endif %}{% if webview %}#[cfg(all(desktop, feature = "webview"))]
+mod webview;
+{% endif %}{% if http_api %}#[cfg(all(desktop, feature = "http-api"))]
 mod http;
 {% endif %}mod guard;
 mod paths;
@@ -87,6 +93,8 @@ mod service;
 // kitchen:mods (`kitchen generate command` adds modules above this line)
 {% if single_instance %}#[cfg(all(desktop, feature = "single-instance"))]
 mod single;
+{% endif %}{% if tray_menu %}#[cfg(all(desktop, feature = "tray-menu"))]
+mod tray;
 {% endif %}{% if updater %}#[cfg(all(desktop, feature = "updater"))]
 mod update;
 {% endif %}
@@ -152,7 +160,7 @@ fn write_settings(file: &Path, s: &Settings) -> Result<(), String> {
 }
 
 /// Save `config` as the settings' `config` part (`PUT /v1/settings` on the HTTP API).
-#[cfg(all(desktop, feature = "http_api"))]
+#[cfg(all(desktop, feature = "http-api"))]
 fn save_config(config: Config) -> Result<(), String> {
     let file = paths::app_dirs().0.join("settings.json");
     let mut s = settings_at(&file);
@@ -177,9 +185,11 @@ fn features() -> Value {
         "stt": cfg!(feature = "stt"),
         "mail": cfg!(feature = "mail"),
         "plugins": cfg!(feature = "plugins"),
+        "jobs": cfg!(feature = "jobs-queue"),
         "rclone": cfg!(feature = "rclone"),
         "tailscale": cfg!(feature = "tailscale"),
-        "httpApi": cfg!(all(desktop, feature = "http_api")),
+        "webview": cfg!(all(desktop, feature = "webview")),
+        "httpApi": cfg!(all(desktop, feature = "http-api")),
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(all(desktop, feature = "mcp")),
         "pdf": cfg!(feature = "pdf"),
@@ -189,6 +199,7 @@ fn features() -> Value {
         "backgroundAgent": cfg!(all(desktop, feature = "background-agent")),
         "pythonExample": cfg!(all(desktop, feature = "python-example")),
         "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
+        "trayMenu": cfg!(all(desktop, feature = "tray-menu")),
     })
 }
 
@@ -299,7 +310,7 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         let done = match serde_json::to_value(&opts).map_err(err).and_then(|o| service.call("setup", o, &mut progress)) {
             Ok(status) => match save_settings(&app, &settings) {
                 Ok(()) => {
-                    #[cfg(all(desktop, feature = "http_api"))]
+                    #[cfg(all(desktop, feature = "http-api"))]
                     http::apply(service.clone(), &settings.config.http_api);
                     Done { ok: true, status: Some(status), error: None }
                 }
@@ -355,8 +366,11 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
-    #[cfg(all(desktop, feature = "http_api"))]
+    #[cfg(all(desktop, feature = "http-api"))]
     http::apply(state.service.clone(), &applied.http_api);
+    // The tray, the menus and the shortcuts change at once.
+    #[cfg(all(desktop, feature = "tray-menu"))]
+    tray::apply(&app, &applied);
     Ok(applied)
 }
 
@@ -493,7 +507,79 @@ fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, String> {
     call(&state, "tailscale_apply", Value::Null)
 }
 
-/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
+{% if background_jobs %}/// The job queue: waiting and running jobs, dead letters, recent runs and the job types.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_list(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "jobs_list", Value::Null)
+}
+
+/// Add a job: `kind`, its `payload`, and optionally `options` {delaySecs, runAt, maxAttempts, timeoutSecs}.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_enqueue(state: tauri::State<AppState>, kind: String, payload: Option<Value>, options: Option<Value>) -> Result<Value, String> {
+    let mut params = options.filter(Value::is_object).unwrap_or_else(|| json!({}));
+    params["kind"] = json!(kind);
+    params["payload"] = payload.unwrap_or_else(|| json!({}));
+    call(&state, "jobs_enqueue", params)
+}
+
+/// Cancel a job (a running one is told to stop).
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_cancel(state: tauri::State<AppState>, id: String) -> Result<Value, String> {
+    call(&state, "jobs_cancel", json!({ "id": id }))
+}
+
+/// Run a dead or waiting job again now.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_retry(state: tauri::State<AppState>, id: String) -> Result<Value, String> {
+    call(&state, "jobs_retry", json!({ "id": id }))
+}
+
+/// The schedules (cron or interval), paused or not, with their next run.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_schedules(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "jobs_schedules", Value::Null)
+}
+
+/// Add, change, pause, resume or remove a schedule: `{id, kind?, payload?, cron? | everySecs?, paused?, remove?}`.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_set_schedule(state: tauri::State<AppState>, schedule: Value) -> Result<Value, String> {
+    call(&state, "jobs_set_schedule", schedule)
+}
+
+/// The worker that the background agent starts at login has no window to set it up: when
+/// background jobs are on, it opens the engine from the saved settings itself, so schedules
+/// keep running while the window is closed.
+#[cfg(all(desktop, feature = "background-agent", feature = "jobs-queue"))]
+pub(crate) fn jobs_autostart(local: &Arc<service::Local>) {
+    let (config_dir, data_dir) = paths::app_dirs();
+    let s = settings_at(&config_dir.join("settings.json"));
+    if !s.setup_done || !s.config.jobs.enabled {
+        return;
+    }
+    let opts = EngineOptions {
+        data_dir,
+        backend: store_for(s.backend),
+        embeddings: s.embeddings && cfg!(feature = "embed"),
+        config: s.config,
+        app_name: Some(r#"{{app_name}}"#.into()),
+    };
+    let local = local.clone();
+    let started = std::thread::Builder::new().name("jobs-autostart".into()).spawn(move || match local.setup_unless_open(&opts) {
+        Ok(()) => log::info!("worker: background jobs running"),
+        Err(e) => log::warn!("worker: could not start background jobs: {e}"),
+    });
+    if let Err(e) = started {
+        log::warn!("worker: could not start background jobs: {e}");
+    }
+}
+
+{% endif %}/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
 #[cfg(feature = "tts")]
 #[tauri::command(async)]
 fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
@@ -783,7 +869,26 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
 {% endif %}{% if tauri_process %}    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_process::init());
-{% endif %}{% endif %}    let builder = builder.setup(move |app| {
+{% endif %}{% endif %}{% if tray_menu %}    // Tray, global shortcuts and app menu: one action registry (see tray.rs).
+{% unless tauri_plugins and tauri_global_shortcut %}    #[cfg(all(desktop, feature = "tray-menu"))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+{% endunless %}    #[cfg(all(desktop, feature = "tray-menu"))]
+    let builder = builder
+        .manage(tray::Tray::default())
+        .on_menu_event(|app, e| {
+            if let Some(action) = desktop_core::actions::action_of(e.id().as_ref()) {
+                tray::run(app, action);
+            }
+        })
+        .on_window_event(|w, e| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                if tray::closes_to_tray(w.app_handle()) {
+                    api.prevent_close();
+                    let _ = w.hide();
+                }
+            }
+        });
+{% endif %}    let builder = builder.setup(move |app| {
         let _ = &app;
 {% if tauri_plugins %}{% if tauri_deep_link %}        // Installers register the URL scheme; this covers development builds on Windows and Linux.
         #[cfg(any(windows, target_os = "linux"))]
@@ -801,6 +906,8 @@ pub fn run() {
         }
         #[cfg(feature = "mcp")]
         mcp_heartbeat();
+        #[cfg(all(desktop, feature = "tray-menu"))]
+        tray::apply(app.handle(), &load_settings(app.handle()).config);
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
         {
@@ -822,7 +929,7 @@ pub fn run() {
         Ok(())
     });
     builder
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({% if webview %}guarded({% endif %}tauri::generate_handler![
             app_info,
             run_setup,
             ingest_text,
@@ -871,8 +978,20 @@ pub fn run() {
             tailscale_status,
             #[cfg(feature = "tailscale")]
             tailscale_apply,
-            #[cfg(all(desktop, feature = "http_api"))]
+            #[cfg(all(desktop, feature = "http-api"))]
             http::http_api_info,
+            #[cfg(feature = "jobs-queue")]
+            jobs_list,
+            #[cfg(feature = "jobs-queue")]
+            jobs_enqueue,
+            #[cfg(feature = "jobs-queue")]
+            jobs_cancel,
+            #[cfg(feature = "jobs-queue")]
+            jobs_retry,
+            #[cfg(feature = "jobs-queue")]
+            jobs_schedules,
+            #[cfg(feature = "jobs-queue")]
+            jobs_set_schedule,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]
@@ -905,8 +1024,18 @@ pub fn run() {
             python::python_call,
             #[cfg(all(desktop, feature = "claude-mcp"))]
             claude::register_claude,
-            // kitchen:handlers
-        ])
+            #[cfg(all(desktop, feature = "tray-menu"))]
+            tray::tray_status,
+            #[cfg(all(desktop, feature = "tray-menu"))]
+            tray::run_action,
+{% if webview %}            #[cfg(all(desktop, feature = "webview"))]
+            webview::webview_open,
+            #[cfg(all(desktop, feature = "webview"))]
+            webview::webview_close,
+            #[cfg(all(desktop, feature = "webview"))]
+            webview::webview_post,
+{% endif %}            // kitchen:handlers
+        ]{% if webview %}){% endif %})
         .build(tauri::generate_context!())
         .expect("error while building the app")
         .run(|app, event| {
@@ -916,11 +1045,24 @@ pub fn run() {
         });
 }
 
-/// Stop what this window started, in order: a running ingest stops after its current
+{% if webview %}/// Every command call goes through here: calls from embedded web views (feature `webview`)
+/// are refused before any command runs.
+#[cfg(all(desktop, feature = "webview"))]
+fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    move |invoke| webview::guard_invoke(invoke, handler)
+}
+
+/// Without feature `webview` there are no web view windows to refuse.
+#[cfg(not(all(desktop, feature = "webview")))]
+fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> fn(tauri::ipc::Invoke) -> bool {
+    handler
+}
+
+{% endif %}/// Stop what this window started, in order: a running ingest stops after its current
 /// files (the rest is journaled and resumes next time), telemetry is flushed, then the
 /// worker and the database stop. A worker kept by the background agent keeps running.
 fn on_exit(app: &tauri::AppHandle) {
-    #[cfg(all(desktop, feature = "http_api"))]
+    #[cfg(all(desktop, feature = "http-api"))]
     http::stop();
     if let Some(state) = app.try_state::<AppState>() {
         let _ = state.service.call("cancel_ingest", Value::Null, &mut |_| {});

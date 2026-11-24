@@ -63,6 +63,9 @@ pub struct Config {
 {% endif %}{% if telemetry %}    /// Opt-in crash reports, analytics and traces.
     #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
+{% endif %}{% if background_jobs %}    /// Background jobs: workers, retries and backoff, history.
+    #[cfg(feature = "jobs-queue")]
+    pub jobs: crate::queue::JobsConfig,
 {% endif %}{% if plugins %}    /// Built-in plugins: on or off, and each one's settings.
     #[cfg(feature = "plugins")]
     pub plugins: crate::plugin::PluginsConfig,
@@ -73,8 +76,20 @@ pub struct Config {
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
 {% endif %}{% if http_api %}    /// The local REST API: on or off, host and port, CORS origins, limits.
-    #[cfg(feature = "http_api")]
+    #[cfg(feature = "http-api")]
     pub http_api: crate::http_api::HttpApiConfig,
+{% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
+    #[cfg(feature = "webview")]
+    pub webview: crate::webview::WebviewConfig,
+{% endif %}{% if tray_menu %}    /// The tray or menu-bar icon and its menu.
+    #[cfg(feature = "tray-menu")]
+    pub tray: crate::actions::TrayConfig,
+    /// Global shortcuts (none by default).
+    #[cfg(feature = "tray-menu")]
+    pub shortcuts: Vec<crate::actions::ShortcutBinding>,
+    /// The app-defined menu in the menu bar.
+    #[cfg(feature = "tray-menu")]
+    pub menu: crate::actions::MenuConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -282,6 +297,10 @@ impl Config {
         {
             self.telemetry = self.telemetry.validated();
         }
+{% endif %}{% if background_jobs %}        #[cfg(feature = "jobs-queue")]
+        {
+            self.jobs = self.jobs.validated();
+        }
 {% endif %}{% if plugins %}        #[cfg(feature = "plugins")]
         {
             self.plugins = self.plugins.validated();
@@ -294,9 +313,19 @@ impl Config {
         {
             self.tailscale = self.tailscale.validated();
         }
-{% endif %}{% if http_api %}        #[cfg(feature = "http_api")]
+{% endif %}{% if http_api %}        #[cfg(feature = "http-api")]
         {
             self.http_api = self.http_api.validated();
+        }
+{% endif %}{% if webview %}        #[cfg(feature = "webview")]
+        {
+            self.webview = self.webview.validated();
+        }
+{% endif %}{% if tray_menu %}        #[cfg(feature = "tray-menu")]
+        {
+            self.tray = self.tray.validated();
+            self.menu = self.menu.validated();
+            self.shortcuts = crate::actions::validated_shortcuts(self.shortcuts);
         }
 {% endif %}        // kitchen:validate
         self

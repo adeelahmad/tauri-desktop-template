@@ -1,7 +1,7 @@
 //! The HTTP API end to end: each test starts its own server on a random port over an
 //! engine in its own temporary folder, so the tests run in parallel.
 
-#![cfg(feature = "http_api")]
+#![cfg(feature = "http-api")]
 
 use desktop_core::http_api::{HttpApiConfig, Server, ServerOptions, TokenFile};
 use desktop_core::{Config, Engine, FileStore, SearchConfig};
@@ -201,3 +201,20 @@ fn limits_cors_and_timeouts() {
     assert_eq!(s, 401);
     assert!(h.get("access-control-allow-origin").is_none());
 }
+{% if background_jobs %}
+#[cfg(feature = "jobs-queue")]
+#[test]
+fn jobs_routes_call_the_queue_methods() {
+    let backend = |m: &str, p: Value| Ok(json!({"method": m, "params": p}));
+    let api = start_with(HttpApiConfig::default(), Some(Arc::new(backend)));
+    assert_eq!(api.send("GET", "/v1/jobs", None).2["method"], "jobs_list");
+    let (s, _, b) = api.send("POST", "/v1/jobs", Some(json!({"kind": "digest", "delaySecs": 5})));
+    assert_eq!(s, 201, "{b}");
+    assert_eq!(b["params"], json!({"kind": "digest", "payload": {}, "delaySecs": 5}));
+    let (s, h, b) = api.send("POST", "/v1/jobs", Some(json!({"kind": ""})));
+    assert_error(s, &h, &b, 422, "validation");
+    let (_, _, b) = api.send("POST", "/v1/jobs/j-1/retry", None);
+    assert_eq!(b, json!({"method": "jobs_retry", "params": {"id": "j-1"}}));
+    assert_eq!(api.send("POST", "/v1/jobs/j-1/cancel", None).2["method"], "jobs_cancel");
+}
+{% endif %}

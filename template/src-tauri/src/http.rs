@@ -1,4 +1,4 @@
-//! The local REST API (feature `http_api`): started after setup when `httpApi.enabled`,
+//! The local REST API (feature `http-api`): started after setup when `httpApi.enabled`,
 //! restarted when its settings change, stopped on exit. It serves the same backend as the
 //! window (`service::Service`, in this process or the worker), with the token from
 //! `<data>/api-token` (made on first use, owner-only). See `desktop_core::http_api`.

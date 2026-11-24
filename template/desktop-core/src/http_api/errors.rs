@@ -157,6 +157,12 @@ impl From<axum::extract::rejection::QueryRejection> for ApiError {
     }
 }
 
+impl From<axum::extract::rejection::PathRejection> for ApiError {
+    fn from(r: axum::extract::rejection::PathRejection) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_path", r.body_text())
+    }
+}
+
 impl From<axum::extract::rejection::BytesRejection> for ApiError {
     fn from(r: axum::extract::rejection::BytesRejection) -> Self {
         let code = if r.status() == StatusCode::PAYLOAD_TOO_LARGE { "payload_too_large" } else { "bad_request" };
