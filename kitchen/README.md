@@ -30,7 +30,7 @@ kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_csv                           # Tauri command + backend method
 kitchen generate page Reports                                 # React page on the main screen
 
-kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers
+kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers and AGENTS.md
 kitchen dev | kitchen build       # cargo tauri dev / build
 kitchen mcp                       # MCP server over stdio
 ```
@@ -74,6 +74,14 @@ claude mcp add kitchen -- kitchen mcp
 The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor` and
 `new`. Each one takes an optional `project` folder, and the ones that change files also take
 `dry_run`.
+
+## For AI agents
+
+Every app comes with `AGENTS.md` (layout, golden rules, the features that are on, tests,
+markers, and what never to do), `CLAUDE.md` pointing to it, `TESTING.md`, `BRAND.md`,
+skills in `.claude/skills/` (`kitchen-feature`, `kitchen-generate`, `kitchen-port-app`,
+`kitchen-release`) and a `.mcp.json` that registers `kitchen mcp` (and the app's own MCP
+server when `mcp_server` is on). `kitchen doctor` warns when `AGENTS.md` is missing.
 
 ## Why cargo-generate and not Yeoman
 
