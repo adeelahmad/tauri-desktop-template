@@ -60,6 +60,9 @@ pub struct Config {
 {% endif %}{% if email %}    /// SMTP server and sender (the password is kept apart).
     #[cfg(feature = "mail")]
     pub mail: crate::mail::MailConfig,
+{% endif %}{% if oauth %}    /// Sign-in providers (OAuth 2 / OpenID Connect); tokens and secrets stay in the keychain.
+    #[cfg(feature = "oauth")]
+    pub oauth: crate::oauth::OauthConfig,
 {% endif %}{% if telemetry %}    /// Opt-in crash reports, analytics and traces.
     #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
@@ -295,6 +298,10 @@ impl Config {
 {% endif %}{% if email %}        #[cfg(feature = "mail")]
         {
             self.mail = self.mail.validated();
+        }
+{% endif %}{% if oauth %}        #[cfg(feature = "oauth")]
+        {
+            self.oauth = self.oauth.validated();
         }
 {% endif %}{% if telemetry %}        #[cfg(feature = "telemetry")]
         {

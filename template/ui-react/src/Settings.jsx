@@ -140,6 +140,20 @@ const FIELDS = [
   ['mail', 'from', 'Sender, e.g. Me <me@example.com>', 'text', { needs: 'mail' }],
   ['mail', 'maxMb', 'Largest message (MB)', 'number', { needs: 'mail', min: 1, max: 100 }],
   ['mail', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'mail', min: 5, max: 300 }],
+  ['oauth', 'enabled', 'Allow signing in (OAuth 2 / OpenID Connect in the browser)', 'bool', { needs: 'oauth' }],
+  [
+    'oauth',
+    'redirect',
+    'The browser comes back through',
+    'select',
+    {
+      needs: 'oauth',
+      options: ['loopback', 'deepLink'],
+      labels: ['127.0.0.1 (works everywhere)', "The app's deep link (needs the deep-link plugin)"],
+    },
+  ],
+  ['oauth', 'timeoutSecs', 'Time to finish signing in (seconds)', 'number', { needs: 'oauth', min: 30, max: 1800 }],
+  ['oauth', 'refreshBeforeSecs', 'Refresh tokens this long before they expire (seconds)', 'number', { needs: 'oauth', min: 10, max: 3600 }],
   ['jobs', 'enabled', 'Run background jobs and schedules', 'bool', { needs: 'jobs' }],
   ['jobs', 'workers', 'Jobs at once', 'number', { needs: 'jobs', min: 1, max: 32 }],
   ['jobs', 'maxAttempts', 'Attempts before a job is dead', 'number', { needs: 'jobs', min: 1, max: 100 }],
@@ -266,6 +280,7 @@ const TITLES = {
   net: 'Network',
   backup: 'Backups',
   mail: 'Email',
+  oauth: 'Sign-in',
   plugins: 'Plugins',
   jobs: 'Jobs',
   rclone: 'Cloud sync',
@@ -433,6 +448,142 @@ function MailSetup({ from }) {
         <span className="hint">{msg || 'Save settings first.'}</span>
       </div>
     </>
+  );
+}
+
+const PROVIDER_KINDS = ['google', 'github', 'microsoft', 'oidc'];
+const PROVIDER_LABELS = { google: 'Google', github: 'GitHub', microsoft: 'Microsoft', oidc: 'OpenID Connect (any provider)' };
+const KIND_FIELD = { options: PROVIDER_KINDS, labels: PROVIDER_KINDS.map((k) => PROVIDER_LABELS[k]) };
+
+// Sign-in providers (client ids in settings; client secrets and tokens in the OS keychain),
+// with Sign in / Sign out for each saved provider.
+function OauthSetup({ providers, onChange, deepLink, redirect }) {
+  const [status, setStatus] = useState(null);
+  const [secrets, setSecrets] = useState({});
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState('');
+  const refresh = () => invoke('oauth_status').then(setStatus, (e) => setMsg(String(e)));
+  useEffect(() => {
+    refresh();
+    const off = listen('oauth-changed', (e) => {
+      if (e.payload?.error) setMsg(String(e.payload.error));
+      refresh();
+    });
+    return () => {
+      off.then((f) => f());
+    };
+  }, []);
+  const put = (i, key, v) => onChange(providers.map((p, j) => (j === i ? { ...p, [key]: v } : p)));
+  const add = () => {
+    const kind = PROVIDER_KINDS.find((k) => !providers.some((p) => p.id === k)) || 'oidc';
+    onChange([...providers, { id: kind, kind, clientId: '', scopes: [], issuer: '', tenant: 'common' }]);
+  };
+  const act = async (label, fn) => {
+    setBusy(label);
+    setMsg(label === 'signin' ? 'Finish signing in in your browser...' : '');
+    try {
+      const r = await fn();
+      if (r?.pending) setMsg('Finish signing in in your browser; the app opens again when you are done.');
+      else if (r && 'revoked' in r) setMsg(r.revoked ? 'Signed out and the token was revoked.' : 'Signed out on this computer.');
+      else setMsg('Signed in.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      setBusy('');
+      refresh();
+    }
+  };
+  const saveSecret = async (id) => {
+    try {
+      const r = await invoke('oauth_client_secret', { provider: id, secret: secrets[id] || '' });
+      setSecrets({ ...secrets, [id]: '' });
+      setMsg(r.set ? 'Client secret saved in the keychain.' : 'Client secret removed.');
+      refresh();
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  const live = (id) => status?.providers.find((p) => p.id === id);
+  return (
+    <div>
+      {redirect === 'deepLink' && !deepLink && (
+        <p className="hint">The deep-link plugin is not built in; the 127.0.0.1 redirect is used.</p>
+      )}
+      {providers.map((p, i) => {
+        const st = live(p.id);
+        const who = st?.user && (st.user.email || st.user.login || st.user.name || st.user.id);
+        return (
+          <div key={i} className="grid">
+            <Field kind="select" label="Provider" value={p.kind} extra={KIND_FIELD} onChange={(v) => put(i, 'kind', v)} />
+            <Field kind="text" label="Name (used to sign in; e.g. google)" value={p.id} extra={NONE} onChange={(v) => put(i, 'id', v)} />
+            <Field kind="text" label="Client id" value={p.clientId} extra={NONE} onChange={(v) => put(i, 'clientId', v)} />
+            <Field
+              kind="list"
+              label="Scopes (empty = the provider's usual ones)"
+              value={p.scopes}
+              extra={NONE}
+              onChange={(v) => put(i, 'scopes', v)}
+            />
+            {p.kind === 'oidc' && (
+              <Field
+                kind="text"
+                label="Issuer URL, e.g. https://id.example.com"
+                value={p.issuer}
+                extra={NONE}
+                onChange={(v) => put(i, 'issuer', v)}
+              />
+            )}
+            {p.kind === 'microsoft' && (
+              <Field
+                kind="text"
+                label="Tenant (common, organizations, consumers or a tenant id)"
+                value={p.tenant}
+                extra={NONE}
+                onChange={(v) => put(i, 'tenant', v)}
+              />
+            )}
+            <div className="row">
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder={st?.clientSecret ? 'Client secret saved (type to replace)' : 'Client secret, if the provider needs one'}
+                value={secrets[p.id] || ''}
+                onChange={(e) => setSecrets({ ...secrets, [p.id]: e.target.value })}
+                aria-label="Client secret"
+              />
+              <button onClick={() => saveSecret(p.id)} disabled={!st}>
+                {secrets[p.id] ? 'Save secret' : 'Remove secret'}
+              </button>
+            </div>
+            <div className="row">
+              {st?.signedIn ? (
+                <button onClick={() => act('signout', () => invoke('oauth_logout', { provider: p.id }))} disabled={!!busy}>
+                  Sign out
+                </button>
+              ) : (
+                <button
+                  onClick={() => act('signin', () => invoke('oauth_login', { provider: p.id }))}
+                  disabled={!!busy || !st?.ready || !status?.enabled}
+                >
+                  Sign in with {PROVIDER_LABELS[p.kind]}
+                </button>
+              )}
+              <button className="link" onClick={() => onChange(providers.filter((_, j) => j !== i))}>
+                Remove provider
+              </button>
+              <span className="hint">
+                {st ? (st.signedIn ? `Signed in${who ? ` as ${who}` : ''}.` : 'Not signed in.') : 'Save settings to use this provider.'}
+                {st?.error ? ` Keychain: ${st.error}` : ''}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="row">
+        <button onClick={add}>Add a provider</button>
+        <span className="hint">{msg || 'Turn sign-in on and save settings, then sign in.'}</span>
+      </div>
+    </div>
   );
 }
 
@@ -1411,6 +1562,7 @@ export default function Settings({ features }) {
     tts: 'tts',
     stt: 'stt',
     mail: 'mail',
+    oauth: 'oauth',
     plugins: 'plugins',
     jobs: 'jobs',
     rclone: 'rclone',
@@ -1434,6 +1586,7 @@ export default function Settings({ features }) {
     'jobs',
     'rclone',
     'mail',
+    'oauth',
     'tailscale',
     'httpApi',
     'webview',
@@ -1479,6 +1632,14 @@ export default function Settings({ features }) {
           {s === 'telemetry' && <TelemetryStatus />}
           {s === 'backup' && <Backups />}
           {s === 'mail' && <MailSetup from={cfg.mail?.from} />}
+          {s === 'oauth' && (
+            <OauthSetup
+              providers={cfg.oauth?.providers || []}
+              onChange={(v) => setCfg({ ...cfg, oauth: { ...cfg.oauth, providers: v } })}
+              deepLink={features.oauthDeepLink}
+              redirect={cfg.oauth?.redirect}
+            />
+          )}
           {s === 'plugins' && (
             <PluginList
               settings={cfg.plugins?.settings || {}}
