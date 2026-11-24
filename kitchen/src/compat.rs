@@ -196,6 +196,26 @@ pub const REQUIRES: &[Requires] = &[
         needs: "installers",
         why: "the release workflow builds them",
     },
+    Requires {
+        feature: "bundle_embedding_model",
+        needs: "embeddings",
+        why: "it puts that feature's model inside the installer",
+    },
+    Requires {
+        feature: "bundle_stt_model",
+        needs: "stt",
+        why: "it puts that feature's model inside the installer",
+    },
+    Requires {
+        feature: "bundle_tts_voice",
+        needs: "tts",
+        why: "it puts that feature's model inside the installer",
+    },
+    Requires {
+        feature: "bundle_llm",
+        needs: "local_llm",
+        why: "it puts that feature's model inside the installer",
+    },
 ];
 
 /// Soft dependencies: the feature works, one part of it does not.
@@ -415,6 +435,51 @@ pub fn check(on: impl Fn(&str) -> bool) -> Vec<Finding> {
     out
 }
 
+/// The bundled-models checks (`models = bundle` or `bundle_with_fallback`): how much the
+/// models add to the installer (a notice, always), a warning past about 200 MB or with a
+/// large model (the 2 GB release asset limit, notarization uploads), and that bundling
+/// redistributes each model under its licence. `get(name)` is an answer as text.
+pub fn check_models(get: impl Fn(&str) -> Option<String>) -> Vec<Finding> {
+    let chosen = crate::models::chosen(&get);
+    if chosen.is_empty() {
+        return Vec::new();
+    }
+    let names: Vec<String> = chosen
+        .iter()
+        .map(|m| format!("{} {}", m.name, crate::models::mb(m.bytes())))
+        .collect();
+    let (size, warn) = crate::models::size_notes(
+        crate::models::total(&chosen),
+        chosen.iter().any(|m| m.kind == "llm"),
+    );
+    let finding = |level, message| Finding {
+        level,
+        feature: "models",
+        other: None,
+        message,
+    };
+    let mut out = vec![finding(
+        Level::Notice,
+        format!("models: {size} ({})", names.join(", ")),
+    )];
+    out.extend(
+        warn.into_iter()
+            .map(|w| finding(Level::Warning, format!("models: {w}"))),
+    );
+    let licences: Vec<String> = chosen
+        .iter()
+        .map(|m| format!("{} {}", m.name, m.licence))
+        .collect();
+    out.push(finding(
+        Level::Notice,
+        format!(
+            "models: bundling redistributes the models; ship their licences with the app ({})",
+            licences.join(", ")
+        ),
+    ));
+    out
+}
+
 /// What `--with-deps` turns on for `enable`: every answer the named ones need (and what
 /// those need), that is not on yet, as `(needed, needed_by)`, in the order found.
 pub fn missing_needs(
@@ -551,6 +616,15 @@ pub fn rhai_tables() -> String {
     s.push_str("];\nlet LICENCES = [\n");
     for l in LICENCES {
         s.push_str(&row(&[l.feature, l.notice]));
+    }
+    s.push_str("];\nlet MODELS = [\n");
+    for m in crate::models::CATALOG
+        .iter()
+        .filter(|m| !m.answer.is_empty())
+    {
+        let (k, v) = m.when.unwrap_or(("", ""));
+        let mb = ((m.bytes() + 500_000) / 1_000_000).to_string();
+        s.push_str(&row(&[m.answer, k, v, m.name, &mb, m.kind, m.licence]));
     }
     s.push_str("];\n");
     s
@@ -708,10 +782,40 @@ mod tests {
     }
 
     #[test]
+    fn bundled_models_print_their_size_and_warn_when_large() {
+        let get = |llm: bool| {
+            move |k: &str| match k {
+                "models" => Some("bundle_with_fallback".to_string()),
+                "bundle_stt_model" | "bundle_tts_voice" => Some("true".into()),
+                "bundle_llm" => Some(llm.to_string()),
+                _ => None,
+            }
+        };
+        let small = check_models(get(false));
+        assert!(small.iter().all(|f| f.level == Level::Notice));
+        assert!(small[0].message.contains("MB") && small[0].message.contains("whisper-base"));
+        assert!(small[1].message.contains("tiny-voca Apache-2.0"));
+        let big = check_models(get(true));
+        let warn: Vec<_> = big.iter().filter(|f| f.level == Level::Warning).collect();
+        assert!(warn.iter().any(|f| f.message.contains("200 MB")));
+        assert!(warn
+            .iter()
+            .any(|f| f.message.contains("2 GB") && f.message.contains("notarization")));
+        assert!(check_models(|_| None).is_empty());
+    }
+
+    #[test]
     fn rhai_tables_round_trip() {
         let t = parse_rhai_tables(&rhai_tables());
         let names: Vec<&str> = t.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, ["REQUIRES", "ADVICE", "DESKTOP_ONLY", "LICENCES"]);
+        assert_eq!(
+            names,
+            ["REQUIRES", "ADVICE", "DESKTOP_ONLY", "LICENCES", "MODELS"]
+        );
+        assert!(t[4]
+            .1
+            .iter()
+            .any(|r| r[0] == "bundle_stt_model" && r[3] == "whisper-base"));
         assert_eq!(t[0].1.len(), REQUIRES.len());
         assert_eq!(t[0].1[1], ["daemon", "ipc_worker", REQUIRES[1].why]);
     }

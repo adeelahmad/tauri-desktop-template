@@ -581,6 +581,11 @@ impl Engine {
             on_token(&hit.reply.text);
             return Ok(hit);
         }
+        // No model picked: the GGUF built into the installer, if there is one.
+        #[cfg(feature = "llama")]
+        if cfg.llm.local.model_path.is_none() {
+            cfg.llm.local.model_path = crate::models::Resolver::new(&self.data_dir.join("models")).bundled_file(crate::models::Kind::Llm)?;
+        }
         cfg.llm.local.gpu_layers = cfg.resources.gpu_layers(cfg.llm.local.gpu_layers);
         if cfg.llm.target.provider == crate::llm::Provider::Local && cfg.resources.memory_budget_mb > 0 {
             let size = cfg.llm.local.model_path.as_deref().and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
@@ -615,12 +620,15 @@ impl Engine {
     }
 
 {% endif %}{% if local_llm %}    /// Download a GGUF model (`url`, or the configured `llm.local.modelUrl`) into
-    /// `<data>/models`, resuming a partial download, and select it. Returns the file.
+    /// `<data>/models`, resuming a partial download, and select it. Returns the file. With no
+    /// `url`, a GGUF the installer bundles ([`crate::models`]) is selected instead.
     #[cfg(feature = "llama")]
     pub fn download_model(&self, url: Option<&str>, progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<PathBuf> {
         let mut cfg = self.config();
+        let bundled = if url.is_none() { crate::models::Resolver::new(&self.data_dir.join("models")).bundled_file(crate::models::Kind::Llm)? } else { None };
         let url = url.map(str::to_owned).or_else(|| cfg.llm.local.model_url.clone()).ok_or_else(|| Error::Llm("no model URL".into()))?;
-        let dest = crate::local::model_file(&self.data_dir.join("models"), &url);
+        // The installer's own GGUF needs no download.
+        let dest = bundled.unwrap_or_else(|| crate::local::model_file(&self.data_dir.join("models"), &url));
         if !dest.is_file() {
             crate::net::download_to(&url, &dest, progress).map_err(Error::Llm)?;
         }

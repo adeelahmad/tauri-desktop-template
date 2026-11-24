@@ -50,6 +50,8 @@ fn tools() -> Value {
              "default": {"type": "string"}, "label": {"type": "string"},
              "shortcut": {"type": "string", "description": "Keys like CmdOrCtrl+Shift+K"},
              "project": project, "dry_run": dry}, "required": ["kind", "name"]}},
+        {"name": "models", "description": "Models built into the installer (src-tauri/resources/models/models.lock): action list (default; the catalog with sizes and licences), add or remove (name), fetch (download them and check every SHA-256) or verify (check the fetched files). Bundling is chosen with set models=bundle or bundle_with_fallback.",
+         "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list", "add", "remove", "fetch", "verify"]}, "name": {"type": "string", "description": "add/remove: the model, e.g. whisper-base"}, "project": project, "dry_run": dry}}},
         {"name": "doctor", "description": "Check the machine and the app; each problem comes with its fix.",
          "inputSchema": {"type": "object", "properties": {"project": project}}},
         {"name": "start", "description": "How to run the app with hot reload. It keeps running, so this returns the command for a terminal instead of blocking.",
@@ -135,6 +137,14 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             v
         }
         "eject" => vec!["eject".into(), need("tool")?],
+        "models" => {
+            let mut v = vec![
+                "models".to_string(),
+                s("action").unwrap_or_else(|| "list".into()),
+            ];
+            v.extend(s("name"));
+            v
+        }
         "eval" => {
             let mut v = vec!["eval".to_string()];
             v.extend(s("dataset"));

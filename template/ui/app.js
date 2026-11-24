@@ -39,6 +39,8 @@ async function start() {
     show('w-pg-note');
   }
   show('w-model', f.embed);
+  // A model built into the installer (bundled models) needs no download step.
+  if ((info.models || []).some((m) => m.kind === 'embed' && m.present)) $('w-embed-size').textContent = 'built into the app, no download';
   // iOS and Android: no folders of the user's to read.
   show('add-folder', !f.mobile);
   if (f.wizard && !info.settings.setupDone) {

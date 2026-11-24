@@ -12,7 +12,7 @@ ui: $(UI_DEPS) ## Build the React UI (the app embeds ui-react/dist)
 ui: ## Nothing to build: the UI is plain files in ui/
 	@true
 {% endif %}
-.PHONY: help setup dev build test lint check-windows fmt audit self-test fuzz {% if evals %}eval {% endif %}ui db-up db-down docker-test hooks clean
+.PHONY: help setup dev build test lint check-windows fmt audit self-test fuzz {% if evals %}eval {% endif %}{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm %}models models-verify {% endif %}ui db-up db-down docker-test hooks clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -26,7 +26,13 @@ hooks: ## Install pre-commit (and commit-msg) hooks
 dev: ## Run the app with hot reload
 	cargo tauri dev
 
-build: ui ## Build installers for this machine (signed updater archives only with TAURI_SIGNING_PRIVATE_KEY set)
+{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm %}models: ## Fetch the models the installer bundles (src-tauri/resources/models/models.lock) and check their SHA-256s
+	cargo run -q -p desktop-core --example models -- fetch
+
+models-verify: ## Check the fetched models against models.lock (sizes and SHA-256s)
+	cargo run -q -p desktop-core --example models -- verify
+
+{% endif %}build: ui{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm %} models{% endif %} ## Build installers for this machine (signed updater archives only with TAURI_SIGNING_PRIVATE_KEY set)
 	cargo tauri build $(if $(TAURI_SIGNING_PRIVATE_KEY),,--config '{"bundle":{"createUpdaterArtifacts":false}}')
 
 test: ui ## Tests: Rust{% if python_example %}, Python{% endif %}

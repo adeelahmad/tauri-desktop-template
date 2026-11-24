@@ -351,6 +351,9 @@ struct AppInfo {
     profile: String,
     /// The build-time app config (config/*.json merged for this build); see `app_config`.
     config: Value,
+    /// The models built into the installer (empty when they download on first use); the
+    /// setup wizard skips their downloads.
+    models: Vec<desktop_core::models::ModelInfo>,
 }
 
 /// The app, the parts built in, the saved settings and the open store's status.
@@ -367,6 +370,7 @@ fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<AppI
         data_dir: paths::app_dirs().1,
         profile: paths::profile().to_string(),
         config: app_config::CONFIG.clone(),
+        models: desktop_core::models::Resolver::new(&paths::app_dirs().1.join("models")).bundled(),
     })
 }
 
@@ -1238,6 +1242,10 @@ pub fn run() {
             paths::set_mobile_root(app.path().app_data_dir()?);
             start_logging();
         }
+        // Models built into the installer (bundled models; see desktop_core::models).
+        if let Ok(dir) = app.path().resource_dir() {
+            desktop_core::models::set_bundle_dir(dir.join("models"));
+        }
         #[cfg(feature = "mcp")]
         mcp_heartbeat();
         #[cfg(all(desktop, feature = "tray-menu"))]
@@ -1483,6 +1491,7 @@ mod tests {
         b.add::<AppInfo>("AppInfo").add::<ProfileList>("ProfileList").add::<paths::Profile>("paths::Profile");
         b.add::<Backend>("Backend").add::<Config>("Config").add::<SearchConfig>("SearchConfig");
         b.add::<Hit>("Hit").add::<IngestReport>("IngestReport").add::<Status>("Status");
+        b.add::<desktop_core::models::ModelInfo>("desktop_core::models::ModelInfo");
         // What every command rejects with (`{code, message, details?}`).
         b.add::<error::CommandError>("error::CommandError");
 {% if mcp_server %}        #[cfg(all(desktop, feature = "mcp"))]

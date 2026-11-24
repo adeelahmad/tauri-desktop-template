@@ -16,7 +16,8 @@
 //!
 //! Main modules: [`engine`] (the facade), [`config`] (every setting, validated),
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
-//! [`net`], [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
+//! [`net`], [`models`] (models built into the installer, and where each loads from),
+//! [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
 //! development builds), [`untrusted`] (size caps and panic guards for outside input). Feature
 //! modules: `embed`, `pdf` (with `sandbox`, its child-process limits), `pgstore`, `watch`, `llm` and `meter` (cost
 //! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
@@ -57,6 +58,7 @@ pub mod fuse;
 pub mod governor;
 pub mod jobs;
 pub mod logging;
+pub mod models;
 pub mod net;
 pub mod store;
 pub mod untrusted;

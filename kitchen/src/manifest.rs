@@ -106,6 +106,50 @@ impl Manifest {
             .unwrap_or(false)
     }
 
+    /// One answer as text (`true`/`false` for yes/no answers), `None` when it has none.
+    pub fn text(&self, key: &str) -> Option<String> {
+        self.answers.get(key).map(|v| match v {
+            toml::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        })
+    }
+
+    /// Whether a question's condition from `cargo-generate.toml` holds for these answers:
+    /// `name` (a yes/no answer that is on), `!name`, `name == "v"`, `name != "v"`, joined
+    /// by `&&` or `||` (not both). Like cargo-generate, a condition that reads an answer
+    /// the app does not have is false (unless an `||` already made it true).
+    pub fn holds(&self, cond: &str) -> bool {
+        let atom = |a: &str| -> Option<bool> {
+            let a = a
+                .trim()
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .trim();
+            for (op, eq) in [("!=", false), ("==", true)] {
+                if let Some((k, v)) = a.split_once(op) {
+                    let got = self.text(k.trim())?;
+                    return Some((got == v.trim().trim_matches('"')) == eq);
+                }
+            }
+            match a.strip_prefix('!') {
+                Some(k) => self.answers.get(k.trim())?.as_bool().map(|b| !b),
+                None => self.answers.get(a)?.as_bool(),
+            }
+        };
+        if cond.contains("||") {
+            for a in cond.split("||") {
+                match atom(a) {
+                    Some(true) => return true,
+                    Some(false) => {}
+                    None => return false,
+                }
+            }
+            false
+        } else {
+            cond.split("&&").all(|a| atom(a) == Some(true))
+        }
+    }
+
     /// Set one answer.
     pub fn set(&mut self, key: &str, value: toml::Value) {
         self.answers.insert(key.to_string(), value);
@@ -128,6 +172,23 @@ impl Manifest {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn conditions_hold_like_cargo_generate() {
+        let m: Manifest =
+            toml::from_str("[answers]\nmodels = \"bundle\"\nstt = true\ntts = false\n").unwrap();
+        assert!(m.holds("stt"));
+        assert!(m.holds("models != \"download\" && stt"));
+        assert!(!m.holds("models != \"download\" && tts"));
+        assert!(!m.holds("models == \"download\""));
+        assert!(m.holds("tts || stt"));
+        assert!(m.holds("!tts"));
+        // An answer the app does not have makes the condition false, as in cargo-generate.
+        assert!(!m.holds("local_llm"));
+        assert!(!m.holds("tts || local_llm || stt"));
+        assert!(m.holds("stt || local_llm"));
+    }
+
     use super::*;
 
     #[test]

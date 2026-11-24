@@ -394,6 +394,12 @@ pub fn model_dir(data_dir: &Path, model: &str) -> PathBuf {
     data_dir.join("models").join(format!("whisper-{model}"))
 }
 
+/// The folder `model` loads from: the installer's copy when it bundles one
+/// ([`crate::models`]), else [`model_dir`] (where [`download`] puts it).
+pub fn locate(data_dir: &Path, model: &str) -> Result<PathBuf> {
+    Ok(crate::models::locate(&format!("whisper-{model}"), model_dir(data_dir, model), &data_dir.join("models"))?.dir().to_path_buf())
+}
+
 /// Whether every file of `model` is in place.
 pub fn is_downloaded(dir: &Path) -> bool {
     ["encoder.onnx", "decoder.onnx", "vocab.json", "added_tokens.json"].iter().all(|f| dir.join(f).is_file())

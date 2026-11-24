@@ -53,6 +53,9 @@ Everything runs on the user's machine.
 {% if tts -%}
 | Text to speech in Rust (tiny-voca, 24 kHz, ONNX Runtime; two voices, speed and pitch): "Read aloud" on answers. Turn on under Settings → Speech | `desktop-core/src/tts.rs` | `tts` |
 {% endif -%}
+{% if bundle_embedding_model or bundle_stt_model or bundle_tts_voice or bundle_llm -%}
+| Models built into the installer: the first start works offline. `make models` fetches and checks them (`src-tauri/resources/models/models.lock`); see docs/GUIDE.md, "Bundling models" | `desktop-core/src/models.rs`, `desktop-core/examples/models.rs` | always |
+{% endif -%}
 {% if stt -%}
 | Speech to text with Whisper (tiny/base/small, multilingual, language detection, translate to English) over ONNX Runtime; mel spectrogram and decoding in Rust. Dictate into search and Ask, or transcribe an audio file. Turn on under Settings → Dictation | `desktop-core/src/stt.rs`, `desktop-core/src/audio.rs` | `stt` |
 {% endif -%}
@@ -701,6 +704,10 @@ Every request (model, voice and Postgres downloads, AI providers, telemetry) goe
 `desktop-core/src/net.rs` and obeys `net`. Child processes (the Python worker, uv) get the
 proxy, the CA file and offline switches (`HF_HUB_OFFLINE`, `UV_OFFLINE`) in their environment.
 {% if embeddings %}
+`APP_MODELS` (in `.cargo/config.toml`, or at run time) says how models arrive: `download`
+(on first use; the default), `bundle` or `bundle_with_fallback` (inside the installer;
+docs/GUIDE.md, "Bundling models"). `APP_MODELS_DIR` points at another bundled folder.
+
 `APP_EMBED_MODEL` (in `.cargo/config.toml`, or at run time) picks the model: one of
 `nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `all-MiniLM-L6-v2`, `multilingual-e5-small`.
 Changing it re-embeds stored chunks on the next start.

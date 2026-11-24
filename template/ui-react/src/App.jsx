@@ -37,6 +37,8 @@ function Wizard({ info, onSetup, busy, message }) {
   const f = info.features;
   const [backend, setBackend] = useState('file');
   const [embed, setEmbed] = useState(true);
+  // A model built into the installer (bundled models) needs no download step.
+  const embedBundled = (info.models || []).some((m) => m.kind === 'embed' && m.present);
   return (
     <section>
       <h2>Welcome</h2>
@@ -68,7 +70,7 @@ function Wizard({ info, onSetup, busy, message }) {
             <h3>2. Smart search</h3>
             <label>
               <input type="checkbox" checked={embed} onChange={(e) => setEmbed(e.target.checked)} /> Search by meaning with a local AI model
-              (downloads once, nothing is sent anywhere)
+              ({embedBundled ? 'built into the app, no download' : 'downloads once'}, nothing is sent anywhere)
             </label>
           </li>
         )}

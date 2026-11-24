@@ -11,7 +11,8 @@
 //!
 //! # Example
 //!
-//! The first run downloads the model into the cache folder:
+//! The first run downloads the model into the cache folder (unless the installer bundles it,
+//! see [`crate::models`]):
 //!
 //! ```no_run
 //! use desktop_core::embed::LocalEmbedder;
@@ -92,9 +93,12 @@ impl LocalEmbedder {
         }
         let name = model_name();
         let spec = spec(&name)?;
+        // A copy inside the installer (bundled models) is the cache when it is there.
+        let source = crate::models::locate(&format!("embed-{name}"), cache.to_path_buf(), cache)?;
+        let cache = source.dir();
         // fastembed downloads through its own client, so ask the network policy first.
         let code = TextEmbedding::get_model_info(&spec.model).map(|i| i.model_code.replace('/', "--")).unwrap_or_default();
-        if !cache.join(format!("models--{code}")).is_dir() {
+        if !source.is_bundled() && !cache.join(format!("models--{code}")).is_dir() {
             crate::net::check("https://huggingface.co/").map_err(|e| Error::Embed(format!("the embedding model is not downloaded yet: {e}")))?;
         }
         let opts = TextInitOptions::new(spec.model.clone()).with_cache_dir(cache.to_path_buf()).with_show_download_progress(false).with_environment(crate::onnx_env()?);

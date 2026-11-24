@@ -12,7 +12,9 @@
 
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
-use crate::{audit, doctor, eval, generate, hooks, service, Error, Options, Report, Result};
+use crate::{
+    audit, doctor, eval, generate, hooks, models, service, Error, Options, Report, Result,
+};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -59,6 +61,10 @@ Usage:
   kitchen eval [dataset] [--baseline <file>] [--threshold 0.02] [--k 5] [--answers]
                                        the app's search evals (<app> --eval, feature evals);
                                        fails on a regression against the baseline
+  kitchen models list|add <name>|remove <name>|fetch|verify
+                                       models built into the installer (models.lock):
+                                       fetch downloads them and checks their SHA-256s
+  kitchen enable bundled_models        same as kitchen set models=bundle_with_fallback
   kitchen build                        cargo tauri build, as is
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
@@ -216,6 +222,15 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 )));
             }
             let p = project()?;
+            // `bundled_models` is not a question: it is the `models` answer.
+            if names == ["bundled_models"] {
+                let mode = if cmd == "enable" {
+                    "bundle_with_fallback"
+                } else {
+                    "download"
+                };
+                return p.set_answer("models", mode, &opts);
+            }
             if cmd == "enable" {
                 p.set_features(&names, &[], &opts)
             } else {
@@ -281,6 +296,38 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 other => Err(Error::Usage(format!(
                     "cannot generate {other:?}: module, setting, command, page, menu, shortcut, job or route"
                 ))),
+            }
+        }
+        "models" => {
+            let p = project()?;
+            let action = args.words.get(1).map(String::as_str).unwrap_or("list");
+            match action {
+                "list" | "ls" => models::list(&p.root),
+                "add" => models::add(
+                    &p.root,
+                    p.manifest.text("models").as_deref(),
+                    args.word(2, "a model name (`kitchen models list`)")?,
+                    &opts,
+                ),
+                "remove" | "rm" => models::remove(
+                    &p.root,
+                    args.word(2, "a model name (`kitchen models list`)")?,
+                    &opts,
+                ),
+                other => {
+                    let plan = models::plan(&p.root, other)?;
+                    if opts.dry_run {
+                        let mut r = Report::new("Dry run: this would run:");
+                        r.lines = plan.steps.iter().map(|s| s.display()).collect();
+                        r.lines.extend(plan.notes);
+                        return Ok(r);
+                    }
+                    lifecycle::execute(
+                        &plan,
+                        io_mode,
+                        "The bundled models are in place and their checksums match.",
+                    )
+                }
             }
         }
         "hooks" => hooks::run(

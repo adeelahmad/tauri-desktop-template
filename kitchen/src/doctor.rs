@@ -351,6 +351,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
         )
     });
     out.push(agent_files(&root));
+    out.extend(crate::models::doctor_check(&root));
     out
 }
 
