@@ -15,6 +15,10 @@
 //! kitchen generate page Reports
 //! kitchen hooks install                    # fmt + clippy (and prettier/eslint) before each commit
 //! kitchen doctor                           # what this machine is missing, and the fix
+//! kitchen start                            # run it with hot reload (KITCHEN_ENV=development)
+//! kitchen test                             # unit tests + the real app over WebDriver
+//! kitchen package --release                # installers for this OS, in ./packages
+//! kitchen publish --yes                    # a GitHub release with them
 //! kitchen service install                  # run the app's daemon as a user service
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
@@ -43,13 +47,15 @@
 //!
 //! Modules: [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
-//! generators), [`doctor`] (machine checks), [`hooks`] (the app's git hooks), [`service`]
-//! (the app's daemon as a service), [`mcp`] (the MCP server), [`cli`] (arguments).
+//! generators), [`lifecycle`] (start, test, package, publish, eject), [`doctor`] (machine
+//! checks), [`hooks`] (the app's git hooks), [`service`] (the app's daemon as a service),
+//! [`mcp`] (the MCP server), [`cli`] (arguments).
 
 pub mod cli;
 pub mod doctor;
 pub mod generate;
 pub mod hooks;
+pub mod lifecycle;
 pub mod manifest;
 pub mod mcp;
 pub mod merge;

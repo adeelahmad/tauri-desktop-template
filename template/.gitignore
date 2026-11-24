@@ -5,3 +5,5 @@
 /target
 **/node_modules
 .DS_Store
+# This machine only (layered app config, see src-tauri/src/app_config.rs).
+/config/local.json

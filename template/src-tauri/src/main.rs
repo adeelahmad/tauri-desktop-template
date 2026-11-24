@@ -26,6 +26,12 @@ fn main() {
         // no console on Windows, so the report can also go to a file.
         std::process::exit(app_lib::self_test(args.get(2).map(std::path::Path::new)));
     }
+    // Production safety: a production build refuses to start without the config listed in
+    // config/*.json `requiredInProduction` (see app_lib::app_config::check).
+    if let Err(e) = app_lib::app_config::check() {
+        eprintln!("{e}");
+        std::process::exit(2);
+    }
     if args.get(1).map(String::as_str) == Some("--mcp") {
         // An MCP client (Claude Desktop, Claude Code, ...) started us: JSON-RPC on stdio.
         std::process::exit(app_lib::mcp_main());

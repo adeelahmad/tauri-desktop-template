@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { APP_NAME, DESCRIPTION } from './config.js';
+import { APP_NAME, DESCRIPTION, configGet, setConfig } from './config.js';
+import { errorText } from './errors.js';
 import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
 import Dictate from './Dictate.jsx';
@@ -342,11 +343,12 @@ export default function App() {
   useEffect(() => {
     invoke('app_info')
       .then((i) => {
+        setConfig(i.config);
         setInfo(i);
         if (i.features.wizard && !i.settings.setupDone) setPhase('wizard');
         else setup(i.settings.backend, i.settings.embeddings);
       })
-      .catch((e) => setMessage({ text: String(e), error: true }));
+      .catch((e) => setMessage({ text: errorText(e), error: true }));
   }, []);
 
   const refresh = () =>
@@ -408,6 +410,7 @@ export default function App() {
       )}
       <footer>
         <span>{describe(info, status)}</span>
+        {configGet('ui.showEnvBadge', false, info?.config) && <span className="meta">{info.config.env} build</span>}
         {phase === 'ready' && (
           <button className="link" onClick={clearAll}>
             {armed ? 'Click again to clear everything' : 'Clear all data'}
