@@ -165,13 +165,18 @@ function AddDocuments({ onChange, mobile }) {
           : 'Drop files on this window (PDF, .txt, .md), give a file path, or paste text.'}
       </p>
       <div className="row">
-        <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/file.pdf" />
+        <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/file.pdf" aria-label="File or folder path" />
         <button onClick={() => path.trim() && addFile(path.trim())}>Add file</button>
         {!mobile && <button onClick={() => path.trim() && addFolder(path.trim())}>Add folder</button>}
       </div>
-      <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text here" />
+      <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text here" aria-label="Text to add" />
       <div className="row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name for the pasted text" />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name for the pasted text"
+          aria-label="Name for the pasted text"
+        />
         <button onClick={addText}>Add text</button>
       </div>
       <Status text={msg.text} error={msg.error} />
@@ -203,6 +208,7 @@ function Search({ features }) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && run()}
           placeholder="What are you looking for?"
+          aria-label="Search"
         />
         <button onClick={run}>Search</button>
         {features?.stt && <Dictate onText={setQuery} />}

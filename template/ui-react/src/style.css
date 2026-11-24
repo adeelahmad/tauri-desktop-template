@@ -1,8 +1,23 @@
+/* Base styles. The colours are CSS variables: these defaults, or a theme from shell.css
+ * (feature app-shell), which sets --bg, --fg, --surface, --accent, --accent-fg, --muted,
+ * --line and --danger on <html>. */
 :root {
   color-scheme: light dark;
   --accent: #3b6eea;
-  --muted: #777;
+  --accent-fg: #ffffff;
+  --muted: #646464;
   --line: #8884;
+  --danger: #c62828;
+  --radius: 6px;
+  --control-height: 34px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --accent: #6f95ff;
+    --accent-fg: #0b1020;
+    --muted: #a0a0a0;
+    --danger: #ff6b6b;
+  }
 }
 * {
   box-sizing: border-box;
@@ -14,20 +29,47 @@ body {
     system-ui,
     sans-serif;
   margin: 0 auto;
-  max-width: 820px;
+  max-width: 860px;
   padding: 24px;
+  background: var(--bg, Canvas);
+  color: var(--fg, CanvasText);
+}
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.25;
 }
 header h1 {
   margin: 0;
+}
+h2 {
+  font-size: 1.3em;
+  margin: 8px 0 12px;
+}
+h3 {
+  font-size: 1.1em;
+  margin: 0 0 12px;
+}
+h4 {
+  font-size: 0.95em;
+  margin: 16px 0 6px;
 }
 .sub,
 .hint {
   color: var(--muted);
   margin-top: 4px;
 }
+p.hint {
+  margin: 4px 0 8px;
+}
 section {
   border-top: 1px solid var(--line);
-  padding: 12px 0;
+  padding: 16px 0;
+}
+header + section,
+header + main > section:first-child {
+  margin-top: 16px;
 }
 .steps {
   padding-left: 0;
@@ -42,28 +84,81 @@ section {
 }
 .row {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin: 8px 0;
 }
 .row input {
-  flex: 1;
+  flex: 1 1 140px;
+  min-width: 0;
 }
+.row select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.row .hint {
+  margin: 0;
+}
+
+/* Controls: one height, one radius, one focus ring. */
 input,
 textarea,
+select,
 button {
   font: inherit;
+  font-size: 14px;
+  line-height: 20px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--line);
+  color: inherit;
+}
+input:not([type='checkbox'], [type='radio']),
+select,
+button {
+  min-height: var(--control-height);
+}
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 textarea {
   width: 100%;
+  display: block;
+  resize: vertical;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.85;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 button {
   background: var(--accent);
-  color: white;
-  border: none;
+  color: var(--accent-fg);
+  border-color: transparent;
   cursor: pointer;
+  white-space: nowrap;
+  font-weight: 500;
+}
+button:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 button:disabled {
   opacity: 0.5;
@@ -73,20 +168,38 @@ button.link {
   background: none;
   color: var(--accent);
   padding: 0 6px;
+  min-height: 0;
+  font-weight: 400;
+}
+button.link:hover:not(:disabled) {
+  filter: none;
+  text-decoration: underline;
 }
 progress {
   width: 100%;
 }
 .status {
   min-height: 1.5em;
+  margin: 8px 0 0;
+}
+.status:empty {
+  min-height: 0;
+  margin: 0;
 }
 .status.error {
-  color: #d33;
+  color: var(--danger);
+}
+code {
+  overflow-wrap: anywhere;
+}
+#results {
+  padding-left: 1.5em;
 }
 #results li {
   margin-bottom: 10px;
 }
-#results .meta {
+#results .meta,
+li.meta {
   color: var(--muted);
   font-size: 13px;
 }
@@ -98,13 +211,13 @@ progress {
   align-items: center;
   justify-content: space-between;
   background: var(--accent);
-  color: white;
+  color: var(--accent-fg);
   padding: 8px 12px;
   border-radius: 8px;
   margin-bottom: 12px;
 }
 .banner button {
-  background: white;
+  background: var(--accent-fg);
   color: var(--accent);
 }
 footer {
@@ -112,39 +225,135 @@ footer {
   padding-top: 12px;
   color: var(--muted);
   font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+footer button.link {
+  margin-left: auto;
+  font-size: 13px;
 }
 #root {
   display: contents;
 }
-details {
-  margin: 8px 0;
+
+/* Settings: the sections beside the current one on wide windows, above it on narrow ones. */
+#settings:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
-summary {
-  cursor: pointer;
+.settings-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 16px;
+}
+.settings-nav button {
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-weight: 400;
+  padding: 6px 10px;
+  min-height: 32px;
+  white-space: normal;
+}
+.settings-nav button:hover:not(:disabled) {
+  filter: none;
+  background: var(--surface, #8881);
+}
+.settings-nav button[aria-current='page'] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg, inherit);
   font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.settings-pane {
+  min-width: 0;
+}
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg, Canvas);
+}
+.settings-actions .status {
+  margin: 0;
+  min-height: 0;
+}
+@media (max-width: 720px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .settings-nav button {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    min-height: 30px;
+    padding: 4px 12px;
+  }
+  .settings-nav button[aria-current='page'] {
+    box-shadow: none;
+    border-color: var(--accent);
+  }
+}
+.panel {
+  font-size: 14px;
+  margin: 12px 0;
+}
+.panel ul {
+  padding-left: 1.25em;
+  margin: 4px 0 12px;
+}
+.panel li {
+  margin: 2px 0;
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 8px 16px;
-  margin: 8px 0;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px 16px;
+  margin: 8px 0 16px;
+  align-items: end;
 }
 .field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   font-size: 13px;
+  min-width: 0;
 }
 .field:has(input[type='checkbox']) {
   flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-height: var(--control-height);
 }
-select {
-  font: inherit;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
+/* Inputs line up along the bottom of a grid row; a switch sits at the top. */
+.grid > .field:has(input[type='checkbox']) {
+  align-self: start;
+}
+.grid > .row {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .answer {
@@ -155,6 +364,29 @@ select {
 .sources {
   margin: 0;
   padding-left: 1.25rem;
+}
+.row-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+.row-tools .field {
+  min-height: 0;
+  margin-right: 4px;
+}
+.entry select {
+  flex: 1 1 160px;
+}
+.entry input:not([type='checkbox']) {
+  flex: 1 1 120px;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface, #8881) 50%, transparent);
 }
 
 /* Settings → About → Licences */

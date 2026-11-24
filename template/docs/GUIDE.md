@@ -15,6 +15,8 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 ## Contents
 
 - [Kitchen for web developers](#kitchen-for-web-developers)
+- [How long things take](#how-long-things-take)
+- [The UI in a plain browser](#the-ui-in-a-plain-browser)
 - [Port an existing app (Electron or web)](#port-an-existing-app-electron-or-web)
 - [Architecture](#architecture)
 - [Processes and folders](#processes-and-folders)
@@ -54,7 +56,8 @@ cargo install --git https://github.com/adeelahmad/tauri-desktop-template desktop
 kitchen new notes --enable email          # a new app in ./notes
 cd notes
 kitchen doctor                            # what this machine is missing, with the fix for each
-kitchen start --install                   # installs the Tauri CLI and npm packages if needed, then runs with hot reload
+kitchen start                             # installs the UI's npm packages on the first run, then runs with hot reload
+                                          # (add --install if `kitchen doctor` says the Tauri CLI is missing)
 ```
 
 Edit `ui-react/src/App.jsx` and the window updates in place; edit Rust and the app
@@ -78,6 +81,68 @@ Nothing is hidden: `kitchen eject vite|tauri|cargo` prints where each tool's own
 lives (`ui-react/vite.config.js`, `src-tauri/tauri.conf.json`, `Cargo.toml`,
 `.cargo/config.toml`) and exactly what Kitchen adds on top (mostly `KITCHEN_ENV` and the
 bundle list). Every step Kitchen runs is printed first, so you can run it yourself.
+
+## How long things take
+
+Measured on Linux (4 cores, 15 GB RAM, SSD) with every feature off except the ones named.
+The crates were already downloaded once; on a new machine add the time cargo and npm need
+to download them. "Cold" means an empty cargo `target/` folder.
+
+| Step | Wall time | Notes |
+|---|---|---|
+| `cargo install` the Kitchen CLI | 13 s | once per machine |
+| `kitchen new demo` | 0.5 s | 1.8 s the first time, when it downloads the template |
+| `kitchen new demo2 --enable email,background_jobs,tray_menu` | 0.5 s | |
+| `kitchen doctor` | 0.3 s | |
+| `kitchen enable http_api --dry-run`, then for real | 0.9 s, 0.8 s | 14 files; `git diff` shows them (`new` makes a first commit) |
+| `kitchen generate command hello`, `kitchen generate page Hello` | < 0.1 s each | |
+| `cargo build` (cold) | 14 s | builds `desktop-core` only: the workspace's default member |
+| `cargo build -p demo` (the whole app, after the line above) | 86 s | about 3.9 GB in `target/` |
+| `kitchen test --unit` | 70 s | builds the test profile, then runs the Rust tests |
+| `kitchen start`, first run, cold, until the window is up | 101 s | `npm install` (3 s) + the Rust build + Vite |
+| `kitchen start` after a build | 23 s | |
+| Edit a `.jsx` file while `kitchen start` runs | instant | Vite reloads it in place |
+| Edit a `.rs` file while `kitchen start` runs | seconds | rebuilds the app crate and restarts the window |
+
+Turning on heavy features changes the first build most. With the earlier defaults
+(`embeddings`, `postgres`, `pdf`, `ipc_worker`, `python_example`, `updater` and friends on),
+`cargo build -p demo` took 115 s even with every dependency already compiled once, and a
+cold build downloads ONNX Runtime and compiles docling. That is why every feature now
+starts off; `kitchen enable` adds them when you need them.
+
+Things that look like errors but are not:
+
+- `libEGL warning: DRI3 error` when the window opens under `xvfb-run` or in a VM: WebKitGTK
+  falls back to software rendering, and the app works.
+- `npm warn deprecated` lines during the first `kitchen start`: they come from npm
+  packages and do not stop anything.
+
+## The UI in a plain browser
+
+The React UI runs in any browser without the Rust side, so you can work on it the way you
+work on a web app:
+
+```sh
+cd ui-react
+npm install
+npm run dev            # open http://localhost:5173 (and /settings.html with the app shell)
+```
+
+Outside Tauri, `ui-react/src/dev-mock.js` stands in for the backend: it answers `invoke()`
+with sample data and a small in-memory state (settings save, search finds the sample
+documents, profiles can be added), and `listen()` / `emit()` work. Each call is logged to the
+console as `[dev-mock]`. A command it does not know rejects with
+`dev-mock: no mock for "<command>"`; add a line to `commands` in that file when you add a
+Tauri command. URL options: `?mode=dark`, `?theme=nord`, `?os=macos|windows|linux` and
+`?wizard=1` (start at the setup wizard).
+
+It is loaded only when `import.meta.env.DEV` is set and `window.__TAURI_INTERNALS__` is
+missing, so `cargo tauri dev` and release builds never contain it. For screenshots or
+browser tests of the built pages, build it in on purpose:
+
+```sh
+VITE_DEV_MOCK=1 npm run build && npx vite preview   # http://localhost:4173
+```
 
 ## Port an existing app (Electron or web)
 
@@ -537,7 +602,7 @@ answers it was generated with.
 | `kitchen enable <feature>` / `kitchen disable <feature>` | Turn a feature on or off later. Your edits are kept by a three-way merge; `--dry-run` shows what would change |
 | `kitchen generate module\|setting\|command\|page\|route ...` | Generate documented, tested code, wired in at the `// kitchen:...` markers |
 | `kitchen doctor` | Check the toolchain (Rust, cargo-generate, Tauri CLI, Node, WebKitGTK or Xcode, tauri-driver and WebKitWebDriver) and the app's markers |
-| `kitchen start` (`dev`) | `cargo tauri dev` with `KITCHEN_ENV=development`: Vite HMR and Rust rebuilds. `--install` installs a missing Tauri CLI or npm packages |
+| `kitchen start` (`dev`) | `cargo tauri dev` with `KITCHEN_ENV=development`: Vite HMR and Rust rebuilds. Installs the UI's npm packages on the first run; `--install` also installs a missing Tauri CLI |
 | `kitchen test [--unit\|--feature]` | Unit tests and feature tests ([Tests](#tests)), with `KITCHEN_ENV=test` |
 | `kitchen package [mac\|windows\|linux] [--release]` | `cargo tauri build` with this OS's bundles, copied into `./packages`. Other OSes are refused |
 | `kitchen publish [--tag v1.2.3] [--yes]` | A GitHub release with `./packages` through `gh`; a dry run without `--yes` |

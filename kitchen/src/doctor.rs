@@ -64,6 +64,12 @@ fn version(program: &str, args: &[&str]) -> Option<String> {
     })
 }
 
+/// A version line as people expect to read it. `cargo generate --version` prints
+/// `cargo generate-generate 0.26.0`; that becomes `cargo-generate 0.26.0`.
+pub fn tidy_version(line: &str) -> String {
+    line.replace("cargo generate-generate", "cargo-generate")
+}
+
 /// `(major, minor)` from the first `x.y` in a version line.
 pub fn parse_version(line: &str) -> Option<(u32, u32)> {
     line.split(|c: char| !c.is_ascii_digit() && c != '.')
@@ -89,7 +95,7 @@ pub fn run(project: Option<&Path>) -> Vec<Check> {
                 format!("{v} (needs {}.{}+)", m.0, m.1),
                 fix,
             ),
-            _ => check(name, Status::Ok, v, ""),
+            _ => check(name, Status::Ok, tidy_version(&v), ""),
         },
         None => check(
             name,
@@ -157,6 +163,11 @@ pub fn run(project: Option<&Path>) -> Vec<Check> {
             ),
         });
     }
+    if cfg!(target_os = "linux") {
+        out.push(display_check(
+            std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        ));
+    }
     if cfg!(target_os = "macos") {
         out.push(match version("xcode-select", &["-p"]) {
             Some(p) => check("Xcode command line tools", Status::Ok, p, ""),
@@ -173,6 +184,20 @@ pub fn run(project: Option<&Path>) -> Vec<Check> {
         out.extend(project_checks(dir));
     }
     out
+}
+
+/// Linux only: `kitchen start` opens a window, so it needs X11 or Wayland.
+fn display_check(has_display: bool) -> Check {
+    if has_display {
+        check("Display", Status::Ok, "found", "")
+    } else {
+        check(
+            "Display",
+            Status::Warn,
+            "none (no DISPLAY or WAYLAND_DISPLAY): `kitchen start` cannot open a window",
+            "over SSH or in CI, run it under a virtual screen: xvfb-run kitchen start",
+        )
+    }
 }
 
 /// Whether `program` starts at all (some drivers exit non-zero on `--version`).
@@ -311,6 +336,9 @@ fn project_checks(dir: &Path) -> Vec<Check> {
         })
         .map(|(f, m)| format!("{f} ({m})"))
         .collect();
+    if let Some(c) = ui_packages_check(&root) {
+        out.push(c);
+    }
     out.push(hooks_check(&root));
     out.push(if missing.is_empty() {
         check("Generator markers", Status::Ok, "all present", "")
@@ -324,6 +352,30 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     });
     out.push(agent_files(&root));
     out
+}
+
+/// The React UI's npm packages: installed, or not yet (`kitchen start` installs them on its
+/// first run). `None` for an app without the React UI.
+fn ui_packages_check(root: &Path) -> Option<Check> {
+    let ui = root.join("ui-react");
+    if !ui.join("package.json").is_file() {
+        return None;
+    }
+    Some(if ui.join("node_modules").is_dir() {
+        check(
+            "UI packages",
+            Status::Ok,
+            "installed (ui-react/node_modules)",
+            "",
+        )
+    } else {
+        check(
+            "UI packages",
+            Status::Ok,
+            "not installed yet; `kitchen start` installs them on its first run",
+            "",
+        )
+    })
 }
 
 /// Whether the app's `.githooks` are turned on (`kitchen hooks install`).
@@ -409,6 +461,17 @@ pub fn report(checks: &[Check]) -> Report {
             r.next.push(format!("{}: {}", c.name, c.fix));
         }
     }
+    if fails == 0 {
+        let in_app = checks
+            .iter()
+            .any(|c| c.name == "Kitchen app" && c.status == Status::Ok);
+        r.next.push(if in_app {
+            "kitchen start   # run the app with hot reload".to_string()
+        } else {
+            "kitchen new <name>   # create an app, then cd into it and run kitchen start"
+                .to_string()
+        });
+    }
     r
 }
 
@@ -449,6 +512,47 @@ mod tests {
             (c.status, c.detail.as_str()),
             (Status::Warn, "missing: BRAND.md")
         );
+    }
+
+    #[test]
+    fn tidies_the_cargo_generate_version() {
+        assert_eq!(
+            tidy_version("cargo generate-generate 0.26.0"),
+            "cargo-generate 0.26.0"
+        );
+        assert_eq!(tidy_version("tauri-cli 2.1.0"), "tauri-cli 2.1.0");
+    }
+
+    #[test]
+    fn warns_without_a_display() {
+        assert_eq!(display_check(true).status, Status::Ok);
+        let c = display_check(false);
+        assert_eq!(c.status, Status::Warn);
+        assert!(c.fix.contains("xvfb-run kitchen start"), "{}", c.fix);
+    }
+
+    #[test]
+    fn says_whether_the_ui_packages_are_installed() {
+        let dir = crate::TempDir::new("doctor-ui").unwrap();
+        assert_eq!(ui_packages_check(dir.path()), None);
+        let ui = dir.path().join("ui-react");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(ui.join("package.json"), "{}").unwrap();
+        let c = ui_packages_check(dir.path()).unwrap();
+        assert!(c.detail.contains("kitchen start"), "{}", c.detail);
+        std::fs::create_dir_all(ui.join("node_modules")).unwrap();
+        assert!(ui_packages_check(dir.path())
+            .unwrap()
+            .detail
+            .starts_with("installed"));
+    }
+
+    #[test]
+    fn suggests_the_next_command_when_ready() {
+        let app = report(&[check("Kitchen app", Status::Ok, "/x", "")]);
+        assert_eq!(app.next, ["kitchen start   # run the app with hot reload"]);
+        let none = report(&[check("Rust", Status::Ok, "1.90", "")]);
+        assert!(none.next[0].starts_with("kitchen new"), "{:?}", none.next);
     }
 
     #[test]

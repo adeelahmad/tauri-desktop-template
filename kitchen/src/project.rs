@@ -274,8 +274,17 @@ impl Project {
                         .into(),
                 );
             }
-            r.next
-                .push("cargo build (or `kitchen dev`) to check the result.".into());
+            if self.root.join(".git").exists() {
+                r.next.push("git diff        # review what changed".into());
+            }
+            r.next.push(format!(
+                "kitchen start   # try it (a plain `cargo build` builds only desktop-core; the app is `cargo build -p {}`)",
+                self.manifest.app.name
+            ));
+        } else if !plan.changes.is_empty() {
+            r.next.push(
+                "Nothing was changed. Run the same command without --dry-run to apply it.".into(),
+            );
         }
         Ok(r)
     }
@@ -385,6 +394,16 @@ fn switch<S: AsRef<str>>(
             why(by, need)
         ));
     }
+    // Questions that only apply under a feature that is now on start at their defaults
+    // (`kitchen new` leaves them out while that feature is off).
+    let fill: Vec<&Feature> = features
+        .iter()
+        .filter(|f| f.requires.as_ref().is_some_and(|r| m.is_on(r)))
+        .filter(|f| !m.answers.contains_key(&f.name))
+        .collect();
+    for child in fill {
+        m.set(&child.name, child.default.clone());
+    }
     for name in &disable {
         m.set(name, toml::Value::Boolean(false));
     }
@@ -422,6 +441,18 @@ fn gate(before: &Manifest, after: &Manifest, notes: &mut Vec<String>) -> Result<
             .map(|f| format!("{f} (already in {FILE}; `kitchen features --check`)")),
     );
     Ok(())
+}
+
+/// Forget the answers to questions whose feature is off (`background_agent` without
+/// `ipc_worker`): they do nothing, so a new app does not record them as on. Turning the
+/// feature on later fills them in with their defaults again ([`switch`]).
+fn drop_unused_answers(features: &[Feature], m: &mut Manifest) {
+    let unused: Vec<String> = features
+        .iter()
+        .filter(|f| f.requires.as_ref().is_some_and(|r| !m.is_on(r)))
+        .map(|f| f.name.clone())
+        .collect();
+    m.answers.retain(|k, _| !unused.contains(k));
 }
 
 /// What `kitchen new` needs.
@@ -537,6 +568,7 @@ pub fn create(req: &NewApp) -> Result<Report> {
         };
         m.set(k, value);
     }
+    drop_unused_answers(&features, &mut m);
     gate(&Manifest::default(), &m, &mut notes)?;
     std::fs::create_dir_all(&parent)
         .map_err(|e| Error::Io(format!("create {}", parent.display()), e))?;
@@ -548,7 +580,11 @@ pub fn create(req: &NewApp) -> Result<Report> {
         .filter(|f| f.is_switch() && m.is_on(&f.name))
         .map(|f| f.name.as_str())
         .collect();
-    r.lines.push(format!("features on: {}", on.join(", ")));
+    r.lines.push(if on.is_empty() {
+        "features on: none yet (every feature starts off; `kitchen features` lists them)".into()
+    } else {
+        format!("features on: {}", on.join(", "))
+    });
     r.lines.extend(notes);
     let agent: Vec<&str> = crate::doctor::AGENT_FILES
         .iter()
@@ -559,23 +595,117 @@ pub fn create(req: &NewApp) -> Result<Report> {
         r.lines.push(format!("for AI agents: {}", agent.join(", ")));
     }
     if !req.no_git && crate::template::git(Some(&out), &["init", "--quiet"]).is_ok() {
-        r.lines.push("git repository initialised".into());
+        r.lines.push(first_commit(&out));
     }
-    r.next = vec![
-        format!("cd {name}"),
-        "kitchen doctor     # check this machine".into(),
-        "kitchen dev        # run it".into(),
-    ];
-    if out.join("AGENTS.md").is_file() {
-        r.next
-            .push("cat AGENTS.md      # what agents (and people) read first".into());
-    }
+    r.next = next_steps(name, out.join("AGENTS.md").is_file());
     Ok(r)
+}
+
+/// Commit the new app, so `git diff` shows exactly what a later `kitchen enable` or
+/// `kitchen generate` changed. Without a git identity it stays uncommitted, and says so.
+fn first_commit(dir: &Path) -> String {
+    let git = |args: &[&str]| crate::template::git(Some(dir), args);
+    match git(&["add", "--all"])
+        .and_then(|_| git(&["commit", "--quiet", "--no-verify", "-m", "New app from Kitchen"]))
+    {
+        Ok(_) => "git repository initialised, with a first commit".into(),
+        Err(_) => "git repository initialised (not committed: set git user.name and user.email, then commit)".into(),
+    }
+}
+
+/// What to run after `kitchen new`, in order, for a web developer seeing it the first time.
+fn next_steps(name: &str, agents_md: bool) -> Vec<String> {
+    let mut next = vec![
+        format!("cd {name}"),
+        "kitchen start      # installs the UI's npm packages, builds (a few minutes the first time) and opens the window".into(),
+        "kitchen features   # what else you can turn on: kitchen enable <feature>".into(),
+        "kitchen doctor     # if something is missing on this machine, it says how to fix it".into(),
+    ];
+    if agents_md {
+        next.push("cat AGENTS.md      # what agents (and people) read first".into());
+    }
+    next
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn next_steps_start_the_app_first() {
+        let n = next_steps("notes", true);
+        assert_eq!(n[0], "cd notes");
+        assert!(n[1].starts_with("kitchen start "), "{n:?}");
+        assert!(n.iter().all(|l| !l.starts_with("kitchen dev")), "{n:?}");
+        assert!(n.last().unwrap().starts_with("cat AGENTS.md"));
+        assert!(!next_steps("notes", false)
+            .iter()
+            .any(|l| l.contains("AGENTS")));
+    }
+
+    fn feature(name: &str, requires: Option<&str>) -> Feature {
+        Feature {
+            name: name.into(),
+            prompt: String::new(),
+            default: toml::Value::Boolean(requires.is_some()),
+            choices: Vec::new(),
+            requires: requires.map(String::from),
+        }
+    }
+
+    #[test]
+    fn answers_under_an_off_feature_are_dropped_and_come_back_on_enable() {
+        let features = [
+            feature("ipc_worker", None),
+            feature("background_agent", Some("ipc_worker")),
+        ];
+        let mut m = Manifest::default();
+        for f in &features {
+            m.set(&f.name, f.default.clone());
+        }
+        drop_unused_answers(&features, &mut m);
+        assert!(!m.answers.contains_key("background_agent"));
+        let refuse = Deps::Refuse;
+        switch(
+            &features,
+            &mut m,
+            &["ipc_worker"],
+            &[] as &[&str],
+            refuse,
+            refuse,
+        )
+        .unwrap();
+        assert!(m.is_on("ipc_worker") && m.is_on("background_agent"));
+        // An explicit answer is kept.
+        m.set("background_agent", toml::Value::Boolean(false));
+        switch(
+            &features,
+            &mut m,
+            &["ipc_worker"],
+            &[] as &[&str],
+            refuse,
+            refuse,
+        )
+        .unwrap();
+        assert!(!m.is_on("background_agent"));
+    }
+
+    #[test]
+    fn first_commit_makes_a_commit_or_says_why_not() {
+        let d = crate::TempDir::new("first-commit").unwrap();
+        std::fs::write(d.path().join("a.txt"), "x").unwrap();
+        crate::template::git(Some(d.path()), &["init", "--quiet"]).unwrap();
+        // A fixed identity for this repository only, so the test does not depend on the machine.
+        for (k, v) in [("user.name", "Test"), ("user.email", "test@example.com")] {
+            crate::template::git(Some(d.path()), &["config", k, v]).unwrap();
+        }
+        assert_eq!(
+            first_commit(d.path()),
+            "git repository initialised, with a first commit"
+        );
+        let log = crate::template::git(Some(d.path()), &["log", "--format=%s"]).unwrap();
+        assert_eq!(log, "New app from Kitchen");
+    }
 
     fn features() -> Vec<Feature> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../template/cargo-generate.toml");

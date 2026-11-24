@@ -41,7 +41,7 @@ kitchen hooks status | uninstall
 kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, tauri-driver, the app's markers, AGENTS.md and git hooks
 
 kitchen start                     # cargo tauri dev, KITCHEN_ENV=development: Vite HMR + Rust rebuilds (`dev` works too)
-kitchen start --install           # first installs a missing Tauri CLI / npm packages
+kitchen start --install           # also installs a missing Tauri CLI first
 kitchen test                      # unit tests, then the real app over WebDriver (KITCHEN_ENV=test)
 kitchen test --unit               # cargo test --workspace (nextest + doc tests if nextest is installed)
 kitchen test --feature            # e2e/: tauri-driver on Linux/Windows; --self-test on macOS
@@ -91,7 +91,7 @@ Five minutes from nothing to an installer:
 cargo install --git https://github.com/adeelahmad/tauri-desktop-template desktop-kitchen
 kitchen new notes && cd notes
 kitchen doctor
-kitchen start --install           # edit ui-react/src/App.jsx: the window updates in place
+kitchen start                     # edit ui-react/src/App.jsx: the window updates in place
 kitchen generate command word_count
 kitchen test
 kitchen package --release
