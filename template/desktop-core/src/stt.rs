@@ -10,6 +10,36 @@
 //!
 //! Files (downloaded once into `<data>/models/whisper-<size>`): `encoder.onnx`,
 //! `decoder.onnx`, `vocab.json`, `added_tokens.json`.
+//!
+//! Main items: [`Stt`] ([`Stt::load`], [`Stt::transcribe`]), [`download`], [`SttConfig`],
+//! and the model-free parts [`log_mel`] and [`Tokenizer`].
+//!
+//! # Examples
+//!
+//! The front end runs without a model:
+//!
+//! ```
+//! use desktop_core::stt::{log_mel, SttConfig, SAMPLE_RATE};
+//!
+//! let cfg = SttConfig { model: "huge".into(), ..SttConfig::default() }.validated();
+//! assert_eq!(cfg.model, "base"); // unknown sizes fall back to the default
+//! let mel = log_mel(&vec![0.0; SAMPLE_RATE as usize]);
+//! assert_eq!(mel.len(), 80 * 3000); // 80 mel bands x 3000 frames (30 seconds)
+//! ```
+//!
+//! Transcribing downloads the model once:
+//!
+//! ```no_run
+//! use desktop_core::stt::{download, model_dir, Stt, SttConfig};
+//!
+//! let cfg = SttConfig { enabled: true, ..SttConfig::default() };
+//! let dir = model_dir("data".as_ref(), &cfg.model);
+//! download(&dir, &cfg.model, &mut |file, done, total| println!("{file}: {done}/{total:?}"))?;
+//! let stt = Stt::load(&dir, &cfg.model, 0)?;
+//! let (samples, _rate) = desktop_core::audio::read_wav(&std::fs::read("note.wav")?)?;
+//! println!("{}", stt.transcribe(&samples, &cfg)?.text);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use crate::{Error, Result};
 use ort::session::Session;
@@ -19,6 +49,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// Whisper's input rate; other audio is resampled to it.
 pub const SAMPLE_RATE: u32 = 16_000;
 const N_FFT: usize = 400;
 const HOP: usize = 160;
@@ -50,9 +81,11 @@ pub const MODELS: [(&str, &str, &str, &str); 3] = [
 const VOCAB_SHA: &str = "50d6a919f0a0601d56a04eb583c780d18553aa388254ba3158eb6a00f13e2c1a";
 const ADDED_SHA: &str = "9715fd2243b6f06a5858b5e32950d2853f73dd5bc201aafcf76f5082a2d8acd1";
 
+/// Speech to text settings (`stt` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SttConfig {
+    /// Allow transcription (off by default).
     pub enabled: bool,
     /// "tiny", "base" or "small".
     pub model: String,
@@ -73,6 +106,7 @@ impl Default for SttConfig {
 }
 
 impl SttConfig {
+    /// An unknown model becomes `base`; limits clamped.
     pub fn validated(mut self) -> Self {
         if !MODELS.iter().any(|m| m.0 == self.model) {
             self.model = "base".into();
@@ -205,12 +239,14 @@ fn unicode_to_byte() -> HashMap<char, u8> {
     keep.iter().zip(chars).filter_map(|(b, c)| char::from_u32(c).map(|c| (c, *b as u8))).collect()
 }
 
+/// Whisper's byte-level BPE vocabulary, for decoding token ids to text.
 pub struct Tokenizer {
     pieces: Vec<Vec<u8>>,
     languages: HashMap<String, i64>,
 }
 
 impl Tokenizer {
+    /// Build from `vocab.json` and `added_tokens.json`.
     pub fn from_json(vocab: &str, added: &str) -> Result<Self> {
         let vocab: HashMap<String, usize> = serde_json::from_str(vocab)?;
         let added: HashMap<String, i64> = serde_json::from_str(added)?;
@@ -228,11 +264,13 @@ impl Tokenizer {
         Ok(Self { pieces, languages })
     }
 
+    /// Text for `ids` (special tokens are skipped).
     pub fn decode(&self, ids: &[i64]) -> String {
         let bytes: Vec<u8> = ids.iter().filter(|&&i| i >= 0 && (i as usize) < self.pieces.len() && i < EOT).flat_map(|&i| self.pieces[i as usize].iter().copied()).collect();
         String::from_utf8_lossy(&bytes).into_owned()
     }
 
+    /// The token for a language code such as `en`.
     pub fn language(&self, code: &str) -> Option<i64> {
         self.languages.get(code).copied()
     }
@@ -242,17 +280,21 @@ impl Tokenizer {
 
 /// A loaded Whisper model, kept between recordings.
 pub struct Stt {
+    /// The model size (`tiny`, `base` or `small`).
     pub model: String,
     tokenizer: Tokenizer,
     encoder: Mutex<Session>,
     decoder: Mutex<Session>,
 }
 
+/// What `Stt::transcribe` returns.
 #[derive(Debug, Clone, Serialize)]
 pub struct Transcript {
+    /// The text (in English when translating).
     pub text: String,
     /// The language code used (detected or configured).
     pub language: String,
+    /// Length of the audio.
     pub seconds: f32,
 }
 

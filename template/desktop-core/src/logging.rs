@@ -5,6 +5,27 @@
 //!
 //! The level comes from Settings (`log.level`) and can be overridden with `APP_LOG`, as a
 //! level (`debug`) or per target (`warn,desktop_core=debug`).
+//!
+//! Main items: [`init`] (once per process), [`configure`] (a new level at runtime),
+//! [`LogConfig`], and the helpers [`rfc3339`] and [`scrub`].
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::logging::{init, rfc3339, LogConfig};
+//! use std::time::{Duration, UNIX_EPOCH};
+//!
+//! assert_eq!(rfc3339(UNIX_EPOCH + Duration::from_secs(86_400)), "1970-01-02T00:00:00.000Z");
+//!
+//! # let dir = std::env::temp_dir().join(format!("desktop-core-logging-{}", std::process::id()));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! let file = init(&dir, "doc", LogConfig::default());
+//! log::info!("hello from the docs");
+//! log::logger().flush();
+//! assert!(std::fs::read_to_string(&file)?.contains("hello from the docs"));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), std::io::Error>(())
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -12,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Log settings (`log` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct LogConfig {
@@ -32,6 +54,7 @@ impl Default for LogConfig {
 }
 
 impl LogConfig {
+    /// An unknown level becomes `info`; sizes and counts are clamped.
     pub fn validated(mut self) -> Self {
         if parse_level(&self.level).is_none() {
             self.level = "info".into();

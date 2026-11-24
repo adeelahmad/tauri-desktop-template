@@ -7,6 +7,30 @@
 //! `<data>/jobs/<id>.done` (one index per finished file, appended and synced). Both go
 //! when the job ends. A store write for one file is replace-by-source, so a file cut off
 //! half-way is simply ingested again.
+//!
+//! Main items: [`Journal`] (begin, pending, reopen), [`Job`] (done, finish), and the file
+//! helpers [`write_atomic`] and [`write_private`] that the rest of the crate uses.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::jobs::Journal;
+//! use std::path::PathBuf;
+//!
+//! # let dir = std::env::temp_dir().join(format!("desktop-core-jobs-{}", std::process::id()));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! let journal = Journal::new(&dir);
+//! let job = journal.begin(&[PathBuf::from("a.md"), PathBuf::from("b.md")])?;
+//! job.done(0);
+//! drop(job); // the app stops before b.md is finished
+//!
+//! let pending = journal.pending();
+//! assert_eq!(pending[0].remaining, vec![PathBuf::from("b.md")]);
+//! journal.reopen(&pending[0].id)?.finish();
+//! assert!(journal.pending().is_empty());
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::Result;
 use serde::{Deserialize, Serialize};
@@ -15,22 +39,31 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// The journal record of one job, as written to `<id>.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobFile {
+    /// Milliseconds since 1970 and the process id.
     pub id: String,
+    /// When it started (RFC 3339).
     pub created: String,
+    /// Every file of the job, in order.
     pub paths: Vec<PathBuf>,
 }
 
 /// A job that did not finish: what is left of it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pending {
+    /// The job id (pass it to `Journal::reopen`).
     pub id: String,
+    /// When it started (RFC 3339).
     pub created: String,
+    /// Files in the whole job.
     pub total: usize,
+    /// Files not finished yet.
     pub remaining: Vec<PathBuf>,
 }
 
+/// The folder of job records (`<data>/jobs`).
 pub struct Journal {
     dir: PathBuf,
 }
@@ -64,6 +97,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 impl Journal {
+    /// The journal in `<data_dir>/jobs` (created on the first job).
     pub fn new(data_dir: &Path) -> Self {
         Self { dir: data_dir.join("jobs") }
     }
@@ -115,6 +149,7 @@ impl Journal {
         std::fs::read(self.dir.join(format!("{id}.json"))).ok().and_then(|b| serde_json::from_slice::<JobFile>(&b).ok()).map(|j| j.paths)
     }
 
+    /// Forget a job (its finished files stay ingested).
     pub fn discard(&self, id: &str) {
         let _ = std::fs::remove_file(self.dir.join(format!("{id}.json")));
         let _ = std::fs::remove_file(self.dir.join(format!("{id}.done")));
@@ -124,6 +159,7 @@ impl Journal {
 /// A job in progress.
 pub struct Job {
     dir: PathBuf,
+    /// The job id, as in `Pending::id`.
     pub id: String,
     done: Mutex<Option<std::fs::File>>,
 }

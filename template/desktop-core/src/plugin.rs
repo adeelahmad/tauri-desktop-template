@@ -101,6 +101,7 @@ pub struct PluginsConfig {
 }
 
 impl PluginsConfig {
+    /// Disabled names trimmed, sorted and deduplicated.
     pub fn validated(mut self) -> Self {
         self.disabled = self.disabled.iter().map(|d| d.trim().to_string()).filter(|d| !d.is_empty()).collect();
         self.disabled.sort();
@@ -122,10 +123,15 @@ impl PluginsConfig {
 /// What Settings shows about a plugin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginInfo {
+    /// The plugin's unique name.
     pub name: String,
+    /// Its version.
     pub version: String,
+    /// What it does, for Settings.
     pub description: String,
+    /// The methods it answers (called as `plugin.<name>.<method>`).
     pub methods: Vec<String>,
+    /// JSON Schema of its settings.
     pub schema: Value,
     /// Runs with the current settings.
     pub active: bool,
@@ -154,6 +160,7 @@ impl Registry {
         Self { plugins: kept }
     }
 
+    /// Whether the build has no plugins.
     pub fn is_empty(&self) -> bool {
         self.plugins.is_empty()
     }

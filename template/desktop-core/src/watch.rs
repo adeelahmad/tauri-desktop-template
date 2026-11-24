@@ -4,6 +4,27 @@
 //! stops changing; new and changed files go through `Engine::ingest_paths` (with the
 //! configured worker count), deleted ones are removed from the index. Folders are checked
 //! first: no filesystem roots, system folders or the app's own data folder.
+//!
+//! Main items: [`start`] (returns a [`Watcher`]; drop it to stop), [`folders`],
+//! [`check_folder`], [`default_drop_folder`] and the [`WatchEvent`]s sent to the UI.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::watch::{check_folder, default_drop_folder};
+//!
+//! # let dir = std::env::temp_dir().join(format!("desktop-core-watch-{}", std::process::id()));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! let (data, docs) = (dir.join("data"), dir.join("docs"));
+//! std::fs::create_dir_all(&data)?;
+//! std::fs::create_dir_all(&docs)?;
+//! assert!(check_folder(&docs, &data).is_ok());
+//! assert!(check_folder(&data, &data).is_err()); // the app's own data is never watched
+//! let inbox = default_drop_folder("My App", &data);
+//! assert!(inbox.ends_with("My App Inbox") || inbox.ends_with("inbox"));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::config::WatchConfig;
 use crate::{Engine, Error, Result};
@@ -19,10 +40,32 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum WatchEvent {
-    Started { folders: Vec<PathBuf> },
-    Ingested { files: usize, chunks: usize, errors: Vec<String> },
-    Removed { path: PathBuf, chunks: usize },
-    Error { message: String },
+    /// Watching began on these folders.
+    Started {
+        /// The folders now watched.
+        folders: Vec<PathBuf>,
+    },
+    /// New or changed files were ingested.
+    Ingested {
+        /// Files ingested.
+        files: usize,
+        /// Chunks added.
+        chunks: usize,
+        /// Files that failed, with the error.
+        errors: Vec<String>,
+    },
+    /// A deleted file's chunks were removed.
+    Removed {
+        /// The deleted file.
+        path: PathBuf,
+        /// Chunks removed with it.
+        chunks: usize,
+    },
+    /// Something failed; watching goes on.
+    Error {
+        /// What went wrong.
+        message: String,
+    },
 }
 
 /// `<Documents>/<app> Inbox`, or `<data_dir>/inbox` when there is no Documents folder.
@@ -89,6 +132,7 @@ pub fn folders(cfg: &WatchConfig, drop_default: &Path, data_dir: &Path) -> (Vec<
 /// A running watcher; dropping it stops watching.
 pub struct Watcher {
     _debouncer: Debouncer<notify::RecommendedWatcher, RecommendedCache>,
+    /// The folders being watched (canonical paths).
     pub folders: Vec<PathBuf>,
 }
 

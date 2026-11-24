@@ -3,6 +3,17 @@
 //! Text items are grouped by their page. Pages with no usable text layer (scans, or a
 //! broken font encoding) are OCR'd with the system `tesseract`, rendered by poppler's
 //! `pdftoppm`; without those programs such a page stays empty.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use desktop_core::pdf::chunks_from_pdf;
+//!
+//! for chunk in chunks_from_pdf("report.pdf".as_ref())? {
+//!     println!("page {:?}: {}", chunk.page, chunk.text);
+//! }
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::{Chunk, Error, Result};
 use docling::{DocumentConverter, SourceDocument};
@@ -67,10 +78,12 @@ pub fn ocr_page(path: &Path, page: u32) -> String {
     }
 }
 
+/// Chunks of a PDF with their page numbers, OCR'ing pages without a text layer.
 pub fn chunks_from_pdf(path: &Path) -> Result<Vec<Chunk>> {
     chunks_from_pdf_with(path, crate::chunk::Chunking::default())
 }
 
+/// [`chunks_from_pdf`] with a chosen chunk size and overlap.
 pub fn chunks_from_pdf_with(path: &Path, chunking: crate::chunk::Chunking) -> Result<Vec<Chunk>> {
     let mut ocr = std::collections::HashSet::new();
     let pages: Vec<(u32, String)> = pdf_pages(path)?

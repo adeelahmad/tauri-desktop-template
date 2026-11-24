@@ -8,6 +8,32 @@
 //! long text is split into sentences of at most 512 tokens.
 //!
 //! Files (downloaded once into `<data>/models/tiny-voca`): `model.onnx`, `lexicon.tsv`.
+//!
+//! Main items: [`Tts`] ([`Tts::load`], [`Tts::speak`]), [`download`], [`TtsConfig`], and the
+//! model-free front end [`Phonemizer`] and [`number_words`].
+//!
+//! # Examples
+//!
+//! ```
+//! use desktop_core::tts::{number_words, TtsConfig};
+//!
+//! assert_eq!(number_words(42).join(" "), "forty two");
+//! let cfg = TtsConfig { speed: 99.0, ..TtsConfig::default() }.validated();
+//! assert_eq!(cfg.speed, 4.0); // clamped
+//! ```
+//!
+//! Speaking downloads the voice once:
+//!
+//! ```no_run
+//! use desktop_core::tts::{download, model_dir, Tts, TtsConfig, SAMPLE_RATE};
+//!
+//! let dir = model_dir("data".as_ref());
+//! download(&dir, &mut |file, done, total| println!("{file}: {done}/{total:?}"))?;
+//! let tts = Tts::load(&dir, 0)?;
+//! let samples = tts.speak("Hello there.", &TtsConfig::default())?;
+//! std::fs::write("hello.wav", desktop_core::audio::wav(&samples, SAMPLE_RATE))?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use crate::{Error, Result};
 use ort::session::Session;
@@ -17,6 +43,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// The rate of the samples `Tts::speak` returns.
 pub const SAMPLE_RATE: u32 = 24_000;
 const MAX_TOKENS: usize = 510;
 const BASE: &str = "https://huggingface.co/n4ze3m/tiny-voca/resolve/main";
@@ -38,9 +65,11 @@ const SP: i64 = 3;
 const UNK: i64 = 4;
 const FIRST_PHONE: i64 = 17;
 
+/// Text to speech settings (`tts` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TtsConfig {
+    /// Allow speech (off by default).
     pub enabled: bool,
     /// 0 = F2 (female), 1 = M2 (male).
     pub voice: i64,
@@ -63,6 +92,7 @@ impl Default for TtsConfig {
 }
 
 impl TtsConfig {
+    /// Voice, speed and pitch clamped to what the model handles.
     pub fn validated(mut self) -> Self {
         self.voice = self.voice.clamp(0, 1);
         let fin = |v: f32, d: f32, lo: f32, hi: f32| if v.is_finite() { v.clamp(lo, hi) } else { d };
@@ -211,11 +241,13 @@ fn pieces(text: &str) -> Vec<Piece> {
 }
 
 impl Phonemizer {
+    /// Read the lexicon file (`lexicon.tsv`).
     pub fn load(lexicon_tsv: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(lexicon_tsv).map_err(|e| tts_err(format!("{}: {e}", lexicon_tsv.display())))?;
         Ok(Self::from_tsv(&text))
     }
 
+    /// Build from lexicon text: one `word<TAB>ipa` per line.
     pub fn from_tsv(text: &str) -> Self {
         let lexicon = text.lines().filter_map(|l| l.split_once('\t')).map(|(w, ipa)| (w.to_string(), parse_entry(ipa))).collect();
         Self { lexicon }
