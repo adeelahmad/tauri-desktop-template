@@ -105,7 +105,7 @@ pub fn read_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
 
 /// 16-bit little-endian PCM bytes to samples.
 pub fn from_pcm16(bytes: &[u8]) -> Vec<f32> {
-    bytes.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0).collect()
+    bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b) as f32 / 32768.0).collect()
 }
 
 /// Band-limited resampling (a Hann-windowed sinc, 16 zero crossings each side).

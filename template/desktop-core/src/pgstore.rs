@@ -213,6 +213,9 @@ pub fn server_url(data_dir: &Path) -> Result<String> {
         host: "localhost".into(),
         temporary: false,
         configuration,
+        // The crate's 5 s default is too short for a first start (initdb, and macOS checking
+        // the new binaries), which then fails with "deadline has elapsed".
+        timeout: Some(std::time::Duration::from_secs(60)),
         ..Settings::default()
     };
     if !key.join("install").is_dir() {
