@@ -282,3 +282,111 @@ fn hybrid_search_on_postgres() {
     hybrid_checks(&e);
     e.clear().unwrap();
 }
+
+/// A local OpenAI-compatible server that answers every request with "Hello" and counts them.
+#[cfg(feature = "ai")]
+fn fake_llm() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::io::{Read, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://127.0.0.1:{}/v1", l.local_addr().unwrap().port());
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = count.clone();
+    std::thread::spawn(move || {
+        for mut s in l.incoming().flatten() {
+            let mut req = Vec::new();
+            let mut buf = [0u8; 65536];
+            loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                req.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&req);
+                let Some(i) = text.find("\r\n\r\n") else {
+                    if n == 0 {
+                        break;
+                    }
+                    continue;
+                };
+                let len = text[..i]
+                    .lines()
+                    .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok()))
+                    .unwrap_or(0);
+                if n == 0 || req.len() >= i + 4 + len {
+                    break;
+                }
+            }
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let body = "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\ndata: [DONE]\n\n";
+            let head = format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+            let _ = s.write_all(head.as_bytes());
+            let _ = s.write_all(body.as_bytes());
+        }
+    });
+    (url, count)
+}
+
+#[cfg(feature = "ai")]
+#[test]
+fn answer_cache_hits_near_duplicates_and_clears_on_ingest() {
+    use desktop_core::llm::{Provider, Target};
+    use std::sync::atomic::Ordering;
+    let dir = tempfile::tempdir().unwrap();
+    let store = FileStore::open(&dir.path().join("store")).unwrap();
+    let e = Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir.path(), &mut |_| {}).unwrap();
+    e.ingest_text("docs", DOCS).unwrap();
+    let (url, calls) = fake_llm();
+    let mut cfg = desktop_core::Config::default();
+    cfg.llm.enabled = true;
+    cfg.llm.retries = 0;
+    cfg.llm.target = Target { provider: Provider::Compatible, model: "m".into(), base_url: url };
+    let none = |_| None;
+    let ask = |q: &str| {
+        let mut streamed = String::new();
+        let a = e.ask(q, &none, &mut |t| streamed.push_str(t)).unwrap();
+        assert_eq!((a.reply.text.as_str(), streamed.as_str()), ("Hello", "Hello"));
+        a.cached
+    };
+
+    // Off by default: every question goes to the model.
+    e.configure(cfg.clone()).unwrap();
+    assert!(!ask("Which organ pumps blood?") && !ask("Which organ pumps blood?"));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    cfg.llm.cache.enabled = true;
+    cfg.llm.cache.similarity = 0.99;
+    e.configure(cfg).unwrap();
+    assert!(!ask("Which organ pumps blood?"));
+    assert!(ask("  which ORGAN pumps blood "), "same normalised question");
+    assert!(ask("pumps blood: which organ?"), "same words, so the same embedding");
+    assert!(!ask("How do Rust programs compile?"), "a different question");
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+
+    // Any change to the index empties the cache.
+    e.ingest_text("more", "Lungs exchange oxygen.").unwrap();
+    assert!(!dir.path().join("answer-cache.jsonl").exists());
+    assert!(!ask("Which organ pumps blood?"));
+    assert!(ask("Which organ pumps blood?"));
+    e.remove_source("more").unwrap();
+    assert!(!ask("Which organ pumps blood?"));
+    e.clear().unwrap();
+    assert!(!ask("Which organ pumps blood?"));
+    assert_eq!(calls.load(Ordering::SeqCst), 7);
+}
+
+#[test]
+fn memory_budget_skips_files_that_do_not_fit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = FileStore::open(&dir.path().join("store")).unwrap();
+    let e = Engine::with_parts(Box::new(store), Some(Box::new(Bag("bag"))), dir.path(), &mut |_| {}).unwrap();
+    let small = dir.path().join("small.txt");
+    let big = dir.path().join("big.txt");
+    std::fs::write(&small, DOCS).unwrap();
+    // 40 MB of text: about 160 MB while ingested, more than a 128 MB budget allows.
+    std::fs::write(&big, "word ".repeat(8 << 20)).unwrap();
+    let mut cfg = desktop_core::Config::default();
+    cfg.resources.memory_budget_mb = 128;
+    cfg.ingest.workers = 4;
+    e.configure(cfg).unwrap();
+    let r = e.ingest_paths(&[small, big], &|_, _, _| {});
+    assert_eq!(r.files, 1, "{r:?}");
+    assert!(r.skipped.iter().any(|s| s.contains("memory budget")), "{r:?}");
+    assert!(r.errors.is_empty(), "{r:?}");
+}

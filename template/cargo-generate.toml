@@ -1,7 +1,7 @@
 [template]
 cargo_generate_version = ">=0.22.0"
 # Copied as they are (GitHub Actions uses ${{ }} too, and icons are binary).
-exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", "src-tauri/icons/*"]
+exclude = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/pr-title.yml", ".github/workflows/pg-extensions.yml", ".github/workflows/mobile.yml", "src-tauri/icons/*"]
 
 [placeholders.app_name]
 type = "string"
@@ -88,6 +88,11 @@ default = false
 [placeholders.telemetry]
 type = "bool"
 prompt = "Opt-in telemetry: crash reports (Sentry), anonymous analytics (PostHog or Aptabase), traces (OpenTelemetry)? Nothing is sent until the user switches it on"
+default = false
+
+[placeholders.mobile]
+type = "bool"
+prompt = "Also build for iOS and Android (Tauri 2 mobile: file store, in-process backend, store updates; desktop-only parts compiled out)?"
 default = false
 
 [placeholders.single_instance]
@@ -257,7 +262,7 @@ ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256", ".github/
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]
 
 [conditional.'!ai']
-ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs"]
+ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs"]
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]
@@ -285,6 +290,9 @@ ignore = ["src-tauri/capabilities/desktop.json"]
 
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]
+
+[conditional.'!mobile']
+ignore = [".github/workflows/mobile.yml", "src-tauri/capabilities/mobile.json", "src-tauri/tauri.android.conf.json", "src-tauri/tauri.ios.conf.json"]
 
 [conditional.'!single_instance']
 ignore = ["src-tauri/src/single.rs"]

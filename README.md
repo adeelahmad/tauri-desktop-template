@@ -16,6 +16,7 @@ feature afterwards.
 | `local_llm` (with `ai`) | llama.cpp compiled in and linked statically (Metal on Apple Silicon): GGUF models run inside the app with no server. Provider `local`, a one-click model download (resumable), context, GPU layers and thread settings. Default off |
 | `tts` | Text to speech in pure Rust over ONNX Runtime with tiny-voca (about 25 MB, two voices, speed and pitch, own lexicon-based phonemizer, no espeak). One-click voice download with SHA-256 check; "Read aloud" on answers. Default off |
 | `stt` | Speech to text with OpenAI Whisper (tiny 40 MB, base 75 MB, small 250 MB; 8-bit ONNX, pinned and checksummed) on the same ONNX Runtime: no whisper.cpp, no second ggml next to llama.cpp. Log-mel features, resampling, WAV reading and greedy decoding are plain Rust. Microphone dictation into search and Ask, audio files, language detection, translate to English, a length limit. macOS microphone prompt and entitlement included. Default off |
+| `email` | Native SMTP in Rust: SSL/TLS (465) and STARTTLS (587), AUTH PLAIN/LOGIN, HTML, attachments, certificate pins; the password stays in an owner-only file. Default off |
 | `telemetry` | Opt-in crash reports (Sentry envelopes), anonymous analytics (PostHog or Aptabase) and traces (OTLP/HTTP JSON to any collector), all over the existing HTTP client with no SDK crates. A panic hook writes crashes locally with the home folder scrubbed and sends them at the next start only if allowed; every backend call is timed in one place; only call names, timings, counts, OS/arch and a random install id can leave. Keys come from release secrets. Default off |
 | `single_instance` | A second launch brings the running window to the front and exits, so two copies never share the index or embedded Postgres. Standard library only (file lock + loopback knock). Default off |
 | `mcp_server` | A Model Context Protocol server written in Rust (stdio, `app --mcp`), so Claude Desktop, Claude Code and other MCP clients can search the documents. Read-only tools by default; write tools, a tool allowlist and an audit log are settings. One click adds it to Claude Desktop. No extra dependencies. Default off |
@@ -46,6 +47,18 @@ results. Stores are versioned: Postgres runs numbered migrations in transactions
 from a newer app version is refused instead of being damaged.
 
 ## Use
+
+With the [Kitchen CLI](kitchen/README.md) (recommended: turn features on and off later,
+generate code, check your machine, MCP server for agents):
+
+```sh
+cargo install --git https://github.com/<owner>/<this-repo> desktop-kitchen
+cargo install cargo-generate
+kitchen new my-app --enable email,ai
+cd my-app && kitchen doctor && kitchen dev
+```
+
+Or with cargo-generate alone:
 
 ```sh
 cargo install cargo-generate

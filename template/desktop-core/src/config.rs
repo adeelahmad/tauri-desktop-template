@@ -44,7 +44,8 @@ pub struct Config {
 {% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
-{% endif %}}
+{% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -249,7 +250,8 @@ impl Config {
         {
             self.tailscale = self.tailscale.validated();
         }
-{% endif %}        self
+{% endif %}        // kitchen:validate
+        self
     }
 
     /// Ingest workers to run: `workers`, or one per core when it is 0.

@@ -1,0 +1,31 @@
+name: Kitchen CLI
+
+on:
+  push:
+    branches: [main]
+    paths: ["kitchen/**", "template/**", ".github/workflows/kitchen.yml"]
+  pull_request:
+    paths: ["kitchen/**", "template/**", ".github/workflows/kitchen.yml"]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: kitchen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-generate
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

@@ -15,6 +15,9 @@ use std::sync::{Mutex, RwLock};
 pub struct Answer {
     pub reply: crate::llm::Reply,
     pub sources: Vec<Hit>,
+    /// Served from the answer cache (`llm.cache`) instead of asking the model.
+    #[serde(default)]
+    pub cached: bool,
 }
 
 {% endif %}#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -65,6 +68,9 @@ pub struct Engine {
 {% if plugins %}    /// The plugins built in (they run only when `plugins.enabled`).
     #[cfg(feature = "plugins")]
     plugins: crate::plugin::Registry,
+{% endif %}{% if ai %}    /// Answers to `ask` (`llm.cache`), emptied whenever the index changes.
+    #[cfg(feature = "ai")]
+    answers: crate::cache::SemanticCache,
 {% endif %}}
 
 /// What `ingest_paths` did.
@@ -86,7 +92,7 @@ impl Engine {
         crate::net::configure(opts.config.net.clone());
         progress("Opening the store");
         let store = open_store(opts)?;
-        let embedder = if opts.embeddings { load_embedder(&opts.data_dir.join("models"), progress)? } else { None };
+        let embedder = if opts.embeddings { load_embedder(&opts.data_dir.join("models"), opts.config.resources.onnx_provider, progress)? } else { None };
         let engine = Self::with_parts(store, embedder, &opts.data_dir, progress)?;
         engine.configure(opts.config.clone())?;
         Ok(engine)
@@ -109,6 +115,8 @@ impl Engine {
             cancel: AtomicBool::new(false),
 {% if plugins %}            #[cfg(feature = "plugins")]
             plugins: crate::plugin::builtin(),
+{% endif %}{% if ai %}            #[cfg(feature = "ai")]
+            answers: crate::cache::SemanticCache::new(data_dir.join("answer-cache.jsonl")),
 {% endif %}        };
         let want = engine.embedder.as_ref().map(|e| e.name());
         if engine.store.embedder()? != want {
@@ -176,8 +184,22 @@ impl Engine {
         self.config.read().map(|c| c.clone()).unwrap_or_default()
     }
 
+    /// The index changed: cached answers no longer hold.
+    fn changed(&self) {
+{% if ai %}        #[cfg(feature = "ai")]
+        self.answers.clear();
+{% endif %}    }
+
+    /// The embedding batch for one writer, under the memory budget.
+    fn embed_batch(&self) -> usize {
+        let cfg = self.config();
+        let free = if cfg.resources.memory_budget_mb > 0 { crate::governor::free_memory_mb() } else { None };
+        cfg.resources.plan(1, cfg.ingest.embed_batch, free).embed_batch
+    }
+
     fn add(&self, chunks: &[Chunk]) -> Result<usize> {
-        let batch = self.config().ingest.embed_batch.max(1);
+        self.changed();
+        let batch = self.embed_batch();
         // Re-embedding keeps where a chunk came from but records the new model.
         let model = self.model_name();
         let chunks: Vec<Chunk> = chunks
@@ -367,6 +389,12 @@ impl Engine {
         self.cancel.store(false, Ordering::SeqCst);
         let resources = self.config().resources;
         let workers = resources.workers(self.config_workers()).min(todo.len()).max(1);
+        // Under a memory budget: fewer workers and smaller batches when memory is short,
+        // and files too large for a worker's share are skipped (instead of running out).
+        let free = if resources.memory_budget_mb > 0 { crate::governor::free_memory_mb() } else { None };
+        let plan = resources.plan(workers, self.config().ingest.embed_batch, free);
+        let (workers, batch) = (plan.workers, plan.embed_batch);
+        self.changed();
         let next = AtomicUsize::new(0);
         let done = AtomicUsize::new(0);
         let report = Mutex::new(IngestReport::default());
@@ -382,16 +410,16 @@ impl Engine {
             let Some(&i) = todo.get(n) else { break };
             let Some(path) = paths.get(i) else { break };
             let result = (|| -> Result<Option<usize>> {
-                if let Some(reason) = self.skip_reason(path) {
+                let too_large = || plan.too_large(std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)).map(|r| format!("{}: {r}", path.display()));
+                if let Some(reason) = self.skip_reason(path).or_else(too_large) {
                     report.lock().map_err(|_| Error::Store("lock poisoned".into()))?.skipped.push(reason);
                     return Ok(None);
                 }
                 let (source, chunks) = self.read_file(path)?;
-                let vectors = self.embed_all(&chunks)?;
+                let vectors = self.embed_all(&chunks, batch)?;
                 let _one_writer = write.lock().map_err(|_| Error::Store("lock poisoned".into()))?;
                 self.store.remove_source(&source)?;
                 let mut added = 0;
-                let batch = self.config().ingest.embed_batch.max(1);
                 for (n, part) in chunks.chunks(batch).enumerate() {
                     let v = vectors.as_ref().map(|v| &v[n * batch..n * batch + part.len()]);
                     added += self.store.add(part, v)?;
@@ -424,6 +452,8 @@ impl Engine {
             }
         });
         let report = report.into_inner().unwrap_or_default();
+        // Answers cached while the run was going are stale too.
+        self.changed();
         if let Some(j) = job {
             if !report.cancelled {
                 j.finish();
@@ -436,9 +466,9 @@ impl Engine {
         self.config().workers()
     }
 
-    fn embed_all(&self, chunks: &[Chunk]) -> Result<Option<Vec<Vec<f32>>>> {
+    fn embed_all(&self, chunks: &[Chunk], batch: usize) -> Result<Option<Vec<Vec<f32>>>> {
         let Some(e) = &self.embedder else { return Ok(None) };
-        let batch = self.config().ingest.embed_batch.max(1);
+        let batch = batch.max(1);
         let mut out = Vec::with_capacity(chunks.len());
         for part in chunks.chunks(batch) {
             out.extend(e.embed_documents(&part.iter().map(|c| c.text.clone()).collect::<Vec<_>>())?);
@@ -467,14 +497,53 @@ impl Engine {
 
 {% if ai %}    /// Answer `question` from the indexed documents with the configured LLM (RAG).
     /// `on_token` gets the answer as it streams; the sources come back with it.
+    ///
+    /// With `llm.cache` on, an answer to the same question (or, with embeddings, one at
+    /// least `llm.cache.similarity` alike) on the same index comes from the cache and
+    /// streams as one piece. `resources` caps the local model's GPU layers and refuses a
+    /// model larger than the memory budget.
     #[cfg(feature = "ai")]
     pub fn ask(&self, question: &str, keys: crate::llm::KeyLookup<'_>, on_token: &mut dyn FnMut(&str)) -> Result<Answer> {
-        let cfg = self.config();
+        let mut cfg = self.config();
+        let cache = cfg.llm.cache.clone();
+        let (state, qv) = if cache.enabled {
+            let qv = match &self.embedder {
+                Some(e) => Some(e.embed_query(question)?),
+                None => None,
+            };
+            (self.index_state(&cfg)?, qv)
+        } else {
+            Default::default()
+        };
+        if let Some(mut hit) = self.answers.get::<Answer>(&cache, question, qv.as_deref(), &state) {
+            hit.cached = true;
+            on_token(&hit.reply.text);
+            return Ok(hit);
+        }
+        cfg.llm.local.gpu_layers = cfg.resources.gpu_layers(cfg.llm.local.gpu_layers);
+        if cfg.llm.target.provider == crate::llm::Provider::Local && cfg.resources.memory_budget_mb > 0 {
+            let size = cfg.llm.local.model_path.as_deref().and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
+            if let Some(why) = cfg.resources.model_too_large(size, crate::governor::free_memory_mb()) {
+                return Err(Error::Llm(why));
+            }
+        }
         let sources = self.search_with(question, &cfg.search)?;
         let messages = crate::llm::rag_messages(cfg.llm.system_prompt.as_deref(), question, &sources);
         let usage = self.data_dir.join("llm-usage.json");
         let reply = crate::llm::Client::new(cfg.llm, keys, Some(&usage)).chat(&messages, on_token)?;
-        Ok(Answer { reply, sources })
+        let answer = Answer { reply, sources, cached: false };
+        self.answers.put(&cache, question, qv.as_deref(), &state, &answer);
+        Ok(answer)
+    }
+
+    /// What a cached answer depends on: the chunk count, the embedding model, and the
+    /// settings that shape an answer (search and AI, without the cache's own).
+    #[cfg(feature = "ai")]
+    fn index_state(&self, cfg: &Config) -> Result<String> {
+        use sha2::Digest;
+        let llm = crate::llm::LlmConfig { cache: Default::default(), ..cfg.llm.clone() };
+        let shape = serde_json::to_vec(&(&cfg.search, &llm))?;
+        Ok(format!("{}:{}:{:x}", self.store.count()?, self.model_name(), sha2::Sha256::digest(shape)))
     }
 
 {% endif %}{% if local_llm %}    /// Download a GGUF model (`url`, or the configured `llm.local.modelUrl`) into
@@ -493,10 +562,12 @@ impl Engine {
     }
 
 {% endif %}    pub fn remove_source(&self, source: &str) -> Result<usize> {
+        self.changed();
         self.store.remove_source(source)
     }
 
     pub fn clear(&self) -> Result<()> {
+        self.changed();
         self.store.clear()
     }
 
@@ -571,12 +642,12 @@ fn open_store(opts: &EngineOptions) -> Result<Box<dyn Store>> {
 }
 
 #[cfg(feature = "embed")]
-fn load_embedder(cache: &Path, progress: &mut dyn FnMut(&str)) -> Result<Option<Box<dyn Embedder>>> {
+fn load_embedder(cache: &Path, provider: crate::governor::OnnxProvider, progress: &mut dyn FnMut(&str)) -> Result<Option<Box<dyn Embedder>>> {
     progress("Loading the search model (the first time downloads it)");
-    Ok(Some(Box::new(crate::embed::LocalEmbedder::new(cache)?)))
+    Ok(Some(Box::new(crate::embed::LocalEmbedder::with_provider(cache, provider)?)))
 }
 
 #[cfg(not(feature = "embed"))]
-fn load_embedder(_cache: &Path, _progress: &mut dyn FnMut(&str)) -> Result<Option<Box<dyn Embedder>>> {
+fn load_embedder(_cache: &Path, _provider: crate::governor::OnnxProvider, _progress: &mut dyn FnMut(&str)) -> Result<Option<Box<dyn Embedder>>> {
     Ok(None)
 }

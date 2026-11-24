@@ -10,13 +10,16 @@
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
 //! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}; with feature
 //! `telemetry`: `telemetry_status`; with feature `mail`: `send_mail` {to, cc, bcc, subject, text,
-//! html?, attachments: [path]}, `test_mail` {to?}, `mail_password` {password?} (every other call is timed for opt-in traces/analytics);
+//! html?, attachments: [path]}, `test_mail` {to?}, `mail_password` {password?};
 //! with feature `plugins`: `plugins` (the list with schemas) and `plugin.<name>.<method>`
 //! {..} for any method a plugin offers; with feature `rclone`: `rclone_status`,
 //! `rclone_config` {text?}, `rclone_install`, `rclone_sync` (rclone's lines stream as
 //! progress); with feature `tailscale`: `tailscale_status`, `tailscale_apply`.
+//! with feature `mcp`:
+//! `mcp_pending` (MCP calls waiting for approval) and `mcp_decide` {id, allow} (every other call
+//! is timed for opt-in traces/analytics).
 //!
-//! Folder watching (feature `watch`) starts with `setup` or `configure` when
+//! Folder watching (feature `watch`, desktop only) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
 //! the UI polls (the same in this process and in the worker).
 
@@ -36,7 +39,7 @@ pub trait Service: Send + Sync {
 pub struct Local {
     engine: Mutex<Option<Arc<Engine>>>,
     app_name: Mutex<Option<String>>,
-    #[cfg(feature = "watch")]
+    #[cfg(all(desktop, feature = "watch"))]
     watcher: Mutex<Option<desktop_core::watch::Watcher>>,
     /// The voice model, loaded on first use.
     #[cfg(feature = "tts")]
@@ -66,7 +69,7 @@ impl Local {
     }
 
     /// Start, restart or stop the folder watcher to match the engine's config.
-    #[cfg(feature = "watch")]
+    #[cfg(all(desktop, feature = "watch"))]
     fn rewatch(&self) -> Result<(), String> {
         let engine = self.engine()?;
         let mut slot = self.watcher.lock().map_err(err)?;
@@ -92,18 +95,18 @@ impl Local {
         Ok(())
     }
 
-    #[cfg(not(feature = "watch"))]
+    #[cfg(not(all(desktop, feature = "watch")))]
     fn rewatch(&self) -> Result<(), String> {
         Ok(())
     }
 
     fn watch_status(&self) -> Result<Value, String> {
-        #[cfg(feature = "watch")]
+        #[cfg(all(desktop, feature = "watch"))]
         let folders = self.watcher.lock().map_err(err)?.as_ref().map(|w| w.folders.clone()).unwrap_or_default();
-        #[cfg(not(feature = "watch"))]
+        #[cfg(not(all(desktop, feature = "watch")))]
         let folders: Vec<std::path::PathBuf> = Vec::new();
         let events: Vec<Value> = self.events.lock().map_err(err)?.iter().cloned().collect();
-        Ok(json!({"built": cfg!(feature = "watch"), "folders": folders, "events": events}))
+        Ok(json!({"built": cfg!(all(desktop, feature = "watch")), "folders": folders, "events": events}))
     }
 }
 
@@ -126,7 +129,7 @@ fn rclone_folder(e: &Engine) -> std::path::PathBuf {
         }
         // Only the method name, the time it took and ok/error are recorded (when allowed).
         #[cfg(feature = "telemetry")]
-        if !matches!(method, "ping" | "status" | "config" | "watch_status" | "telemetry_status") {
+        if !matches!(method, "ping" | "status" | "config" | "watch_status" | "telemetry_status" | "mcp_pending") {
             desktop_core::telemetry::record(method, start, reply.is_ok());
         }
         reply
@@ -397,6 +400,14 @@ impl Local {
                 .map_err(err)?;
                 Ok(json!(dir))
             }
+            #[cfg(feature = "mcp")]
+            "mcp_pending" => to(Ok(desktop_core::mcp::Approvals::new(self.engine()?.data_dir()).pending())),
+            #[cfg(feature = "mcp")]
+            "mcp_decide" => {
+                let q = desktop_core::mcp::Approvals::new(self.engine()?.data_dir());
+                q.decide(&arg::<String>(&params, "id")?, arg(&params, "allow")?)?;
+                to(Ok(q.pending()))
+            }
             #[cfg(feature = "telemetry")]
             "telemetry_status" => Ok(desktop_core::telemetry::status()),
 {% if plugins %}            #[cfg(feature = "plugins")]
@@ -441,7 +452,8 @@ impl Local {
             "tailscale_status" => to(Ok(desktop_core::tailscale::status(&self.engine()?.config().tailscale))),
             #[cfg(feature = "tailscale")]
             "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale).map_err(err)?)),
-{% endif %}            other => Err(format!("unknown method {other:?}")),
+{% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)
+            other => Err(format!("unknown method {other:?}")),
         }
     }
 }

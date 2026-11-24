@@ -80,7 +80,7 @@ Everything runs on the user's machine.
 | Security defaults: navigation limited to the app's own pages, strict CSP, frozen JS prototypes, no global Tauri object with React, dev tools in debug builds only (`APP_DEVTOOLS=1` opens them) | `src-tauri/src/guard.rs`, `tauri.conf.json` | always |
 | JSON-lines logs per process in the app data `logs/` folder, rotated by size, home folder written as `~`; level in Settings → Logs or `APP_LOG=warn,desktop_core=debug` | `desktop-core/src/logging.rs` | always |
 {% if mcp_server -%}
-| MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
+| MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; per-tool allow/ask/deny, where "ask" waits for Approve in Settings (refused when the app is closed); audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
 {% endif -%}
 {% if pdf -%}
 | PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
@@ -107,6 +107,9 @@ Everything runs on the user's machine.
 {% endif -%}
 {% if claude_mcp -%}
 | Bundled uv + Claude Desktop MCP registration | `src-tauri/src/claude.rs` | `claude-mcp` |
+{% endif -%}
+{% if mobile -%}
+| iOS and Android from the same code (Tauri 2 mobile): file store, backend in the app, store updates; `Mobile` workflow builds an unsigned APK/AAB and an iOS simulator app | `src-tauri/tauri.{android,ios}.conf.json`, `src-tauri/capabilities/mobile.json`, `.github/workflows/mobile.yml` | always |
 {% endif -%}
 | `--self-test` (CI runs it on every installed build) | `self_test` in `src-tauri/src/lib.rs` | always |
 {% if installers -%}
@@ -191,6 +194,53 @@ before a plain `cargo build`, which embeds `ui-react/dist`.
 The UI is plain HTML/JS in `ui/` (no build step); point `build.frontendDist` in
 `src-tauri/tauri.conf.json` at another framework's output to swap it.
 {% endif -%}
+{% if mobile %}
+## Mobile (iOS and Android)
+
+The app crate is also a library (`staticlib`, `cdylib`, `rlib`) whose `run` is the
+mobile entry point, so the same Rust and the same UI ship to phones and tablets.
+Parts that need a desktop are compiled out there with `cfg(desktop)`: the worker process
+and background agent (the backend runs inside the app), the updater (the App Store and
+Google Play update the app), single instance, the stdio MCP server, Python, Claude
+Desktop, folder watching and embedded Postgres (the file store is used; a saved Postgres
+choice falls back to it). `app_info` reports `features.mobile`, and the UI hides what is
+not there. Everything is kept in the app's private folder.
+
+Once, install the Android SDK and NDK (Android Studio; set `ANDROID_HOME` and `NDK_HOME`)
+and Java 17, or Xcode on a Mac, then the Rust targets and the native projects:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+cargo tauri android init      # makes src-tauri/gen/android
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+cargo tauri ios init          # macOS only: makes src-tauri/gen/apple
+```
+
+Run on an emulator, simulator or a connected device with hot reload (the dev server
+listens on your computer's address, `TAURI_DEV_HOST`):
+
+```sh
+cargo tauri android dev
+cargo tauri ios dev           # add --open to work in Xcode
+```
+
+Build for the stores:
+
+```sh
+cargo tauri android build --aab           # Google Play (an .apk too with --apk)
+cargo tauri ios build --export-method app-store-connect   # an .ipa for App Store Connect
+```
+
+Store builds must be signed: an upload keystore for Android
+([guide](https://v2.tauri.app/distribute/sign/android/)) and a certificate with a
+provisioning profile, or automatic signing with `APPLE_DEVELOPMENT_TEAM`, for iOS
+([guide](https://v2.tauri.app/distribute/sign/ios/)). The **Mobile** workflow
+(`.github/workflows/mobile.yml`, by hand and on tags) builds them unsigned and says where
+the signing secrets go. Android package names cannot contain `-`, so
+`tauri.android.conf.json` uses `{{identifier | replace: "-", "_"}}`. The ONNX parts
+(embeddings, speech) and llama.cpp need native libraries built for each phone target;
+check them on a device before turning them on in a mobile release.
+{% endif -%}
 {% if ipc_worker %}
 ## Processes
 
@@ -251,6 +301,15 @@ is off by default; values are clamped to safe ranges.
 | `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
 | `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
 | `backup.intervalHours`, `backup.keep`, `backup.folder`, `backup.encrypt` | 0, 5, app data, off | scheduled backups; a synced folder keeps a copy off the computer |
+| `resources.memoryBudgetMb` | 0 (none) | caps ingest workers and embedding batches by free memory inside the budget; files that would not fit are skipped with a reason |
+| `resources.gpuBudget`, `resources.gpuLayers` | off, 0 | cap the local model's GPU layers (0 = CPU only) |
+| `resources.onnxProvider` | `cpu` | preferred ONNX Runtime provider (`auto`, `coreml`, `directml`, `cuda`); falls back to the CPU when not built in |
+{% if ai -%}
+| `llm.cache.enabled`, `llm.cache.ttlHours`, `llm.cache.maxEntries`, `llm.cache.similarity` | off, 24, 500, 0.95 | answer cache (`answer-cache.jsonl`): same question, or a near-identical one by cosine with embeddings; emptied on ingest, remove and clear |
+{% endif -%}
+{% if mcp_server -%}
+| `mcp.policies`, `mcp.approvalTimeoutSecs` | empty (allow), 60 | `{"ask": "ask", "*": "allow"}`: per-tool `allow`, `ask` or `deny`; `allowWrite` and `tools` still apply first |
+{% endif -%}
 {% if email -%}
 | `mail.enabled`, `mail.host`, `mail.port`, `mail.security` | off, empty, 587, `starttls` | SMTP server; `tls` for port 465; `none` only to this computer |
 | `mail.username`, `mail.from`, `mail.maxMb`, `mail.timeoutSecs` | empty, empty, 25, 30 | login (empty = none), sender, largest message, timeout |
