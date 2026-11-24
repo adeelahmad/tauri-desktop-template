@@ -86,7 +86,9 @@ pub mod plugin;
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
-{% endif %}{% if http_api %}#[cfg(feature = "http-api")]
+{% endif %}{% if ipc_worker %}{% if daemon %}#[cfg(feature = "daemon")]
+pub mod daemon;
+{% endif %}{% endif %}{% if http_api %}#[cfg(feature = "http-api")]
 pub mod http_api;
 {% endif %}{% if webview %}#[cfg(feature = "webview")]
 pub mod webview;

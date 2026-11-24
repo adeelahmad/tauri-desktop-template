@@ -655,6 +655,8 @@ struct Shared {
     running: HashMap<String, (String, Arc<AtomicBool>)>,
     seq: u64,
     last_prune: u64,
+    /// Set by [`Queue::shutdown`]: start nothing, hand running jobs back.
+    returning: bool,
 }
 
 struct Inner {
@@ -684,6 +686,16 @@ enum Failure {
     TimedOut,
 }
 
+const RETURNED: &str = "returned to the queue: the app stopped while it ran";
+
+/// Put a running job back to wait, as if this attempt never started.
+fn give_back(j: &mut JobRecord, now: u64) {
+    j.state = State::Queued;
+    j.attempts = j.attempts.saturating_sub(1);
+    j.run_at = now;
+    j.last_error = Some(RETURNED.into());
+}
+
 /// The persistent queue. Cheap to clone (all clones are the same queue).
 #[derive(Clone)]
 pub struct Queue {
@@ -707,7 +719,7 @@ impl Queue {
             Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
         };
         let file = read_file(&dir)?;
-        let shared = Shared { file, config: config.validated(), resources: ResourceConfig::default(), engine: opts.engine, running: HashMap::new(), seq: 0, last_prune: 0 };
+        let shared = Shared { file, config: config.validated(), resources: ResourceConfig::default(), engine: opts.engine, running: HashMap::new(), seq: 0, last_prune: 0, returning: false };
         let q = Self { inner: Arc::new(Inner { dir, registry, clock: opts.clock, jitter: opts.jitter, online: opts.online, owner, shared: Mutex::new(shared), wake: Condvar::new() }) };
         if q.is_owner() {
             q.recover()?;
@@ -878,6 +890,51 @@ impl Queue {
         }
     }
 
+    /// Stop cleanly (the daemon calls this when it stops): no new attempt starts, running
+    /// jobs are told to stop ([`JobContext::is_cancelled`]) and each goes back to the queue
+    /// as it was, the attempt not counted. Waits up to `grace` for them; jobs still running
+    /// then are handed back too (whatever they finish with later is still recorded).
+    /// Stop the [`Runtime`] first. Returns how many jobs went back.
+    ///
+    /// ```
+    /// use desktop_core::queue::{JobsConfig, Queue, Registry};
+    /// use std::time::Duration;
+    ///
+    /// let dir = std::env::temp_dir().join(format!("queue-shutdown-doc-{}", std::process::id()));
+    /// let q = Queue::open(&dir, Registry::new(), JobsConfig::default())?;
+    /// assert_eq!(q.shutdown(Duration::from_millis(10)), 0); // nothing was running
+    /// # drop(q); let _ = std::fs::remove_dir_all(&dir);
+    /// # Ok::<(), desktop_core::Error>(())
+    /// ```
+    pub fn shutdown(&self, grace: Duration) -> usize {
+        let deadline = std::time::Instant::now() + grace;
+        let mut s = self.lock();
+        s.returning = true;
+        let count = s.running.len();
+        for (_, cancel) in s.running.values() {
+            cancel.store(true, Ordering::SeqCst);
+        }
+        while !s.running.is_empty() {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            s = self.inner.wake.wait_timeout(s, left).unwrap_or_else(std::sync::PoisonError::into_inner).0;
+        }
+        let now = self.now();
+        let stragglers: Vec<String> = s.running.keys().cloned().collect();
+        for j in s.file.jobs.iter_mut().filter(|j| stragglers.contains(&j.id) && j.state == State::Running) {
+            give_back(j, now);
+        }
+        if let Err(e) = self.save(&s) {
+            log::warn!("background jobs: could not save the queue: {e}");
+        }
+        if !stragglers.is_empty() {
+            log::warn!("background jobs: {} job(s) did not stop in time; they run again at the next start", stragglers.len());
+        }
+        count
+    }
+
     // ---- internals
 
     fn now(&self) -> u64 {
@@ -1022,6 +1079,9 @@ impl Queue {
     }
 
     fn claim(&self, s: &mut Shared, now: u64, changed: &mut bool) -> Vec<Claim> {
+        if s.returning {
+            return Vec::new();
+        }
         let Shared { file, config, resources, engine, running, .. } = s;
         let cap = resources.workers(config.workers);
         let mut free = cap.saturating_sub(running.len());
@@ -1078,6 +1138,14 @@ impl Queue {
         let pos = s.file.jobs.iter().position(|j| j.id == id);
         let mut run = Run { job: id, kind: claim.record.kind.clone(), attempt: claim.record.attempts, started: claim.started, finished: now, outcome: Outcome::Ok, message: None, output: None, retry_at: None };
         match result {
+            // Stopped by `shutdown`: back to the queue as it was; this attempt does not count.
+            _ if cancelled && s.returning => {
+                run.outcome = Outcome::Interrupted;
+                run.message = Some(RETURNED.into());
+                if let Some(j) = pos.map(|p| &mut s.file.jobs[p]).filter(|j| j.state == State::Running) {
+                    give_back(j, now);
+                }
+            }
             _ if cancelled => {
                 run.outcome = Outcome::Cancelled;
                 if let Some(p) = pos {
@@ -1574,5 +1642,27 @@ mod tests {
         }
         assert!(q.list().history.iter().any(|h| h.outcome == Outcome::Cancelled));
         drop(rt);
+    }
+    #[test]
+    fn shutdown_hands_running_jobs_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut r = Registry::new();
+        r.register(Slow);
+        let q = Queue::open(dir.path(), r, JobsConfig { enabled: true, ..JobsConfig::default() }).unwrap();
+        let rt = Runtime::start(q.clone()).unwrap();
+        let slow = q.enqueue("slow", Value::Null, Enqueue::default()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while q.list().jobs.iter().all(|j| j.state != State::Running) {
+            assert!(std::time::Instant::now() < deadline, "the runtime did not start the job");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(rt);
+        assert_eq!(q.shutdown(Duration::from_secs(5)), 1);
+        let jobs = q.list().jobs;
+        assert_eq!(jobs.len(), 1, "the job is kept");
+        assert_eq!((jobs[0].id.as_str(), jobs[0].state, jobs[0].attempts), (slow.id.as_str(), State::Queued, 0), "back as it was");
+        assert!(q.list().history.iter().any(|h| h.outcome == Outcome::Interrupted));
+        // Nothing new starts after a shutdown.
+        assert_eq!(q.run_pending(), 0);
     }
 }

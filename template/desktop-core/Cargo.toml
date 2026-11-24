@@ -79,6 +79,10 @@ telemetry = []
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
 {% endif -%}
+{% if ipc_worker -%}{% if daemon -%}
+# Service files, the daemon's health file and crash backoff (std only; see daemon.rs).
+daemon = []
+{% endif -%}{% endif -%}
 {% if tray_menu -%}
 # The action registry for the tray, global shortcuts and the app menu (no extra crates).
 tray-menu = []

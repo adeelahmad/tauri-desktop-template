@@ -35,6 +35,10 @@ kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global s
 kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (http_api)
 
 kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers and AGENTS.md
+kitchen service install           # the app's daemon as a user service (template feature `daemon`)
+kitchen service status            # installed? running? pid, log file
+kitchen service logs --lines 100 --follow
+kitchen service stop | start | restart | uninstall [--system]
 kitchen dev | kitchen build       # cargo tauri dev / build
 kitchen mcp                       # MCP server over stdio
 ```
@@ -92,9 +96,22 @@ jitter, then wait in the dead letters until retried.
 claude mcp add kitchen -- kitchen mcp
 ```
 
-The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor` and
-`new`. Each one takes an optional `project` folder, and the ones that change files also take
-`dry_run`.
+The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
+`service` and `new`. Each one takes an optional `project` folder, and the ones that change files also take
+`dry_run`. `service` only runs `status` and `logs` by itself; for `install`, `uninstall`,
+`start`, `stop` and `restart` it reports the command it would run unless `allow_changes` is
+true.
+
+## Services
+
+`kitchen service <action> [--system]` runs `<app> --service <action>` on the app's built
+binary (`target/debug/<name>` or `target/release/<name>`, the newer one; `CARGO_TARGET_DIR`
+is honoured), and builds it with `cargo build -p <name>` first when there is none. The app
+needs the `daemon` answer (`kitchen enable daemon`, which needs `ipc_worker`). The user
+level is a LaunchAgent, a `systemctl --user` unit or a Windows Run entry; `--system` is a
+LaunchDaemon, a system unit or a Windows Service and needs administrator rights (the app
+prints the `sudo` or Administrator command instead of asking). `--dry-run` shows the command
+without running it.
 
 ## For AI agents
 

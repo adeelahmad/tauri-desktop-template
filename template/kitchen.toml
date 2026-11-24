@@ -36,6 +36,7 @@ pdf = {% if pdf %}true{% else %}false{% endif %}
 wizard = {% if wizard %}true{% else %}false{% endif %}
 ipc_worker = {% if ipc_worker %}true{% else %}false{% endif %}
 background_agent = {% if background_agent %}true{% else %}false{% endif %}
+daemon = {% if daemon %}true{% else %}false{% endif %}
 python_example = {% if python_example %}true{% else %}false{% endif %}
 updater = {% if updater %}true{% else %}false{% endif %}
 installers = {% if installers %}true{% else %}false{% endif %}
