@@ -29,6 +29,7 @@ Usage:
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
   kitchen generate command <name>
   kitchen generate page <Name>
+  kitchen generate job <name>          a background job type (needs background_jobs)
   kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
   kitchen generate shortcut <action> <keys>                                   (tray_menu)
   kitchen doctor [--json]              check this machine and this app
@@ -192,7 +193,7 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             let root = project()?.root;
             let kind = args.word(
                 1,
-                "what to generate (module, setting, command, page, menu, shortcut)",
+                "what to generate (module, setting, command, page, menu, shortcut, job)",
             )?;
             let name = args.word(2, "a name")?;
             match kind {
@@ -220,8 +221,9 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
                     args.word(3, "the keys, e.g. CmdOrCtrl+Shift+K")?,
                     &opts,
                 ),
+                "job" => generate::job(&root, name, &opts),
                 other => Err(Error::Usage(format!(
-                    "cannot generate {other:?}: module, setting, command, page, menu or shortcut"
+                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut or job"
                 ))),
             }
         }

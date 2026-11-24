@@ -62,6 +62,9 @@ Everything runs on the user's machine.
 {% if plugins -%}
 | Plugin API: compiled-in extensions (`Plugin` trait + registry) with ingest hooks, extra search sources, their own methods (`plugin.<name>.<method>`) and a settings schema; example plugin `glossary`. Turn on under Settings → Plugins | `desktop-core/src/plugin.rs` | `plugins` |
 {% endif -%}
+{% if background_jobs -%}
+| Background jobs: a persistent queue (survives restarts and crashes) of named job types with typed JSON payloads; run now, later, or on cron/interval schedules; a concurrency limit per queue; retries with exponential backoff and jitter, then dead letters you can retry; cancel, timeouts, a pruned run history. Respects `resources` and `net.offline`. Examples `backup_now` and `reindex`; Settings → Jobs | `desktop-core/src/queue.rs`, `desktop-core/src/job_types/` | `jobs-queue` |
+{% endif -%}
 {% if rclone -%}
 | Cloud sync of the backups (or data) folder to any cloud with rclone: pinned, checksummed binary downloaded on first use; remote config in an owner-only file; schedule, direction, bandwidth limit. Settings → Cloud sync | `desktop-core/src/rclone.rs` | `rclone` |
 {% endif -%}
@@ -213,6 +216,10 @@ Google Play update the app), single instance, the stdio MCP server, Python, Clau
 Desktop, folder watching and embedded Postgres (the file store is used; a saved Postgres
 choice falls back to it). `app_info` reports `features.mobile`, and the UI hides what is
 not there. Everything is kept in the app's private folder.
+{% if background_jobs -%}
+Background jobs run only while the app is in the foreground there; due jobs and missed
+schedules catch up when it opens or comes back.
+{% endif -%}
 
 Once, install the Android SDK and NDK (Android Studio; set `ANDROID_HOME` and `NDK_HOME`)
 and Java 17, or Xcode on a Mac, then the Rust targets and the native projects:
@@ -325,6 +332,10 @@ is off by default; values are clamped to safe ranges.
 {% if plugins -%}
 | `plugins.enabled`, `plugins.disabled`, `plugins.settings` | off, none, `{}` | run plugins; leave some out; each plugin's settings by name |
 {% endif -%}
+{% if background_jobs -%}
+| `jobs.enabled`, `jobs.workers`, `jobs.maxAttempts` | off, 2, 5 | run jobs and schedules; jobs at once (capped by `resources.cpuPercent`); attempts before the dead letters |
+| `jobs.backoffBaseSecs`, `jobs.backoffMaxSecs`, `jobs.historyDays`, `jobs.queues` | 10, 3600, 7, `{}` | retry waits double from the base up to the max (half of each is random jitter); history kept; per-queue limits, e.g. `{"maintenance": 1}` |
+{% endif -%}
 {% if rclone -%}
 | `rclone.enabled`, `rclone.remote`, `rclone.path` | off, empty, empty | remote name in the rclone config, folder on it |
 | `rclone.folder`, `rclone.direction` | `backups`, `push` | `data` (up only); `pull`, `mirror` (deletes extras there), `bisync` |
@@ -371,6 +382,23 @@ and it can rewrite or drop chunks before they are stored, add results to every s
 (interleaved with the store's), answer `plugin.<name>.<method>` (the `plugin_call`
 command), and describe its settings with a JSON Schema that Settings → Plugins turns into
 a form. The `glossary` example shows each hook.
+
+{% endif -%}
+{% if background_jobs -%}
+### Background jobs
+
+`desktop_core::queue` keeps a queue in `<data>/queue/` (`queue.json`, written atomically,
+and `history.jsonl`). A job type implements `Job` (a name, a payload type, `run`; optionally
+its queue, timeout, attempts and whether it needs the network) and is registered in
+`desktop-core/src/job_types/mod.rs`; `kitchen generate job <name>` writes one with docs and a
+test. Jobs run in the backend: in the app, or in the worker with `ipc_worker`; with
+`background_agent` the worker starts at login and schedules keep running while the window is
+closed. On iOS and Android jobs run only while the app is in the foreground (no
+`BGTaskScheduler`/`WorkManager`); what came due meanwhile runs when it is back, and a missed
+schedule fires once. Commands: `jobs_list`, `jobs_enqueue` {kind, payload, options},
+`jobs_cancel`, `jobs_retry`, `jobs_schedules`, `jobs_set_schedule`. The queue is built on std
+threads plus [croner](https://crates.io/crates/croner) for cron (apalis was considered; its
+persistent stores need SQL or Redis and an async runtime, see the module docs).
 
 {% endif -%}
 {% if rclone -%}

@@ -47,6 +47,10 @@ stt = ["dep:ort"]
 # SMTP email (TLS, STARTTLS, attachments) on the rustls already in the tree.
 mail = ["dep:rustls", "dep:webpki-roots"]
 {% endif -%}
+{% if background_jobs -%}
+# A persistent background job queue with retries and schedules (croner + chrono for cron).
+jobs-queue = ["dep:croner", "dep:chrono"]
+{% endif -%}
 {% if plugins -%}
 # Static, compiled-in plugins (desktop_core::plugin): ingest hooks, search sources, methods.
 plugins = []
@@ -90,6 +94,11 @@ sha2 = "0.10"
 # Already in every build through rustls; seals encrypted backups (ChaCha20-Poly1305).
 ring = "0.17"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+{% if background_jobs -%}
+# Cron parsing and next-run times (croner), in local time (chrono's clock: no time zone database).
+croner = { version = "5", optional = true, default-features = false, features = ["std", "chrono"] }
+chrono = { version = "0.4.42", optional = true, default-features = false, features = ["std", "clock"] }
+{% endif -%}
 {% if email -%}
 # The same rustls and Mozilla roots ureq already uses (no new crates in the build).
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12", "logging"] }

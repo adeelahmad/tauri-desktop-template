@@ -63,6 +63,9 @@ pub struct Config {
 {% endif %}{% if telemetry %}    /// Opt-in crash reports, analytics and traces.
     #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
+{% endif %}{% if background_jobs %}    /// Background jobs: workers, retries and backoff, history.
+    #[cfg(feature = "jobs-queue")]
+    pub jobs: crate::queue::JobsConfig,
 {% endif %}{% if plugins %}    /// Built-in plugins: on or off, and each one's settings.
     #[cfg(feature = "plugins")]
     pub plugins: crate::plugin::PluginsConfig,
@@ -290,6 +293,10 @@ impl Config {
 {% endif %}{% if telemetry %}        #[cfg(feature = "telemetry")]
         {
             self.telemetry = self.telemetry.validated();
+        }
+{% endif %}{% if background_jobs %}        #[cfg(feature = "jobs-queue")]
+        {
+            self.jobs = self.jobs.validated();
         }
 {% endif %}{% if plugins %}        #[cfg(feature = "plugins")]
         {
