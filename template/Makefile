@@ -12,7 +12,7 @@ ui: $(UI_DEPS) ## Build the React UI (the app embeds ui-react/dist)
 ui: ## Nothing to build: the UI is plain files in ui/
 	@true
 {% endif %}
-.PHONY: help setup dev build test lint fmt audit self-test {% if evals %}eval {% endif %}ui db-up db-down docker-test hooks clean
+.PHONY: help setup dev build test lint check-windows fmt audit self-test {% if evals %}eval {% endif %}ui db-up db-down docker-test hooks clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -42,6 +42,14 @@ lint: ui ## Formatting, clippy{% if frontend == "react" %}, eslint{% endif %} an
 	npm --prefix ui-react run lint
 {%- endif %}
 	pre-commit run --all-files
+
+# From Linux or macOS: cargo-xwin fetches the MSVC CRT and Windows SDK headers (C deps such
+# as ring need them); nothing is linked. On Windows itself, plain `cargo clippy` does this.
+WIN_TARGET := x86_64-pc-windows-msvc
+check-windows: ui ## Type-check and clippy the Windows build from here (cargo-xwin, no linking)
+	rustup target add $(WIN_TARGET)
+	@cargo xwin --version >/dev/null 2>&1 || cargo install --locked cargo-xwin
+	cargo xwin clippy --workspace --all-targets --target $(WIN_TARGET) -- -D warnings
 
 fmt: ## Format everything
 	cargo fmt --all

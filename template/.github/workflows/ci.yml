@@ -55,6 +55,26 @@ jobs:
       - name: Every optional part compiles
         run: cargo clippy -p desktop-core --all-features -- -D warnings
 
+  # Fast Windows gate: the cfg(windows) code (service, named pipes, Run entries) type-checks
+  # and passes clippy without building installers. `make check-windows` does the same from Linux.
+  windows-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the React UI (the app embeds it)
+        if: hashFiles('ui-react/package.json') != ''
+        shell: bash
+        run: npm --prefix ui-react ci --include=dev && npm --prefix ui-react run build
+      - run: cargo check --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
   desktop:
     strategy:
       fail-fast: false
