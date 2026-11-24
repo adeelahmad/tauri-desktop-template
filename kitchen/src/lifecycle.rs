@@ -553,6 +553,41 @@ pub fn package_plan(
     })
 }
 
+/// Skip the signed updater archives (`.tar.gz` + `.sig`) when no signing key is set.
+///
+/// With the `updater` feature, `tauri.conf.json` asks for updater artifacts, and Tauri then
+/// stops the build if `TAURI_SIGNING_PRIVATE_KEY` is missing. Local and CI test builds rarely
+/// have the key, so `kitchen package` turns the artifacts off for that build and says so. The
+/// release workflow does the same, and signs when the key is a CI secret.
+///
+/// ```
+/// use kitchen::lifecycle::{package_plan, skip_updater_artifacts, Platform};
+/// use std::path::Path;
+///
+/// let mut plan = package_plan(Path::new("/app"), None, Platform::Mac, false).unwrap();
+/// skip_updater_artifacts(&mut plan, false);
+/// assert!(plan.steps[0].args.iter().any(|a| a.contains("createUpdaterArtifacts")));
+/// assert_eq!(plan.notes.len(), 1);
+/// ```
+pub fn skip_updater_artifacts(plan: &mut Plan, has_signing_key: bool) {
+    if has_signing_key {
+        return;
+    }
+    for step in plan
+        .steps
+        .iter_mut()
+        .filter(|s| s.args.iter().any(|a| a == "build"))
+    {
+        step.args.push("--config".into());
+        step.args
+            .push(r#"{"bundle":{"createUpdaterArtifacts":false}}"#.into());
+    }
+    plan.notes.push(
+        "no TAURI_SIGNING_PRIVATE_KEY: built without the signed updater archives (set the key to include them)"
+            .into(),
+    );
+}
+
 /// Whether a file in `bundle/` is an installer worth collecting.
 pub fn is_package(path: &Path) -> bool {
     let name = path
@@ -867,6 +902,17 @@ mod tests {
         assert_eq!(
             p.steps[0].display(),
             "KITCHEN_ENV=development cargo tauri build --bundles nsis,msi --debug"
+        );
+        let mut q = p.clone();
+        skip_updater_artifacts(&mut q, true);
+        assert_eq!(q.steps, p.steps);
+        skip_updater_artifacts(&mut q, false);
+        assert!(
+            q.steps[0]
+                .display()
+                .ends_with(r#"--config {"bundle":{"createUpdaterArtifacts":false}}"#),
+            "{}",
+            q.steps[0].display()
         );
     }
 
