@@ -40,8 +40,8 @@
 
 use crate::config::{Config, KeywordEngine, SearchConfig};
 use crate::fuse::{self, Candidate};
-use crate::store::{plan, Hit, Plan, Store};
 use crate::pgupgrade::{self, Job, Layout, Method, Need, PlanOptions, UpgradeMode, UPGRADE_NEEDED};
+use crate::store::{plan, Hit, Plan, Store};
 use crate::{Chunk, Error, Result};
 use postgresql_embedded::blocking::PostgreSQL;
 use postgresql_embedded::{Settings, VersionReq};
@@ -384,7 +384,9 @@ pub fn upgrade_now(data_dir: &Path, cfg: &PostgresConfig, check_only: bool, prog
         Need::Upgrade { from, to } => (from, to),
         Need::Fresh => return Ok("there is no database yet; nothing to upgrade".into()),
         Need::Current => return Ok(format!("the database is already on Postgres {}", bundled_major())),
-        Need::Newer { found, bundled } => return Err(Error::Store(format!("the database was made by Postgres {found}, newer than this app's {bundled}"))),
+        Need::Newer { found, bundled } => {
+            return Err(Error::Store(format!("the database was made by Postgres {found}, newer than this app's {bundled}")))
+        }
     };
     if check_only {
         let _servers = SERVERS.get_or_init(|| Mutex::new(HashMap::new())).lock().map_err(pg_err)?;
@@ -418,7 +420,8 @@ fn has_lib(root: &Path, name: &str) -> bool {
 
 /// Server options that preload BM25's libraries, when they are built in and in `root`.
 fn preload(root: &Path) -> Option<String> {
-    (cfg!(feature = "bm25") && has_lib(root, "vchord_bm25") && has_lib(root, "pg_tokenizer")).then(|| "pg_tokenizer,vchord_bm25".to_string())
+    (cfg!(feature = "bm25") && has_lib(root, "vchord_bm25") && has_lib(root, "pg_tokenizer"))
+        .then(|| "pg_tokenizer,vchord_bm25".to_string())
 }
 
 /// The server for `version`, installed (the bundled one downloads on first use, with its
@@ -450,6 +453,7 @@ fn prepare(key: &Path, version: &str) -> Result<PostgreSQL> {
     // `new` appends the exact version, so this is `install/<version>`; once it exists the
     // crate uses it as is and never goes online.
     let install_dir = pg.settings().installation_dir.clone();
+    let mut direct_failed = None;
     if bundled && !install_dir.is_dir() {
         if let Err(e) = install_server(&install_dir) {
             // The crate's own download lists releases through the GitHub API, which only works
@@ -458,9 +462,14 @@ fn prepare(key: &Path, version: &str) -> Result<PostgreSQL> {
                 return Err(e);
             }
             log::warn!("{e}; trying the GitHub API with GITHUB_TOKEN");
+            direct_failed = Some(e);
         }
     }
-    pg.setup().map_err(pg_err)?;
+    // When the API fallback fails too, report the first (usually the real) cause as well.
+    pg.setup().map_err(|e| match &direct_failed {
+        Some(first) => pg_err(format!("{e} (after the direct download failed: {first})")),
+        None => pg_err(e),
+    })?;
     let root = pg.settings().binary_dir().parent().map(Path::to_path_buf).ok_or_else(|| pg_err("no install folder"))?;
     if bundled {
         // The extension bundle is built for the bundled major only.
@@ -493,7 +502,8 @@ fn ensure_old(layout: &Layout, from: u32) -> Result<String> {
     if let Some(v) = pgupgrade::installed_version(&layout.install(), from) {
         return Ok(v);
     }
-    let old = pgupgrade::old_server(from).ok_or_else(|| Error::Store(format!("this build cannot get a Postgres {from} server to read the old database")))?;
+    let old = pgupgrade::old_server(from)
+        .ok_or_else(|| Error::Store(format!("this build cannot get a Postgres {from} server to read the old database")))?;
     fetch_old(layout, old.version)?;
     Ok(old.version.to_string())
 }
@@ -501,7 +511,11 @@ fn ensure_old(layout: &Layout, from: u32) -> Result<String> {
 fn fetch_old(layout: &Layout, version: &str) -> Result<()> {
     crate::net::check("https://github.com/").map_err(|e| pg_err(format!("the Postgres {version} server is not here: {e}")))?;
     let pinned = pgupgrade::parse_major(version).and_then(pgupgrade::old_server).filter(|s| s.version == version);
-    install_server_version(&layout.install().join(version), version, pinned.and_then(|s| s.sha256_for(postgresql_archive::matcher::target())))
+    install_server_version(
+        &layout.install().join(version),
+        version,
+        pinned.and_then(|s| s.sha256_for(postgresql_archive::matcher::target())),
+    )
 }
 
 /// Run on the old major's server (upgrade off, or rolled back), with `note` for the user.
@@ -509,7 +523,11 @@ fn old_server(key: &Path, layout: &Layout, from: u32, note: String) -> Result<(P
     let version = ensure_old(layout, from)?;
     let pg = prepare(key, &version)?;
     let root = layout.install().join(&version);
-    let note = if has_lib(&root, "vector") { note } else { format!("{note} That server has no pgvector, so vector search will fail until the upgrade.") };
+    let note = if has_lib(&root, "vector") {
+        note
+    } else {
+        format!("{note} That server has no pgvector, so vector search will fail until the upgrade.")
+    };
     Ok((pg, Some(note)))
 }
 
@@ -939,7 +957,10 @@ mod server_tests {
 
     #[test]
     fn asset_name_matches_the_release() {
-        assert_eq!(server_asset(PG_VERSION, "x86_64-unknown-linux-gnu"), format!("postgresql-{PG_VERSION}-x86_64-unknown-linux-gnu.tar.gz"));
+        assert_eq!(
+            server_asset(PG_VERSION, "x86_64-unknown-linux-gnu"),
+            format!("postgresql-{PG_VERSION}-x86_64-unknown-linux-gnu.tar.gz")
+        );
     }
 
     #[test]
@@ -1087,11 +1108,18 @@ mod upgrade_e2e {
         std::fs::write(root.join(".pgpass"), &pw).unwrap();
         let data = layout.data();
         let s = |p: &Path| p.to_string_lossy().into_owned();
-        run(bin.join("initdb"), &["-D", &s(&data), "-U", "postgres", "-A", "password", "--pwfile", &s(&root.join(".pgpass")), "-E", "UTF8"], &root, &pw);
+        run(
+            bin.join("initdb"),
+            &["-D", &s(&data), "-U", "postgres", "-A", "password", "--pwfile", &s(&root.join(".pgpass")), "-E", "UTF8"],
+            &root,
+            &pw,
+        );
         let port = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port().to_string();
         let opts = format!("-c listen_addresses=localhost -p {port}");
         run(bin.join("pg_ctl"), &["start", "-w", "-D", &s(&data), "-l", &s(&root.join("old.log")), "-o", &opts], &root, &pw);
-        let psql = |db: &str, sql: &str| run(bin.join("psql"), &["-h", "localhost", "-p", &port, "-U", "postgres", "-d", db, "-At", "-c", sql], &root, &pw);
+        let psql = |db: &str, sql: &str| {
+            run(bin.join("psql"), &["-h", "localhost", "-p", &port, "-U", "postgres", "-d", db, "-At", "-c", sql], &root, &pw)
+        };
         psql("postgres", "create database app");
         psql("app", "create table chunks (id bigserial primary key, text text); insert into chunks (text) select 'row ' || g from generate_series(1, 500) g");
         run(bin.join("pg_ctl"), &["stop", "-w", "-m", "fast", "-D", &s(&data)], &root, &pw);
