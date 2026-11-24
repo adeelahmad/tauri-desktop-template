@@ -275,6 +275,13 @@ const FIELDS = [
   ['tray', 'leftClickOpens', 'Left click opens the window (right click: the menu)', 'bool', { needs: 'trayMenu' }],
   ['tray', 'closeToTray', 'Closing the window keeps the app in the tray', 'bool', { needs: 'trayMenu' }],
   ['tray', 'showInMenuBarOnly', 'macOS: menu bar only, no Dock icon', 'bool', { needs: 'trayMenu' }],
+  [
+    'updates',
+    'channel',
+    'Update channel',
+    'select',
+    { needs: 'releaseChannels', options: ['stable', 'beta'], labels: ['Stable', 'Beta (pre-releases as well)'] },
+  ],
   // kitchen:settings (`kitchen generate setting` adds fields above this line)
 ];
 
@@ -302,6 +309,8 @@ const TITLES = {
   watch: 'Watch folders',
   service: 'Service',
   tray: 'Tray & shortcuts',
+  updates: 'Updates',
+  about: 'About',
   // kitchen:titles
 };
 
@@ -1602,6 +1611,97 @@ function TrayShortcuts({ cfg, setCfg }) {
   );
 }
 
+// This install's rollout bucket and the rollback to the version before the last update.
+function UpdateChannel() {
+  const [st, setSt] = useState(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    invoke('update_channel_status')
+      .then(setSt)
+      .catch((e) => setMsg(String(e)));
+  }, []);
+  const rollback = async () => {
+    setMsg(`Going back to ${st.previous}...`);
+    try {
+      await invoke('rollback_update');
+    } catch (e) {
+      setMsg(`Rollback failed: ${e}`);
+    }
+  };
+  if (!st) return <p className="status">{msg}</p>;
+  return (
+    <div className="hint">
+      <div>Save to switch channels; the next update check uses the new one.</div>
+      {st.bucket !== null && <div>Staged releases reach this install once they are rolled out to more than {st.bucket}%.</div>}
+      {st.previous ? (
+        <div className="row">
+          <span>
+            Previous version: {st.previous}
+            {st.kept ? ' (kept on this computer)' : ' (downloaded again from its release)'}
+          </span>
+          {st.rollback && (
+            <button className="link" onClick={rollback}>
+              Roll back to {st.previous}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div>No earlier version to roll back to yet.</div>
+      )}
+      <p className="status">{msg}</p>
+    </div>
+  );
+}
+
+// Settings → About → Licences: the open-source software this build ships (made at build time).
+function Licences() {
+  const [n, setN] = useState(null);
+  const [filter, setFilter] = useState('');
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    invoke('third_party_notices')
+      .then(setN)
+      .catch(() => {});
+  }, []);
+  if (!n) return null;
+  const q = filter.trim().toLowerCase();
+  const shown = n.packages.filter((p) => !q || `${p.name} ${p.license}`.toLowerCase().includes(q));
+  return (
+    <details open>
+      <summary>Licences ({n.packages.length} packages)</summary>
+      <label className="field">
+        Filter by name or licence
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} />
+      </label>
+      <table className="licences">
+        <thead>
+          <tr>
+            <th>Package</th>
+            <th>Version</th>
+            <th>Licence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((p) => (
+            <tr key={`${p.ecosystem}:${p.name}@${p.version}`}>
+              <td>
+                {p.name}
+                {p.ecosystem === 'npm' ? ' (npm)' : ''}
+              </td>
+              <td>{p.version}</td>
+              <td>{p.license}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button className="link" onClick={() => setFull(!full)}>
+        {full ? 'Hide' : 'Show'} the licence texts
+      </button>
+      {full && <pre className="notices">{n.text}</pre>}
+    </details>
+  );
+}
+
 export default function Settings({ features }) {
   const [cfg, setCfg] = useState(null);
   const [msg, setMsg] = useState('');
@@ -1647,6 +1747,8 @@ export default function Settings({ features }) {
     telemetry: 'telemetry',
     service: 'daemon',
     tray: 'trayMenu',
+    updates: 'releaseChannels',
+    about: 'supplyChain',
   };
   const sections = [
     'appearance',
@@ -1672,6 +1774,8 @@ export default function Settings({ features }) {
     'watch',
     'service',
     'tray',
+    'updates',
+    'about',
     // kitchen:sections
   ].filter((s) => !needs[s] || features[needs[s]]);
   return (
@@ -1729,6 +1833,8 @@ export default function Settings({ features }) {
           {s === 'httpApi' && <HttpApiInfo />}
           {s === 'webview' && <WebviewTry />}
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}
+          {s === 'updates' && <UpdateChannel />}
+          {s === 'about' && <Licences />}
         </details>
       ))}
       <div className="row">

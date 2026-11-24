@@ -15,6 +15,15 @@ name: Release
 # POSTHOG_HOST, APTABASE_KEY, OTEL_EXPORTER_OTLP_ENDPOINT.
 # Settings > Actions > General > Workflow permissions must be "Read and write" for the
 # release step.
+#
+# Options read from .github/release.json:
+# - `channels` (feature `release_channels`): a tag with a pre-release suffix
+#   (`v1.2.0-beta.1`) is a beta release. Each channel's `latest.json` is published on a
+#   release tagged `channel-stable` / `channel-beta` (a stable release updates both), with
+#   `"rollout": <release.json rollout>`; the Rollout workflow changes the percentage later.
+#   arm64 installers are built too (Windows on ARM is cross-built, so it skips the self-test).
+# - `supply_chain`: CycloneDX SBOMs are attached, and every file of the release gets a
+#   GitHub build provenance attestation (`gh attestation verify <file> --repo <owner/repo>`).
 
 on:
   workflow_dispatch:
@@ -42,6 +51,9 @@ jobs:
       macos_pkg: ${{ steps.p.outputs.macos_pkg }}
       uv_sidecar: ${{ steps.p.outputs.uv_sidecar }}
       uv_version: ${{ steps.p.outputs.uv_version }}
+      channels: ${{ steps.p.outputs.channels }}
+      rollout: ${{ steps.p.outputs.rollout }}
+      supply_chain: ${{ steps.p.outputs.supply_chain }}
       version: ${{ steps.p.outputs.version }}
       name: ${{ steps.p.outputs.name }}
       identifier: ${{ steps.p.outputs.identifier }}
@@ -56,6 +68,9 @@ jobs:
             echo "macos_pkg=$(jq -r .macos_pkg .github/release.json)"
             echo "uv_sidecar=$(jq -r .uv_sidecar .github/release.json)"
             echo "uv_version=$(jq -r .uv_version .github/release.json)"
+            echo "channels=$(jq -r '.channels // false' .github/release.json)"
+            echo "rollout=$(jq -r '.rollout // 100' .github/release.json)"
+            echo "supply_chain=$(jq -r '.supply_chain // false' .github/release.json)"
             echo "version=$(jq -r .version src-tauri/tauri.conf.json)"
             echo "name=$(jq -r .productName src-tauri/tauri.conf.json)"
             echo "identifier=$(jq -r .identifier src-tauri/tauri.conf.json)"
@@ -132,7 +147,7 @@ jobs:
           fi
           npx --yes @tauri-apps/cli@2 "${args[@]}"
       - name: Install and self-test (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.selftest != 'skip'
         run: |
           dmg=$(find ../target/${{ matrix.target }}/release/bundle/dmg -name '*.dmg' | head -1)
           hdiutil attach -nobrowse -mountpoint /tmp/app "$dmg"
@@ -160,7 +175,8 @@ jobs:
           main=$(find "/Applications/$appname/Contents/MacOS" -type f -perm -u+x ! -name 'uv*' | head -1)
           "$main" --self-test /tmp/pkg-self-test.json || { cat /tmp/pkg-self-test.json; exit 1; }
       - name: Install and self-test (Windows)
-        if: runner.os == 'Windows'
+        # A cross-built (arm64 on an x64 runner) installer cannot run here.
+        if: runner.os == 'Windows' && matrix.selftest != 'skip'
         run: |
           setup=$(find ../target/${{ matrix.target }}/release/bundle/nsis -name '*-setup.exe' | head -1)
           "$setup" //S
@@ -170,7 +186,7 @@ jobs:
           "$main" --self-test "$RUNNER_TEMP/self-test.json" || { cat "$RUNNER_TEMP/self-test.json"; exit 1; }
           cat "$RUNNER_TEMP/self-test.json"
       - name: Self-test (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.selftest != 'skip'
         run: |
           main="../target/${{ matrix.target }}/release/$(grep -m1 '^name' Cargo.toml | cut -d'"' -f2)"
           "$main" --self-test /tmp/self-test.json || { cat /tmp/self-test.json; exit 1; }
@@ -203,6 +219,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Build provenance attestations (supply_chain).
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -215,33 +234,64 @@ jobs:
         env:
           INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ -n "$INPUT_TAG" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          elif [ "${GITHUB_REF_TYPE}" = tag ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=v${{ needs.plan.outputs.version }}-test.${{ github.run_number }}" >> "$GITHUB_OUTPUT"; echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_TAG" ]; then tag="$INPUT_TAG"; test=false
+          elif [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; test=false
+          else tag="v${{ needs.plan.outputs.version }}-test.${{ github.run_number }}"; test=true
           fi
+          # v1.2.0-beta.1 (any suffix) is a pre-release, and goes to the beta channel only.
+          case "$tag" in *-*) prerelease=true; channel=beta ;; *) prerelease=false; channel=stable ;; esac
+          [ "$test" = true ] && channel=""
+          { echo "tag=$tag"; echo "prerelease=$prerelease"; echo "channel=$channel"; } >> "$GITHUB_OUTPUT"
       - name: latest.json for the updater
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           VERSION: ${{ needs.plan.outputs.version }}
+          ROLLOUT: ${{ needs.plan.outputs.channels == 'true' && needs.plan.outputs.rollout || '' }}
         run: |
           shopt -s nullglob
           sigs=(dist/update-*.sig)
           [ ${#sigs[@]} -gt 0 ] || { echo "No update bundles (no signing key or updater off)."; exit 0; }
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          python3 - "$base" "$VERSION" "${sigs[@]}" > dist/latest.json <<'PY'
+          python3 - "$base" "$VERSION" "$ROLLOUT" "${sigs[@]}" > dist/latest.json <<'PY'
           import json, sys, datetime, os
-          base, version, sigs = sys.argv[1], sys.argv[2], sys.argv[3:]
+          base, version, rollout, sigs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
           platforms = {}
           for sig in sigs:
               f = os.path.basename(sig)[: -len(".sig")]
               platform = f[len("update-"):].split(".")[0].removesuffix("-setup")
               platforms[platform] = {"signature": open(sig).read().strip(), "url": f"{base}/{f}"}
-          print(json.dumps({"version": version, "notes": "", "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": platforms}, indent=2))
+          manifest = {"version": version, "notes": "", "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": platforms}
+          if rollout:
+              manifest["rollout"] = float(rollout)
+          print(json.dumps(manifest, indent=2))
           PY
           cat dist/latest.json
+      - uses: dtolnay/rust-toolchain@stable
+        if: needs.plan.outputs.supply_chain == 'true'
+      - uses: taiki-e/install-action@v2
+        if: needs.plan.outputs.supply_chain == 'true'
+        with:
+          tool: cargo-cyclonedx
+      - uses: actions/setup-node@v4
+        if: needs.plan.outputs.supply_chain == 'true'
+        with:
+          node-version: 22
+      - name: SBOMs (CycloneDX)
+        if: needs.plan.outputs.supply_chain == 'true'
+        run: |
+          cargo cyclonedx --format json --spec-version 1.5
+          find . -name '*.cdx.json' -not -path './dist/*' -not -path './target/*' | while read -r f; do
+            cp "$f" "dist/sbom-$(basename "$f")"
+          done
+          if [ -f ui-react/package-lock.json ]; then
+            (cd ui-react && npx --yes @cyclonedx/cyclonedx-npm@4 --package-lock-only --omit dev --output-format JSON --output-file ../dist/sbom-ui-react.cdx.json)
+          fi
+          ls -l dist/sbom-*
+      - name: Build provenance attestations
+        if: needs.plan.outputs.supply_chain == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
@@ -253,3 +303,20 @@ jobs:
           append_body: true
           files: dist/*
           fail_on_unmatched_files: true
+      - name: Update channels
+        # The channel releases are pre-releases, so GitHub's "latest release" stays the newest
+        # real one; their latest.json is replaced on every release.
+        if: needs.plan.outputs.channels == 'true' && steps.tag.outputs.channel != '' && hashFiles('dist/latest.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANNEL: ${{ steps.tag.outputs.channel }}
+        run: |
+          channels=beta; [ "$CHANNEL" = stable ] && channels="stable beta"
+          for c in $channels; do
+            tag="channel-$c"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+              gh release create "$tag" --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+                --title "Update channel: $c" --notes "The updater manifest for the $c channel. Do not delete; the Release workflow replaces latest.json here."
+            gh release upload "$tag" dist/latest.json --clobber --repo "$GITHUB_REPOSITORY"
+            echo "Channel $c now offers $(jq -r .version dist/latest.json) to $(jq -r '.rollout // 100' dist/latest.json)% of installs." >> "$GITHUB_STEP_SUMMARY"
+          done

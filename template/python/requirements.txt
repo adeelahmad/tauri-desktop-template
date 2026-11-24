@@ -1,0 +1,2 @@
+# The worker uses only the Python standard library. Add the packages it needs here, one
+# per line with a pinned version; `make audit` / `kitchen audit` check them with pip-audit.

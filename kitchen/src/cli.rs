@@ -12,7 +12,7 @@
 
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
-use crate::{doctor, generate, hooks, service, Error, Options, Report, Result};
+use crate::{audit, doctor, generate, hooks, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -49,6 +49,8 @@ Usage:
                                        installers for this OS (cargo tauri build), copied to ./packages
   kitchen publish [--tag v1.2.3] [--yes]
                                        GitHub release with ./packages via gh (dry run without --yes)
+  kitchen audit                        cargo-deny, cargo-audit, npm audit (ui-react) and pip-audit
+                                       (python example); missing tools are skipped with a hint
   kitchen eject vite|tauri|cargo       where that tool's own config lives, and what Kitchen adds
   kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
                                        the app's daemon as an OS service (feature daemon)
@@ -346,6 +348,10 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 )));
             }
             lifecycle::execute(&plan, io_mode, "Published the release.")
+        }
+        "audit" => {
+            let root = project()?.root;
+            audit::run(&audit::plan(&root, audit::Tools::detect()), io_mode)
         }
         "eject" => lifecycle::eject(
             &project()?.root,

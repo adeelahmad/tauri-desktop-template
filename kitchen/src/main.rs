@@ -40,7 +40,7 @@ fn main() -> ExitCode {
             }
         }
         // The lifecycle: the tools talk to this terminal; the report comes after.
-        "start" | "dev" | "test" | "package" | "publish" if !args.flag("json") => {
+        "start" | "dev" | "test" | "package" | "publish" | "audit" if !args.flag("json") => {
             match cli::run_with(&args, &cwd, kitchen::lifecycle::Io::Inherit) {
                 Ok(report) => {
                     if !report.summary.is_empty() || !report.lines.is_empty() {

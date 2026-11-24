@@ -490,6 +490,7 @@ Generated from `kitchen/src/compat.rs`; the template's pre-hook (`hooks/compat.r
 | `daemon` | `ipc_worker` | the daemon is the worker process run headless |
 | `bm25` | `postgres` | VectorChord-BM25 is a Postgres extension |
 | `local_llm` | `ai` | llama.cpp is the local provider of AI chat |
+| `release_channels` | `updater` | channels, staged rollout and rollback steer the updater |
 | `tauri_dialog`, `tauri_fs`, `tauri_clipboard`, `tauri_notification`, `tauri_opener`, `tauri_store`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_deep_link`, `tauri_window_state`, `tauri_os`, `tauri_process`, `tauri_log`, `tauri_http`, `tauri_positioner`, `tauri_shell` | `tauri_plugins` | each Tauri plugin is wired in only with tauri_plugins |
 | `macos_pkg` | `installers` | the release workflow builds it |
 | `install_scripts` | `installers` | they download what the release workflow builds |
@@ -500,7 +501,7 @@ Warnings (it still generates):
 | Feature | Without | What is missing |
 |---|---|---|
 | `oauth` | `tauri_deep_link` | the deep-link redirect (oauth.redirect = deepLink) needs the deep-link plugin; without it sign-in uses the loopback redirect |
-| `ipc_worker`, `background_agent`, `daemon`, `updater`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
+| `ipc_worker`, `background_agent`, `daemon`, `updater`, `release_channels`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
 
 Licences checked for each feature (the pre-hook prints a notice for anything beyond MIT / Apache-2.0):
 

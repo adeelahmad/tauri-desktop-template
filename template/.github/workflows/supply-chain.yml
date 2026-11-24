@@ -1,0 +1,88 @@
+name: Supply chain
+
+# Dependency checks and software bills of materials (feature `supply_chain`):
+# - cargo-deny: licences, advisories, banned crates and sources, as set in deny.toml;
+# - cargo-audit: RustSec advisories for Cargo.lock;
+# - npm audit for the shipped UI packages (ui-react, when the app has it);
+# - CycloneDX SBOMs: cargo-cyclonedx for the Rust crates, @cyclonedx/cyclonedx-npm for
+#   ui-react, kept as a workflow artifact. Releases attach the same SBOMs and carry
+#   GitHub build attestations (release.yml).
+# Runs weekly too, so a new advisory against an unchanged lockfile still shows up.
+# `make audit` / `kitchen audit` run the same checks locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # A new advisory should not hide a licence problem, and the other way round.
+        checks: [advisories, "bans licenses sources"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        run: |
+          [ -f Cargo.lock ] || cargo generate-lockfile
+          cargo audit
+      - uses: actions/setup-node@v4
+        if: hashFiles('ui-react/package-lock.json') != ''
+        with:
+          node-version: 22
+      - name: npm audit (packages the UI ships)
+        if: hashFiles('ui-react/package-lock.json') != ''
+        run: npm --prefix ui-react audit --omit=dev
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-cyclonedx
+      - name: Rust SBOM (CycloneDX)
+        run: |
+          mkdir -p sbom
+          cargo cyclonedx --format json --spec-version 1.5 --all-features
+          find . -name '*.cdx.json' -not -path './sbom/*' -not -path './target/*' -exec mv {} sbom/ \;
+      - uses: actions/setup-node@v4
+        if: hashFiles('ui-react/package-lock.json') != ''
+        with:
+          node-version: 22
+      - name: UI SBOM (CycloneDX)
+        if: hashFiles('ui-react/package-lock.json') != ''
+        working-directory: ui-react
+        run: npx --yes @cyclonedx/cyclonedx-npm@4 --package-lock-only --omit dev --output-format JSON --output-file ../sbom/ui-react.cdx.json
+      - run: ls -l sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error

@@ -19,7 +19,9 @@
 //! [`net`], [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
 //! development builds). Feature modules: `embed`, `pdf`, `pgstore`, `watch`, `llm` and `meter` (cost
 //! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
-//! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`).
+//! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`),
+//! `notices` (licence notices, feature `supply-chain`), `release` (update channels, feature
+//! `release-channels`).
 //!
 //! # Example
 //!
@@ -102,6 +104,10 @@ pub mod http_api;
 pub mod webview;
 {% endif %}{% if tray_menu %}#[cfg(feature = "tray-menu")]
 pub mod actions;
+{% endif %}{% if supply_chain %}#[cfg(feature = "supply-chain")]
+pub mod notices;
+{% endif %}{% if release_channels %}#[cfg(feature = "release-channels")]
+pub mod release;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

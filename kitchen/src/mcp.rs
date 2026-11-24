@@ -60,6 +60,8 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"platform": {"type": "string", "enum": ["mac", "windows", "linux"]}, "release": {"type": "boolean"}, "project": project}}},
         {"name": "publish", "description": "Create a GitHub release with ./packages through gh. Only shows the command unless yes is true.",
          "inputSchema": {"type": "object", "properties": {"tag": {"type": "string"}, "yes": {"type": "boolean"}, "project": project}}},
+        {"name": "audit", "description": "Supply-chain checks: cargo deny check (deny.toml), cargo audit, npm audit for ui-react and pip-audit for the Python example. Missing tools are skipped with the command that installs them; fails if any check fails.",
+         "inputSchema": {"type": "object", "properties": {"project": project}}},
         {"name": "eject", "description": "Where a tool's own config lives (vite, tauri or cargo) and what Kitchen sets on top of it.",
          "inputSchema": {"type": "object", "properties": {"tool": {"type": "string", "enum": ["vite", "tauri", "cargo"]}, "project": project}, "required": ["tool"]}},
         {"name": "service", "description": "The app's daemon as an OS service (template feature `daemon`): action status (default), logs, install, uninstall, start, stop or restart; system for the machine-wide service. Builds the app if needed. Only status and logs run unless allow_changes is true; otherwise it reports what it would run.",
@@ -96,7 +98,7 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             }
             v
         }
-        "doctor" | "start" => vec![tool.into()],
+        "doctor" | "start" | "audit" => vec![tool.into()],
         "test" => {
             let mut v = vec!["test".to_string()];
             for k in ["unit", "feature"] {
