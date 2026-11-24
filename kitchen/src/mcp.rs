@@ -85,7 +85,13 @@ fn tools() -> Value {
              "answers": {"type": "boolean"},
              "project": project, "dry_run": dry}}},
         {"name": "new", "description": "Create a new app from the template in folder `dir` (default: the server's folder).",
-         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "with_deps": deps, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
+         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "with_deps": deps, "source": {"type": "string"}, "rev": {"type": "string"},
+             "web": {"type": "string", "description": "Web app mode: the https URL of the site to wrap (its title, icon and certificate are read from it)"},
+             "insecure_tls": {"type": "boolean", "description": "Web app: accept the site's self-signed certificate (pinned by SHA-256)"},
+             "capture_keys": {"type": "boolean", "description": "Web app: capture all keys for the page"},
+             "release_shortcut": {"type": "string", "description": "Web app: the shortcut that releases captured keys (default Ctrl+Alt+Shift+K)"},
+             "microphone": {"type": "boolean"}, "muted": {"type": "boolean"}, "camera": {"type": "boolean"}, "screen": {"type": "boolean"},
+             "scheme": {"type": "string", "description": "Custom URL scheme (myapp://...) when tauri_deep_link is on"}}, "required": ["name"]}}
     ])
 }
 
@@ -214,9 +220,24 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
                     v.extend([format!("--{k}"), list.join(",")]);
                 }
             }
-            for k in ["dir", "source", "rev"] {
+            for k in ["dir", "source", "rev", "web", "scheme"] {
                 if let Some(x) = s(k) {
                     v.extend([format!("--{k}"), x]);
+                }
+            }
+            if let Some(x) = s("release_shortcut") {
+                v.extend(["--release-shortcut".into(), x]);
+            }
+            for (k, flag) in [
+                ("insecure_tls", "--insecure-tls"),
+                ("capture_keys", "--capture-keys"),
+                ("microphone", "--mic"),
+                ("muted", "--muted"),
+                ("camera", "--camera"),
+                ("screen", "--screen"),
+            ] {
+                if a.get(k).and_then(Value::as_bool) == Some(true) {
+                    v.push(flag.into());
                 }
             }
             v
@@ -377,6 +398,10 @@ mod tests {
         assert_eq!(
             argv("new", &json!({"name": "x", "enable": ["a", "b"]})).unwrap(),
             ["new", "x", "--no-git", "--enable", "a,b"]
+        );
+        assert_eq!(
+            argv("new", &json!({"name": "kvm", "web": "https://pikvm.local", "insecure_tls": true, "capture_keys": true, "release_shortcut": "F13", "muted": false})).unwrap(),
+            ["new", "kvm", "--no-git", "--web", "https://pikvm.local", "--release-shortcut", "F13", "--insecure-tls", "--capture-keys"]
         );
         assert!(argv("enable", &json!({})).is_err());
         assert_eq!(

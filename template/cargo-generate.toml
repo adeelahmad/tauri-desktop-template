@@ -102,6 +102,17 @@ type = "bool"
 prompt = "Embedded web view: open allowlisted remote pages in the app's own windows (no IPC for them, isolated cookies per profile, optional message bridge)?"
 default = false
 
+[placeholders.web_wrapper]
+type = "bool"
+prompt = "Web app: wrap one https site as a desktop app (its own window, no IPC for the site, optional key capture, certificate pinning, Preferences)? `kitchen new --web <url>` asks the rest"
+default = false
+
+[placeholders.deep_link_scheme]
+type = "string"
+prompt = "Custom URL scheme that opens this app (e.g. myapp for myapp://...; needs tauri_deep_link; empty = the app's name)"
+default = ""
+regex = "^([a-z][a-z0-9+.-]{1,31})?$"
+
 [placeholders.tauri_plugins]
 type = "bool"
 prompt = "Add official Tauri plugins (dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log, http, positioner, shell)? Asks for each"
@@ -206,6 +217,54 @@ default = false
 [placeholders.claude_mcp]
 type = "bool"
 prompt = "Bundle uv and register a Python MCP server in Claude Desktop?"
+default = false
+
+[conditional.'web_wrapper'.placeholders.web_url]
+type = "string"
+prompt = "Web app: the site's https URL"
+default = "https://example.com/"
+regex = "^https?://[^\\s@\\\\\"<>]+$"
+
+[conditional.'web_wrapper'.placeholders.web_insecure_tls]
+type = "bool"
+prompt = "Web app: ignore TLS certificate errors for this site only (self-signed, e.g. PiKVM)? The certificate is pinned on first use"
+default = false
+
+[conditional.'web_wrapper'.placeholders.web_cert_sha256]
+type = "string"
+prompt = "Web app: the site certificate's SHA-256 to pin (empty = pin the first one seen; `kitchen new --web` fills this in)"
+default = ""
+regex = "^([0-9A-Fa-f:]{64,95})?$"
+
+[conditional.'web_wrapper'.placeholders.capture_keys]
+type = "bool"
+prompt = "Web app: capture all keys (Cmd/Win, Cmd+Tab, Alt+Tab, Ctrl+Alt+Del where possible, media keys) and send them to the page?"
+default = false
+
+[conditional.'web_wrapper'.placeholders.release_shortcut]
+type = "string"
+prompt = "Web app: shortcut that releases captured keys (changeable in Preferences)"
+default = "Ctrl+Alt+Shift+K"
+regex = "^[A-Za-z0-9+ ]{1,40}$"
+
+[conditional.'web_wrapper'.placeholders.web_microphone]
+type = "bool"
+prompt = "Web app: allow microphone access?"
+default = false
+
+[conditional.'web_wrapper'.placeholders.web_muted]
+type = "bool"
+prompt = "Web app: start with audio muted?"
+default = false
+
+[conditional.'web_wrapper'.placeholders.web_camera]
+type = "bool"
+prompt = "Web app: allow webcam access?"
+default = false
+
+[conditional.'web_wrapper'.placeholders.web_screen]
+type = "bool"
+prompt = "Web app: allow screen sharing?"
 default = false
 
 [conditional.'embeddings'.placeholders.embedding_model]
@@ -403,7 +462,10 @@ ignore = ["desktop-core/src/tts.rs"]
 ignore = ["desktop-core/src/mail.rs"]
 
 [conditional.'!stt']
-ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
+ignore = ["desktop-core/src/stt.rs"]
+
+[conditional.'!stt && !(web_wrapper && (web_microphone || web_camera))']
+ignore = ["src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
 
 [conditional.'!oauth']
 ignore = ["desktop-core/src/oauth.rs", "fuzz/fuzz_targets/oauth.rs"]
@@ -424,7 +486,13 @@ ignore = ["desktop-core/src/tailscale.rs"]
 ignore = ["desktop-core/src/http_api", "fuzz/fuzz_targets/http_api.rs", "desktop-core/tests/http_api.rs", "src-tauri/src/http.rs"]
 
 [conditional.'!webview']
-ignore = ["desktop-core/src/webview.rs", "src-tauri/src/webview.rs", "src-tauri/capabilities/webview.json"]
+ignore = ["src-tauri/src/webview.rs", "src-tauri/capabilities/webview.json"]
+
+[conditional.'!webview && !web_wrapper']
+ignore = ["desktop-core/src/webview.rs"]
+
+[conditional.'!web_wrapper']
+ignore = ["desktop-core/src/wrapper", "desktop-core/src/keymap.rs", "desktop-core/tests/wrapper_proxy.rs", "src-tauri/src/wrapper", "src-tauri/capabilities/wrapper.json", "ui/wrapper.html", "ui/wrapper.js", "ui/wrapper.css", "ui-react/public/wrapper.html", "ui-react/public/wrapper.js", "ui-react/public/wrapper.css"]
 
 [conditional.'!tauri_plugins || !(tauri_global_shortcut || tauri_autostart || tauri_window_state || tauri_process || tauri_positioner || tauri_shell)']
 ignore = ["src-tauri/capabilities/desktop.json"]

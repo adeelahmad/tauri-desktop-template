@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Signed into the app (feature `stt`): the hardened runtime allows the microphone only with this. -->
+<!-- Signed into the app: the hardened runtime allows the microphone and camera only with these (features `stt`, `web_wrapper`). -->
 <plist version="1.0">
 <dict>
+{%- if stt or web_wrapper and web_microphone %}
   <key>com.apple.security.device.audio-input</key>
   <true/>
+{%- endif %}
+{%- if web_wrapper and web_camera %}
+  <key>com.apple.security.device.camera</key>
+  <true/>
+{%- endif %}
 </dict>
 </plist>

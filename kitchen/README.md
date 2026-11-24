@@ -61,6 +61,9 @@ kitchen set models=bundle_with_fallback   # ship the ML models inside the instal
 kitchen models list               # models the installer can bundle: size, licence, which are in models.lock
 kitchen models add whisper-small  # add one to src-tauri/resources/models/models.lock (remove <name> drops it)
 kitchen models fetch              # download them next to the lock and check every SHA-256 (verify: check only)
+kitchen new kvm --web https://pikvm.local --insecure-tls --capture-keys   # a web app (see below)
+kitchen icon fetch https://pikvm.local --insecure-tls   # the site's icon: a 1024px PNG, or the app's icon set inside an app
+kitchen enable deep_link --scheme kvm   # the deep-link plugin and the myapp:// scheme it registers
 kitchen build                     # cargo tauri build, as is
 kitchen mcp                       # MCP server over stdio
 ```
@@ -109,6 +112,31 @@ The app's `docs/GUIDE.md` has the longer version, and a walkthrough for porting 
 Electron or web app.
 
 Add `--json` to any command for machine-readable output. `kitchen g` is short for `kitchen generate`.
+
+## Web apps
+
+`kitchen new <name> --web <url>` makes a desktop app out of one site (template answer
+`web_wrapper`). On a terminal, `kitchen new <name>` asks "Desktop app (boilerplate)" or
+"Web app (wrap a URL)" first, then the web questions in order: the URL, ignore TLS
+certificate errors for this site, capture all keys, the release shortcut, microphone, start
+muted, webcam, screen sharing. The flags are `--insecure-tls`, `--capture-keys`,
+`--release-shortcut <keys>`, `--mic`, `--muted`, `--camera`, `--screen`, `--scheme <name>`
+and `--no-fetch` (skip reading the site); the MCP `new` tool takes the same as `web`,
+`insecure_tls`, `capture_keys`, `release_shortcut`, `microphone`, `muted`, `camera`,
+`screen`, `scheme`.
+
+Before it generates, Kitchen reads the site (`kitchen::web`, plain HTTP/1.1 over rustls):
+
+- the page title becomes the app name, the host the bundle identifier (`pikvm.local` →
+  `local.pikvm.<name>`), unless `--set app_name=...` / `identifier=...` say otherwise;
+- the certificate's SHA-256 is printed; a self-signed one is refused unless
+  `--insecure-tls`, and then it is pinned in the app (`web_cert_sha256`), accepted for that
+  host only and only that one certificate for the whole run;
+- the icon: the web manifest's icons, `apple-touch-icon`, `<link rel=icon>`, then
+  `/favicon.ico`, the largest that decodes, made square and 1024px, then `cargo tauri icon`
+  (or the PNG sizes and `.ico` when the Tauri CLI is missing). SVG icons are skipped.
+
+`kitchen doctor` checks Accessibility access on macOS when key capture is on.
 
 ## How `enable` keeps your changes
 

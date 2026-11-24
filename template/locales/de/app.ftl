@@ -565,3 +565,28 @@ tray-shortcuts = Globale Tastenkürzel
 tray-shortcuts-hint = Sie funktionieren auch, wenn andere Apps im Vordergrund sind.
 tray-shortcuts-none = Noch keine. Sie funktionieren auch, wenn andere Apps im Vordergrund sind.
 tray-add-shortcut = Tastenkürzel hinzufügen
+
+## Web-App-Hülle: natives Menü und Einstellungsfenster.
+
+wrapper-menu-preferences = Einstellungen…
+wrapper-menu-edit = Bearbeiten
+wrapper-menu-view = Darstellung
+wrapper-menu-page = Seite
+wrapper-menu-reload = Neu laden
+wrapper-menu-back = Zurück
+wrapper-menu-forward = Vorwärts
+wrapper-menu-zoom-in = Vergrößern
+wrapper-menu-zoom-out = Verkleinern
+wrapper-menu-actual-size = Originalgröße
+wrapper-menu-capture = Tastenerfassung ein/aus
+wrapper-menu-mute = Stumm / Ton an
+wrapper-menu-fill = Formular ausfüllen
+wrapper-prefs-title = Einstellungen
+wrapper-prefs-permissions = Berechtigungen
+wrapper-prefs-site = Website
+wrapper-prefs-certificate = Zertifikat
+wrapper-prefs-keys = Tasten
+wrapper-prefs-media = Medien
+wrapper-prefs-features = Browserfunktionen
+wrapper-prefs-headers = Anfrage-Header
+wrapper-prefs-autofill = Formulare automatisch ausfüllen

@@ -598,3 +598,28 @@ tray-shortcuts = اختصارات عامة
 tray-shortcuts-hint = تعمل حتى عندما تكون تطبيقات أخرى في المقدمة.
 tray-shortcuts-none = لا شيء بعد. تعمل حتى عندما تكون تطبيقات أخرى في المقدمة.
 tray-add-shortcut = إضافة اختصار
+
+## غلاف تطبيق الويب: القائمة الأصلية ونافذة التفضيلات.
+
+wrapper-menu-preferences = التفضيلات…
+wrapper-menu-edit = تحرير
+wrapper-menu-view = عرض
+wrapper-menu-page = الصفحة
+wrapper-menu-reload = إعادة التحميل
+wrapper-menu-back = رجوع
+wrapper-menu-forward = تقدّم
+wrapper-menu-zoom-in = تكبير
+wrapper-menu-zoom-out = تصغير
+wrapper-menu-actual-size = الحجم الفعلي
+wrapper-menu-capture = تشغيل/إيقاف التقاط المفاتيح
+wrapper-menu-mute = كتم / إلغاء الكتم
+wrapper-menu-fill = ملء النموذج
+wrapper-prefs-title = التفضيلات
+wrapper-prefs-permissions = الأذونات
+wrapper-prefs-site = الموقع
+wrapper-prefs-certificate = الشهادة
+wrapper-prefs-keys = المفاتيح
+wrapper-prefs-media = الوسائط
+wrapper-prefs-features = ميزات المتصفح
+wrapper-prefs-headers = ترويسات الطلبات
+wrapper-prefs-autofill = الملء التلقائي للنماذج

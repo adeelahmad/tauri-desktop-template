@@ -72,6 +72,7 @@ pub mod models;
 pub mod project;
 pub mod service;
 pub mod template;
+pub mod web;
 
 use std::fmt;
 

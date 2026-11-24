@@ -13,8 +13,8 @@
     "frontendDist": "../ui"{% endif %}
   },
   "app": {
-    "withGlobalTauri": {% if frontend == "react" %}false{% else %}true{% endif %},
-    "windows": [
+    "withGlobalTauri": {% if frontend == "react" %}{% if web_wrapper %}true{% else %}false{% endif %}{% else %}true{% endif %},
+    "windows": [{% unless web_wrapper %}
       {
         "title": "{{app_name}}",
         "width": 960,
@@ -22,7 +22,7 @@
         "minWidth": 480,
         "minHeight": 360,
         "decorations": false{% endif %}
-      }
+      }{% endunless %}
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -49,7 +49,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "13.4",{% if stt %}
+      "minimumSystemVersion": "13.4",{% assign media = false %}{% if web_wrapper %}{% if web_microphone or web_camera %}{% assign media = true %}{% endif %}{% endif %}{% if stt or media %}
       "entitlements": "Entitlements.plist",{% endif %}
       "signingIdentity": "-"
     },
@@ -72,7 +72,7 @@
     }{% if tauri_plugins and tauri_deep_link %},{% endif %}{% endif %}{% if tauri_plugins and tauri_deep_link %}
     "deep-link": {
       "desktop": {
-        "schemes": ["{{project-name}}"]
+        "schemes": ["{% if deep_link_scheme and deep_link_scheme != "" %}{{deep_link_scheme}}{% else %}{{project-name}}{% endif %}"]
       }
     }{% endif %}
   }{% endif %}

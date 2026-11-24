@@ -197,6 +197,36 @@ pub const REQUIRES: &[Requires] = &[
         why: "the release workflow builds them",
     },
     Requires {
+        feature: "web_insecure_tls",
+        needs: "web_wrapper",
+        why: "it is a choice about the wrapped web app",
+    },
+    Requires {
+        feature: "capture_keys",
+        needs: "web_wrapper",
+        why: "it is a choice about the wrapped web app",
+    },
+    Requires {
+        feature: "web_microphone",
+        needs: "web_wrapper",
+        why: "it is a choice about the wrapped web app",
+    },
+    Requires {
+        feature: "web_muted",
+        needs: "web_wrapper",
+        why: "it is a choice about the wrapped web app",
+    },
+    Requires {
+        feature: "web_camera",
+        needs: "web_wrapper",
+        why: "it is a choice about the wrapped web app",
+    },
+    Requires {
+        feature: "web_screen",
+        needs: "web_wrapper",
+        why: "it is a choice about the wrapped web app",
+    },
+    Requires {
         feature: "bundle_embedding_model",
         needs: "embeddings",
         why: "it puts that feature's model inside the installer",
@@ -281,6 +311,10 @@ pub const DESKTOP_ONLY: &[DesktopOnly] = &[
         on_mobile: "it is compiled out",
     },
     DesktopOnly {
+        feature: "web_wrapper",
+        on_mobile: "it is compiled out (no web app window, key capture or certificate pinning)",
+    },
+    DesktopOnly {
         feature: "tray_menu",
         on_mobile: "it is compiled out (no tray, menu bar or global shortcuts)",
     },
@@ -349,6 +383,11 @@ pub const LICENCES: &[Licence] = &[
     Licence { feature: "oauth", licences: "keyring: MIT OR Apache-2.0", notice: "" },
     Licence { feature: "ipc_worker", licences: "interprocess: 0BSD OR Apache-2.0", notice: "" },
     Licence { feature: "background_jobs", licences: "croner: MIT; jiff: Unlicense OR MIT", notice: "" },
+    Licence {
+        feature: "web_wrapper",
+        licences: "rustls: Apache-2.0 OR ISC OR MIT; webpki-roots: CDLA-Permissive-2.0; regex, keyring: MIT OR Apache-2.0",
+        notice: "webpki-roots (Mozilla's root certificates) is CDLA-Permissive-2.0: keep its licence text with the app",
+    },
     Licence { feature: "http_api", licences: "axum: MIT; tokio: MIT", notice: "" },
     Licence { feature: "i18n", licences: "fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT", notice: "" },
     Licence { feature: "kv", licences: "redb: MIT OR Apache-2.0", notice: "" },

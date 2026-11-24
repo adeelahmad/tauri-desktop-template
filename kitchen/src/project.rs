@@ -494,6 +494,8 @@ pub struct NewApp {
     /// default that need a disabled one are turned off either way, as cargo-generate
     /// would not ask them.
     pub with_deps: bool,
+    /// The app's icon, a square PNG (web app mode: the site's icon), made into the icon set.
+    pub icon_png: Option<Vec<u8>>,
 }
 
 /// Create an app from the template (`kitchen new`).
@@ -602,6 +604,14 @@ pub fn create(req: &NewApp) -> Result<Report> {
         format!("features on: {}", on.join(", "))
     });
     r.lines.extend(notes);
+    if let Some(png) = &req.icon_png {
+        match crate::web::install_icon(&out, png) {
+            Ok(lines) => r.lines.extend(lines),
+            Err(e) => r
+                .lines
+                .push(format!("note     the site's icon was not used: {e}")),
+        }
+    }
     let agent: Vec<&str> = crate::doctor::AGENT_FILES
         .iter()
         .copied()
