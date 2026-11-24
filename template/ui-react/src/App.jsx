@@ -29,7 +29,7 @@ function Wizard({ info, onSetup, busy, message }) {
   return (
     <section>
       <h2>Welcome</h2>
-      <p className="hint">A one-time setup. Everything stays on this computer.</p>
+      <p className="hint">A one-time setup. Everything stays on this {f.mobile ? 'device' : 'computer'}.</p>
       <ol className="steps">
         <li>
           <h3>1. Where to keep your data</h3>
@@ -103,7 +103,9 @@ function UpdateBanner() {
   );
 }
 
-function AddDocuments({ onChange }) {
+// On iOS and Android (features.mobile) there is no dropping files on a window and no folder
+// of the user's to read, so only a file path and pasted text are offered.
+function AddDocuments({ onChange, mobile }) {
   const [path, setPath] = useState('');
   const [text, setText] = useState('');
   const [name, setName] = useState('pasted');
@@ -153,11 +155,15 @@ function AddDocuments({ onChange }) {
   return (
     <section>
       <h2>Add documents</h2>
-      <p className="hint">Drop files on this window (PDF, .txt, .md), give a file path, or paste text.</p>
+      <p className="hint">
+        {mobile
+          ? 'Paste text, or give the path of a file in this app.'
+          : 'Drop files on this window (PDF, .txt, .md), give a file path, or paste text.'}
+      </p>
       <div className="row">
         <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/file.pdf" />
         <button onClick={() => path.trim() && addFile(path.trim())}>Add file</button>
-        <button onClick={() => path.trim() && addFolder(path.trim())}>Add folder</button>
+        {!mobile && <button onClick={() => path.trim() && addFolder(path.trim())}>Add folder</button>}
       </div>
       <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text here" />
       <div className="row">
@@ -362,7 +368,7 @@ export default function App() {
       {phase === 'wizard' && <Wizard info={info} onSetup={setup} busy={busy} message={message} />}
       {phase === 'ready' && (
         <main>
-          <AddDocuments onChange={refresh} />
+          <AddDocuments onChange={refresh} mobile={f.mobile} />
           <Search features={f} />
           {f.ai && <Ask features={f} />}
           <Settings features={f} />

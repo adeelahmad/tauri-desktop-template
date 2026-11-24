@@ -13,6 +13,12 @@
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
+//!
+//! The same crate is the iOS and Android app (`run` is the mobile entry point). There the
+//! desktop-only parts are compiled out with `cfg(desktop)`: the worker process and the
+//! background agent (the backend runs in this process), the updater (the app stores
+//! update the app), single instance, the stdio MCP server, Python, Claude Desktop,
+//! folder watching and embedded Postgres (the file store is used).
 
 use desktop_core::{Backend, Config, Engine, EngineOptions, Hit, IngestReport, SearchConfig, Status};
 use serde::{Deserialize, Serialize};
@@ -21,22 +27,22 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 
-{% if ipc_worker %}{% if background_agent %}#[cfg(feature = "background-agent")]
+{% if ipc_worker %}{% if background_agent %}#[cfg(all(desktop, feature = "background-agent"))]
 mod agent;
-{% endif %}{% endif %}{% if claude_mcp %}#[cfg(feature = "claude-mcp")]
+{% endif %}{% endif %}{% if claude_mcp %}#[cfg(all(desktop, feature = "claude-mcp"))]
 mod claude;
-{% endif %}{% if ipc_worker %}#[cfg(feature = "ipc-worker")]
+{% endif %}{% if ipc_worker %}#[cfg(all(desktop, feature = "ipc-worker"))]
 mod ipc;
-{% endif %}{% if python_example %}#[cfg(feature = "python-example")]
+{% endif %}{% if python_example %}#[cfg(all(desktop, feature = "python-example"))]
 mod python;
-{% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
+{% endif %}{% if mcp_server %}#[cfg(all(desktop, feature = "mcp"))]
 mod mcp;
 {% endif %}mod guard;
 mod paths;
 mod service;
-{% if single_instance %}#[cfg(feature = "single-instance")]
+{% if single_instance %}#[cfg(all(desktop, feature = "single-instance"))]
 mod single;
-{% endif %}{% if updater %}#[cfg(feature = "updater")]
+{% endif %}{% if updater %}#[cfg(all(desktop, feature = "updater"))]
 mod update;
 {% endif %}
 use service::Service;
@@ -97,36 +103,52 @@ fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
     std::fs::rename(&tmp, &file).map_err(err)
 }
 
-/// Which optional parts this build has.
+/// Which optional parts this build has. On iOS and Android the desktop-only parts
+/// (embedded Postgres, folder watching, the worker process, the background agent, the
+/// updater, the MCP server, Python and Claude Desktop) are compiled out and report `false`,
+/// and `mobile` is `true`, so the UI hides their sections.
 fn features() -> Value {
     json!({
+        "mobile": cfg!(mobile),
         "embed": cfg!(feature = "embed"),
-        "postgres": cfg!(feature = "postgres"),
-        "bm25": cfg!(feature = "bm25"),
-        "watch": cfg!(feature = "watch"),
+        "postgres": cfg!(all(desktop, feature = "postgres")),
+        "bm25": cfg!(all(desktop, feature = "bm25")),
+        "watch": cfg!(all(desktop, feature = "watch")),
         "ai": cfg!(feature = "ai"),
         "llama": cfg!(feature = "llama"),
         "tts": cfg!(feature = "tts"),
         "stt": cfg!(feature = "stt"),
         "mail": cfg!(feature = "mail"),
         "telemetry": cfg!(feature = "telemetry"),
-        "mcp": cfg!(feature = "mcp"),
+        "mcp": cfg!(all(desktop, feature = "mcp")),
         "pdf": cfg!(feature = "pdf"),
         "wizard": cfg!(feature = "wizard"),
-        "updater": cfg!(feature = "updater"),
-        "ipcWorker": cfg!(feature = "ipc-worker"),
-        "backgroundAgent": cfg!(feature = "background-agent"),
-        "pythonExample": cfg!(feature = "python-example"),
-        "claudeMcp": cfg!(feature = "claude-mcp"),
+        "updater": cfg!(all(desktop, feature = "updater")),
+        "ipcWorker": cfg!(all(desktop, feature = "ipc-worker")),
+        "backgroundAgent": cfg!(all(desktop, feature = "background-agent")),
+        "pythonExample": cfg!(all(desktop, feature = "python-example")),
+        "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
     })
 }
 
+/// Embedded Postgres runs on desktop only: iOS and Android always use the file store.
 fn postgres_available() -> bool {
-    #[cfg(feature = "postgres")]
+    #[cfg(all(desktop, feature = "postgres"))]
     let available = desktop_core::pgstore::available();
-    #[cfg(not(feature = "postgres"))]
+    #[cfg(not(all(desktop, feature = "postgres")))]
     let available = false;
     available
+}
+
+/// The store to open: the chosen one, except that a Postgres choice falls back to the file
+/// store where Postgres cannot run (iOS and Android), so settings copied from a desktop or a
+/// restored profile still open.
+fn store_for(chosen: Backend) -> Backend {
+    if cfg!(mobile) && chosen == Backend::Postgres {
+        log::info!("Postgres is not available on this device; using the file store");
+        return Backend::File;
+    }
+    chosen
 }
 
 fn call(state: &tauri::State<AppState>, method: &str, params: Value) -> Result<Value, String> {
@@ -177,7 +199,7 @@ fn switch_profile(app: tauri::AppHandle, id: String) -> Result<(), String> {
     log::info!("switching to profile {id}");
     // The same orderly stop as quitting; this profile's worker goes too (the new one starts its own).
     on_exit(&app);
-    #[cfg(feature = "ipc-worker")]
+    #[cfg(all(desktop, feature = "ipc-worker"))]
     ipc::shutdown_worker();
     log::logger().flush();
     app.restart()
@@ -197,7 +219,7 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
     let saved = load_settings(&app);
     let settings = Settings {
         setup_done: true,
-        backend: backend.unwrap_or(saved.backend),
+        backend: store_for(backend.unwrap_or(saved.backend)),
         embeddings: embeddings.unwrap_or(saved.embeddings) && cfg!(feature = "embed"),
         config: saved.config,
     };
@@ -410,37 +432,37 @@ fn clear(state: tauri::State<AppState>) -> Result<Status, String> {
 
 /// `<app> --worker`: serve the backend over the local socket until told to stop.
 /// `--mcp`: serve MCP over stdio (feature `mcp`), sharing the worker when there is one.
-#[cfg(feature = "mcp")]
+#[cfg(all(desktop, feature = "mcp"))]
 pub fn mcp_main() -> i32 {
-    #[cfg(feature = "ipc-worker")]
+    #[cfg(all(desktop, feature = "ipc-worker"))]
     let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
-    #[cfg(not(feature = "ipc-worker"))]
+    #[cfg(not(all(desktop, feature = "ipc-worker")))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
     let load = |f: &Path| std::fs::read(f).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     mcp::main(load, service)
 }
 
-#[cfg(not(feature = "mcp"))]
+#[cfg(not(all(desktop, feature = "mcp")))]
 pub fn mcp_main() -> i32 {
     eprintln!("this build has no MCP server (feature mcp)");
     2
 }
 
 /// How to connect an MCP client to this app (the entry, and the Claude Code command).
-#[cfg(feature = "mcp")]
+#[cfg(all(desktop, feature = "mcp"))]
 #[tauri::command(async)]
 fn mcp_setup() -> Result<mcp::Setup, String> {
     mcp::setup()
 }
 
 /// Add this app to Claude Desktop's MCP servers (the old config is kept as `.bak`).
-#[cfg(feature = "mcp")]
+#[cfg(all(desktop, feature = "mcp"))]
 #[tauri::command(async)]
 fn mcp_register_claude() -> Result<&'static str, String> {
     mcp::register(&mcp::claude_desktop_config(), mcp::entry()?)
 }
 
-#[cfg(feature = "ipc-worker")]
+#[cfg(all(desktop, feature = "ipc-worker"))]
 pub fn worker_main() -> i32 {
     let (config, data) = paths::app_dirs();
     let settings = settings_at(&config.join("settings.json"));
@@ -449,7 +471,7 @@ pub fn worker_main() -> i32 {
     ipc::serve()
 }
 
-#[cfg(not(feature = "ipc-worker"))]
+#[cfg(not(all(desktop, feature = "ipc-worker")))]
 pub fn worker_main() -> i32 {
     eprintln!("this build has no worker process (feature ipc-worker)");
     2
@@ -497,14 +519,14 @@ pub fn self_test(out: Option<&Path>) -> i32 {
     #[cfg(feature = "postgres")]
     desktop_core::pgstore::shutdown();
     let _ = std::fs::remove_dir_all(&tmp);
-    #[cfg(feature = "claude-mcp")]
+    #[cfg(all(desktop, feature = "claude-mcp"))]
     {
         // Release builds bundle uv; a dev build only finds one on PATH.
         let uv = claude::uv_version();
         ok &= uv.is_some() || cfg!(debug_assertions);
         report.insert("uv".into(), serde_json::json!(uv));
     }
-    #[cfg(feature = "ipc-worker")]
+    #[cfg(all(desktop, feature = "ipc-worker"))]
     {
         // The same sample through a separate worker process.
         let dir = std::env::temp_dir().join(format!("app-self-test-ipc-{}", std::process::id()));
@@ -518,7 +540,7 @@ pub fn self_test(out: Option<&Path>) -> i32 {
         ok &= found;
         report.insert("ipc_worker".into(), json!({"found": found, "error": r.err()}));
     }
-    #[cfg(feature = "python-example")]
+    #[cfg(all(desktop, feature = "python-example"))]
     {
         // Reported, not required: the machine may have no Python.
         let w = python::PythonWorker::default();
@@ -540,15 +562,23 @@ pub fn self_test(out: Option<&Path>) -> i32 {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+/// Logs and network settings for this process, from the saved settings.
+fn start_logging() {
     let (config_dir, data_dir) = paths::app_dirs();
-    let process = if cfg!(feature = "ipc-worker") { "window" } else { "app" };
+    let process = if cfg!(all(desktop, feature = "ipc-worker")) { "window" } else { "app" };
     let settings = settings_at(&config_dir.join("settings.json"));
     desktop_core::logging::init(&data_dir.join("logs"), process, settings.config.log);
     desktop_core::net::configure(settings.config.net);
-    #[cfg(feature = "single-instance")]
-    let instance = match single::claim(&data_dir) {
+}
+
+/// The app: on desktop from `main`, on iOS and Android from the mobile entry point.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    // On iOS and Android the app's folders are known only once Tauri runs (see `setup`).
+    #[cfg(desktop)]
+    start_logging();
+    #[cfg(all(desktop, feature = "single-instance"))]
+    let instance = match single::claim(&paths::app_dirs().1) {
         Ok(single::Instance::Second) => {
             log::info!("already running: asked that window to come to the front");
             return;
@@ -559,24 +589,30 @@ pub fn run() {
             None
         }
     };
-    #[cfg(feature = "ipc-worker")]
+    #[cfg(all(desktop, feature = "ipc-worker"))]
     let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
-    #[cfg(not(feature = "ipc-worker"))]
+    #[cfg(not(all(desktop, feature = "ipc-worker")))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
     let builder = tauri::Builder::default().manage(AppState { service }).plugin(guard::plugin());
-    #[cfg(feature = "python-example")]
+    #[cfg(all(desktop, feature = "python-example"))]
     let builder = builder.manage(python::PythonWorker::default());
-    #[cfg(feature = "updater")]
+    #[cfg(all(desktop, feature = "updater"))]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     let builder = builder.setup(move |app| {
         let _ = &app;
+        // iOS and Android: everything lives in the app's private folder.
+        #[cfg(mobile)]
+        {
+            paths::set_mobile_root(app.path().app_data_dir()?);
+            start_logging();
+        }
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
         {
             let dir = paths::app_dirs().1;
             desktop_core::telemetry::install_panic_hook(&dir, &app.package_info().name, &app.package_info().version.to_string());
         }
-        #[cfg(feature = "single-instance")]
+        #[cfg(all(desktop, feature = "single-instance"))]
         if let Some((lock, listener)) = instance {
             app.manage(single::Held(lock));
             let handle = app.handle().clone();
@@ -634,23 +670,23 @@ pub fn run() {
             download_stt,
             #[cfg(feature = "telemetry")]
             telemetry_status,
-            #[cfg(feature = "mcp")]
+            #[cfg(all(desktop, feature = "mcp"))]
             mcp_setup,
-            #[cfg(feature = "mcp")]
+            #[cfg(all(desktop, feature = "mcp"))]
             mcp_register_claude,
             remove_source,
             clear,
-            #[cfg(feature = "updater")]
+            #[cfg(all(desktop, feature = "updater"))]
             update::check_update,
-            #[cfg(feature = "updater")]
+            #[cfg(all(desktop, feature = "updater"))]
             update::install_update,
-            #[cfg(feature = "background-agent")]
+            #[cfg(all(desktop, feature = "background-agent"))]
             agent::agent_status,
-            #[cfg(feature = "background-agent")]
+            #[cfg(all(desktop, feature = "background-agent"))]
             agent::set_agent,
-            #[cfg(feature = "python-example")]
+            #[cfg(all(desktop, feature = "python-example"))]
             python::python_call,
-            #[cfg(feature = "claude-mcp")]
+            #[cfg(all(desktop, feature = "claude-mcp"))]
             claude::register_claude,
         ])
         .build(tauri::generate_context!())
@@ -671,16 +707,33 @@ fn on_exit(app: &tauri::AppHandle) {
     }
     #[cfg(feature = "telemetry")]
     desktop_core::telemetry::flush(std::time::Duration::from_secs(2));
-    #[cfg(feature = "ipc-worker")]
+    #[cfg(all(desktop, feature = "ipc-worker"))]
     {
-        #[cfg(feature = "background-agent")]
+        #[cfg(all(desktop, feature = "background-agent"))]
         let keep = agent::installed();
-        #[cfg(not(feature = "background-agent"))]
+        #[cfg(not(all(desktop, feature = "background-agent")))]
         let keep = false;
         if !keep {
             ipc::shutdown_worker();
         }
     }
-    #[cfg(all(feature = "postgres", not(feature = "ipc-worker")))]
+    #[cfg(all(feature = "postgres", not(all(desktop, feature = "ipc-worker"))))]
     desktop_core::pgstore::shutdown();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_falls_back_to_the_file_store_on_mobile() {
+        assert_eq!(store_for(Backend::File), Backend::File);
+        let expected = if cfg!(mobile) { Backend::File } else { Backend::Postgres };
+        assert_eq!(store_for(Backend::Postgres), expected);
+    }
+
+    #[test]
+    fn features_say_whether_this_is_the_mobile_app() {
+        assert_eq!(features()["mobile"], cfg!(mobile));
+    }
 }

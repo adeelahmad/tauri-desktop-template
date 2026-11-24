@@ -34,6 +34,8 @@ async function start() {
     show('w-pg-note');
   }
   show('w-model', f.embed);
+  // iOS and Android: no folders of the user's to read.
+  show('add-folder', !f.mobile);
   if (f.wizard && !info.settings.setupDone) {
     show('loading', false);
     show('wizard');
