@@ -41,6 +41,12 @@ pub mod stt;
 pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
+{% endif %}{% if plugins %}#[cfg(feature = "plugins")]
+pub mod plugin;
+{% endif %}{% if rclone %}#[cfg(feature = "rclone")]
+pub mod rclone;
+{% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
+pub mod tailscale;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

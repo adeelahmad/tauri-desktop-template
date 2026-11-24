@@ -4,5 +4,17 @@
   "description": "Main window: core APIs and the app's own commands",
   "windows": ["main"],{% if mobile %}
   "platforms": ["linux", "macOS", "windows"],{% endif %}
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default"{% if tauri_plugins %}{% if tauri_dialog %},
+    "dialog:default"{% endif %}{% if tauri_fs %},
+    "fs:default"{% endif %}{% if tauri_clipboard %},
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text"{% endif %}{% if tauri_notification %},
+    "notification:default"{% endif %}{% if tauri_opener %},
+    "opener:default"{% endif %}{% if tauri_store %},
+    "store:default"{% endif %}{% if tauri_deep_link %},
+    "deep-link:default"{% endif %}{% if tauri_os %},
+    "os:default"{% endif %}{% if tauri_log %},
+    "log:default"{% endif %}{% endif %}
+  ]
 }

@@ -140,6 +140,35 @@ const FIELDS = [
   ['mail', 'from', 'Sender, e.g. Me <me@example.com>', 'text', { needs: 'mail' }],
   ['mail', 'maxMb', 'Largest message (MB)', 'number', { needs: 'mail', min: 1, max: 100 }],
   ['mail', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'mail', min: 5, max: 300 }],
+  ['plugins', 'enabled', 'Run plugins', 'bool', { needs: 'plugins' }],
+  ['plugins', 'disabled', 'Leave out these plugins (names)', 'list', { needs: 'plugins' }],
+  ['rclone', 'enabled', 'Sync to the cloud with rclone', 'bool', { needs: 'rclone' }],
+  ['rclone', 'remote', 'Remote (its name in the rclone config)', 'text', { needs: 'rclone' }],
+  ['rclone', 'path', 'Folder on the remote (empty = its root)', 'text', { needs: 'rclone' }],
+  [
+    'rclone',
+    'folder',
+    'What to sync',
+    'select',
+    { needs: 'rclone', options: ['backups', 'data'], labels: ['Backups folder', 'Data folder (up only, no secrets)'] },
+  ],
+  [
+    'rclone',
+    'direction',
+    'Direction',
+    'select',
+    {
+      needs: 'rclone',
+      options: ['push', 'pull', 'mirror', 'bisync'],
+      labels: ['Up (copy, never delete)', 'Down (copy, never delete)', 'Mirror up (deletes extra files there)', 'Both ways (bisync)'],
+    },
+  ],
+  ['rclone', 'intervalMinutes', 'Sync every (minutes, 0 = only when asked)', 'number', { needs: 'rclone', min: 0 }],
+  ['rclone', 'bandwidth', 'Bandwidth limit, e.g. 2M or 10M:1M (empty = none)', 'text', { needs: 'rclone' }],
+  ['tailscale', 'enabled', 'Use Tailscale', 'bool', { needs: 'tailscale' }],
+  ['tailscale', 'serve', 'Share a local port with my tailnet (tailscale serve)', 'bool', { needs: 'tailscale' }],
+  ['tailscale', 'port', 'Local port to share (on 127.0.0.1)', 'number', { needs: 'tailscale', min: 0, max: 65535 }],
+  ['tailscale', 'httpsPort', 'HTTPS port on the tailnet', 'select', { needs: 'tailscale', options: [443, 8443, 10000], numeric: true }],
   ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
@@ -167,6 +196,9 @@ const TITLES = {
   net: 'Network',
   backup: 'Backups',
   mail: 'Email',
+  plugins: 'Plugins',
+  rclone: 'Cloud sync',
+  tailscale: 'Tailnet',
   watch: 'Watch folders',
   // kitchen:titles
 };
@@ -305,6 +337,168 @@ function MailSetup({ from }) {
         </button>
         <button onClick={() => test(me)} disabled={busy || !me}>
           Send a test email to myself
+        </button>
+        <span className="hint">{msg || 'Save settings first.'}</span>
+      </div>
+    </>
+  );
+}
+
+const NONE = {};
+
+// Each built-in plugin, with a form drawn from its settings schema (JSON for objects).
+function PluginList({ settings, onChange }) {
+  const [list, setList] = useState([]);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    invoke('plugins_list').then(setList, (e) => setMsg(String(e)));
+  }, []);
+  const put = (name, key, v) => onChange({ ...settings, [name]: { ...(settings[name] || {}), [key]: v } });
+  return (
+    <div className="hint">
+      {list.map((p) => (
+        <div key={p.name}>
+          <div>
+            <b>{p.name}</b> {p.version} {p.active ? '(on)' : '(off)'}: {p.description}
+            {p.methods.length > 0 && ` Methods: ${p.methods.join(', ')}.`}
+          </div>
+          <div className="grid">
+            {Object.entries(p.schema.properties || {}).map(([key, prop]) => {
+              const value = (settings[p.name] || {})[key] ?? prop.default;
+              const label = prop.title || key;
+              if (prop.type === 'boolean')
+                return <Field key={key} kind="bool" label={label} value={value} extra={NONE} onChange={(v) => put(p.name, key, v)} />;
+              if (prop.type === 'number' || prop.type === 'integer')
+                return <Field key={key} kind="optional" label={label} value={value} extra={NONE} onChange={(v) => put(p.name, key, v)} />;
+              if (prop.type === 'string')
+                return <Field key={key} kind="text" label={label} value={value} extra={NONE} onChange={(v) => put(p.name, key, v)} />;
+              return <JsonField key={key} label={label} value={value} onChange={(v) => put(p.name, key, v)} />;
+            })}
+          </div>
+        </div>
+      ))}
+      {msg}
+    </div>
+  );
+}
+
+function JsonField({ label, value, onChange }) {
+  const [text, setText] = useState(JSON.stringify(value ?? {}, null, 2));
+  const [bad, setBad] = useState(false);
+  const change = (t) => {
+    setText(t);
+    try {
+      onChange(JSON.parse(t));
+      setBad(false);
+    } catch {
+      setBad(true);
+    }
+  };
+  return (
+    <label className="field">
+      {label} {bad && '(not valid JSON yet)'}
+      <textarea rows={4} value={text} onChange={(e) => change(e.target.value)} />
+    </label>
+  );
+}
+
+// rclone: the remote config (owner-only file, never in settings), the download, and Sync now.
+function RcloneSetup() {
+  const [st, setSt] = useState(null);
+  const [text, setText] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const refresh = () => invoke('rclone_status').then(setSt, () => {});
+  useEffect(() => {
+    refresh();
+  }, []);
+  const saveConf = async () => {
+    try {
+      setSt(await invoke('rclone_config', { text }));
+      setText('');
+      setMsg(text ? 'Config saved.' : 'Config removed.');
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  const run = async (cmd) => {
+    setBusy(true);
+    const unlisten = await listen('rclone-progress', (e) => setMsg(e.payload));
+    try {
+      await invoke(cmd);
+      setMsg(cmd === 'rclone_sync' ? 'Synced.' : 'rclone is ready.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      unlisten();
+      setBusy(false);
+      refresh();
+    }
+  };
+  return (
+    <>
+      <div className="hint">
+        {st &&
+          `rclone ${st.version}: ${st.installed ? 'downloaded' : st.supported ? 'downloads on first sync' : 'not available for this computer'}. ` +
+            (st.configured ? `Remotes: ${st.remotes.join(', ') || 'none'}. ` : 'No config yet. ') +
+            (st.last ? `Last sync ${st.last.finished} to ${st.last.target}: ${st.last.ok ? 'ok' : 'failed'}.` : '')}
+      </div>
+      <label className="field">
+        Remote config: paste what `rclone config show` prints (kept in a private file)
+        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={'[gdrive]\ntype = drive\n...'} />
+      </label>
+      <div className="row">
+        <button onClick={saveConf}>{text ? 'Save config' : 'Remove config'}</button>
+        {st && !st.installed && st.supported && (
+          <button onClick={() => run('rclone_install')} disabled={busy}>
+            Download rclone
+          </button>
+        )}
+        <button onClick={() => run('rclone_sync')} disabled={busy}>
+          Sync now
+        </button>
+        <span className="hint">{msg || 'Save settings first.'}</span>
+      </div>
+    </>
+  );
+}
+
+// Tailscale: never installed by the app; shows the download link when it is missing.
+function TailscaleStatus() {
+  const [r, setR] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    invoke('tailscale_status').then(setR, (e) => setMsg(String(e)));
+  }, []);
+  const apply = async () => {
+    setBusy(true);
+    try {
+      setR(await invoke('tailscale_apply'));
+      setMsg('Done.');
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (r && !r.installed)
+    return (
+      <div className="hint">
+        Tailscale is not installed. Get it from <code>{r.installUrl}</code>, then reopen Settings.
+      </div>
+    );
+  const st = r?.status;
+  return (
+    <>
+      <div className="hint">
+        {st && `${st.backendState}${st.dnsName ? ` as ${st.dnsName}` : ''}${st.tailnet ? ` in ${st.tailnet}` : ''}. `}
+        {r?.served ? `Port ${r.served} is shared${r.url ? ` at ${r.url}` : ''}. ` : r && 'Nothing shared. '}
+        {r?.note}
+      </div>
+      <div className="row">
+        <button onClick={apply} disabled={busy || !r}>
+          Apply sharing
         </button>
         <span className="hint">{msg || 'Save settings first.'}</span>
       </div>
@@ -722,7 +916,18 @@ export default function Settings({ features }) {
     setMsg('');
     setCfg(await invoke('set_config', { config: {} }));
   };
-  const needs = { watch: 'watch', llm: 'ai', mcp: 'mcp', tts: 'tts', stt: 'stt', mail: 'mail', telemetry: 'telemetry' };
+  const needs = {
+    watch: 'watch',
+    llm: 'ai',
+    mcp: 'mcp',
+    tts: 'tts',
+    stt: 'stt',
+    mail: 'mail',
+    plugins: 'plugins',
+    rclone: 'rclone',
+    tailscale: 'tailscale',
+    telemetry: 'telemetry',
+  };
   const sections = [
     'search',
     'ingest',
@@ -732,7 +937,10 @@ export default function Settings({ features }) {
     'stt',
     'resources',
     'backup',
+    'rclone',
     'mail',
+    'tailscale',
+    'plugins',
     'net',
     'telemetry',
     'log',
@@ -772,6 +980,14 @@ export default function Settings({ features }) {
           {s === 'telemetry' && <TelemetryStatus />}
           {s === 'backup' && <Backups />}
           {s === 'mail' && <MailSetup from={cfg.mail?.from} />}
+          {s === 'plugins' && (
+            <PluginList
+              settings={cfg.plugins?.settings || {}}
+              onChange={(v) => setCfg({ ...cfg, plugins: { ...cfg.plugins, settings: v } })}
+            />
+          )}
+          {s === 'rclone' && <RcloneSetup />}
+          {s === 'tailscale' && <TailscaleStatus />}
         </details>
       ))}
       <div className="row">
