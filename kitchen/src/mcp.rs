@@ -26,7 +26,8 @@ use std::path::Path;
 pub const PROTOCOL: &str = "2025-06-18";
 
 fn tools() -> Value {
-    let project = json!({"type": "string", "description": "App folder (default: the server's folder)"});
+    let project =
+        json!({"type": "string", "description": "App folder (default: the server's folder)"});
     let dry = json!({"type": "boolean", "description": "Only show what would change"});
     let list = json!({"type": "array", "items": {"type": "string"}});
     json!([
@@ -58,7 +59,16 @@ fn tools() -> Value {
 fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
     let s = |k: &str| a.get(k).and_then(Value::as_str).map(String::from);
     let need = |k: &str| s(k).ok_or_else(|| format!("{tool}: `{k}` is required"));
-    let strings = |k: &str| a.get(k).and_then(Value::as_array).map(|v| v.iter().filter_map(|x| x.as_str().map(String::from)).collect::<Vec<_>>()).unwrap_or_default();
+    let strings = |k: &str| {
+        a.get(k)
+            .and_then(Value::as_array)
+            .map(|v| {
+                v.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
     let mut w: Vec<String> = match tool {
         "features" | "doctor" => vec![tool.into()],
         "enable" | "disable" => {
@@ -68,8 +78,17 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             }
             [vec![tool.to_string()], f].concat()
         }
-        "set" => vec!["set".into(), format!("{}={}", need("name")?, need("value")?)],
-        "upgrade" => [vec!["upgrade".to_string()], s("rev").map(|r| vec!["--rev".into(), r]).unwrap_or_default()].concat(),
+        "set" => vec![
+            "set".into(),
+            format!("{}={}", need("name")?, need("value")?),
+        ],
+        "upgrade" => [
+            vec!["upgrade".to_string()],
+            s("rev")
+                .map(|r| vec!["--rev".into(), r])
+                .unwrap_or_default(),
+        ]
+        .concat(),
         "generate" => {
             let mut v = vec!["generate".into(), need("kind")?, need("name")?];
             v.extend(s("type"));
@@ -84,7 +103,10 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
         }
         "new" => {
             let mut v = vec!["new".into(), need("name")?, "--no-git".into()];
-            for (k, list) in [("enable", strings("enable")), ("disable", strings("disable"))] {
+            for (k, list) in [
+                ("enable", strings("enable")),
+                ("disable", strings("disable")),
+            ] {
                 if !list.is_empty() {
                     v.extend([format!("--{k}"), list.join(",")]);
                 }
@@ -107,7 +129,10 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
 /// Answer one JSON-RPC message; `None` for notifications.
 pub fn handle(msg: &Value, cwd: &Path) -> Option<Value> {
     let id = msg.get("id")?.clone();
-    let method = msg.get("method").and_then(Value::as_str).unwrap_or_default();
+    let method = msg
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
     let result = match method {
         "initialize" => Ok(json!({
@@ -119,14 +144,33 @@ pub fn handle(msg: &Value, cwd: &Path) -> Option<Value> {
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools": tools()})),
         "tools/call" => {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            let dir = args.get("project").and_then(Value::as_str).map(|p| cwd.join(p)).unwrap_or_else(|| cwd.to_path_buf());
-            let (text, report, is_error) = match argv(name, &args).map_err(crate::Error::Usage).and_then(|w| cli::run(&Args::parse(w), &dir)) {
-                Ok(r) => (r.to_string(), serde_json::to_value(&r).unwrap_or(Value::Null), false),
+            let name = params
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let dir = args
+                .get("project")
+                .and_then(Value::as_str)
+                .map(|p| cwd.join(p))
+                .unwrap_or_else(|| cwd.to_path_buf());
+            let (text, report, is_error) = match argv(name, &args)
+                .map_err(crate::Error::Usage)
+                .and_then(|w| cli::run(&Args::parse(w), &dir))
+            {
+                Ok(r) => (
+                    r.to_string(),
+                    serde_json::to_value(&r).unwrap_or(Value::Null),
+                    false,
+                ),
                 Err(e) => (e.to_string(), Value::Null, true),
             };
-            Ok(json!({"content": [{"type": "text", "text": text}], "structuredContent": report, "isError": is_error}))
+            Ok(
+                json!({"content": [{"type": "text", "text": text}], "structuredContent": report, "isError": is_error}),
+            )
         }
         other => Err(json!({"code": -32601, "message": format!("method not found: {other}")})),
     };
@@ -147,7 +191,9 @@ pub fn serve(cwd: &Path) -> std::io::Result<()> {
         }
         let reply = match serde_json::from_str::<Value>(&line) {
             Ok(msg) => handle(&msg, cwd),
-            Err(e) => Some(json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": e.to_string()}})),
+            Err(e) => Some(
+                json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": e.to_string()}}),
+            ),
         };
         if let Some(r) = reply {
             writeln!(out, "{r}")?;
@@ -163,12 +209,22 @@ mod tests {
 
     #[test]
     fn maps_tools_to_commands() {
-        assert_eq!(argv("enable", &json!({"features": ["email", "ai"], "dry_run": true})).unwrap(), ["enable", "email", "ai", "--dry-run"]);
+        assert_eq!(
+            argv(
+                "enable",
+                &json!({"features": ["email", "ai"], "dry_run": true})
+            )
+            .unwrap(),
+            ["enable", "email", "ai", "--dry-run"]
+        );
         assert_eq!(
             argv("generate", &json!({"kind": "setting", "name": "inv.days", "type": "int", "default": "30", "label": "Days"})).unwrap(),
             ["generate", "setting", "inv.days", "int", "30", "--label", "Days"]
         );
-        assert_eq!(argv("new", &json!({"name": "x", "enable": ["a", "b"]})).unwrap(), ["new", "x", "--no-git", "--enable", "a,b"]);
+        assert_eq!(
+            argv("new", &json!({"name": "x", "enable": ["a", "b"]})).unwrap(),
+            ["new", "x", "--no-git", "--enable", "a,b"]
+        );
         assert!(argv("enable", &json!({})).is_err());
     }
 
@@ -177,7 +233,11 @@ mod tests {
         let cwd = Path::new(".");
         let init = handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}}), cwd).unwrap();
         assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
-        assert!(handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}), cwd).is_none());
+        assert!(handle(
+            &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            cwd
+        )
+        .is_none());
         let bad = handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "nope"}), cwd).unwrap();
         assert_eq!(bad["error"]["code"], -32601);
         let dir = crate::TempDir::new("mcp").unwrap();

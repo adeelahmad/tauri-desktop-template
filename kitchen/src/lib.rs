@@ -105,7 +105,10 @@ pub struct Report {
 impl Report {
     /// A report with just a summary.
     pub fn new(summary: impl Into<String>) -> Self {
-        Self { summary: summary.into(), ..Self::default() }
+        Self {
+            summary: summary.into(),
+            ..Self::default()
+        }
     }
 }
 
@@ -130,9 +133,15 @@ pub(crate) struct TempDir(std::path::PathBuf);
 
 impl TempDir {
     pub(crate) fn new(tag: &str) -> Result<Self> {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let p = std::env::temp_dir().join(format!("kitchen-{tag}-{}-{nanos}", std::process::id()));
-        io(format!("create {}", p.display()), std::fs::create_dir_all(&p))?;
+        io(
+            format!("create {}", p.display()),
+            std::fs::create_dir_all(&p),
+        )?;
         Ok(Self(p))
     }
     pub(crate) fn path(&self) -> &std::path::Path {

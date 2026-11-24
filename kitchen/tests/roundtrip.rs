@@ -6,7 +6,10 @@ use kitchen::cli::{run, Args};
 use std::path::{Path, PathBuf};
 
 fn have(program: &str, args: &[&str]) -> bool {
-    std::process::Command::new(program).args(args).output().is_ok_and(|o| o.status.success())
+    std::process::Command::new(program)
+        .args(args)
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 fn snapshot(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
@@ -36,7 +39,10 @@ fn new_enable_disable_round_trip() {
         eprintln!("skipped: needs git and cargo-generate");
         return;
     }
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let work = std::env::temp_dir().join(format!("kitchen-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).unwrap();
@@ -44,21 +50,48 @@ fn new_enable_disable_round_trip() {
     let source = repo.display().to_string();
     // A committed template, so `enable` (which checks out the recorded commit) sees the same files.
     let rev = kitchen_rev(&repo);
-    let r = run(&Args::parse(["new", "app", "--source", &source, "--rev", &rev, "--no-git", "--disable", "postgres,embeddings,pdf"]), &work).unwrap();
+    let r = run(
+        &Args::parse([
+            "new",
+            "app",
+            "--source",
+            &source,
+            "--rev",
+            &rev,
+            "--no-git",
+            "--disable",
+            "postgres,embeddings,pdf",
+        ]),
+        &work,
+    )
+    .unwrap();
     assert!(r.summary.starts_with("Created"), "{r}");
     let app = work.join("app");
     let before = snapshot(&app);
     let on = run(&Args::parse(["enable", "email"]), &app).unwrap();
-    assert!(on.lines.iter().any(|l| l.contains("desktop-core/src/mail.rs")), "{on}");
+    assert!(
+        on.lines
+            .iter()
+            .any(|l| l.contains("desktop-core/src/mail.rs")),
+        "{on}"
+    );
     assert!(app.join("desktop-core/src/mail.rs").is_file());
     let off = run(&Args::parse(["disable", "email"]), &app).unwrap();
     assert!(off.lines.iter().any(|l| l.starts_with("delete")), "{off}");
     assert_eq!(snapshot(&app).len(), before.len());
-    assert!(snapshot(&app) == before, "the app should be back where it started");
+    assert!(
+        snapshot(&app) == before,
+        "the app should be back where it started"
+    );
     let _ = std::fs::remove_dir_all(&work);
 }
 
 fn kitchen_rev(repo: &Path) -> String {
-    let out = std::process::Command::new("git").arg("-C").arg(repo).args(["rev-parse", "HEAD"]).output().unwrap();
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
     String::from_utf8(out.stdout).unwrap().trim().to_string()
 }

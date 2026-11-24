@@ -28,7 +28,8 @@ use std::path::{Path, PathBuf};
 /// The file name, at the app's root.
 pub const FILE: &str = "kitchen.toml";
 
-const HEADER: &str = "# Kitchen project file: the answers this app was generated with. The `kitchen` CLI reads it
+const HEADER: &str =
+    "# Kitchen project file: the answers this app was generated with. The `kitchen` CLI reads it
 # to turn features on and off (`kitchen enable email`) and to upgrade from the template.
 # Edit it through `kitchen`, not by hand.
 
@@ -71,7 +72,10 @@ impl Manifest {
     /// Read `<dir>/kitchen.toml`.
     pub fn load(dir: &Path) -> Result<Self> {
         let path = dir.join(FILE);
-        let text = io(format!("read {}", path.display()), std::fs::read_to_string(&path))?;
+        let text = io(
+            format!("read {}", path.display()),
+            std::fs::read_to_string(&path),
+        )?;
         toml::from_str(&text).map_err(|e| crate::Error::Usage(format!("{}: {e}", path.display())))
     }
 
@@ -79,18 +83,27 @@ impl Manifest {
     pub fn save(&self, dir: &Path) -> Result<()> {
         let text = toml::to_string(self).map_err(|e| crate::Error::Usage(e.to_string()))?;
         let path = dir.join(FILE);
-        io(format!("write {}", path.display()), std::fs::write(&path, format!("{HEADER}{text}")))
+        io(
+            format!("write {}", path.display()),
+            std::fs::write(&path, format!("{HEADER}{text}")),
+        )
     }
 
     /// The nearest folder at or above `start` that has a `kitchen.toml`.
     pub fn find_root(start: &Path) -> Option<PathBuf> {
         let start = start.canonicalize().ok()?;
-        start.ancestors().find(|d| d.join(FILE).is_file()).map(Path::to_path_buf)
+        start
+            .ancestors()
+            .find(|d| d.join(FILE).is_file())
+            .map(Path::to_path_buf)
     }
 
     /// Whether a yes/no answer is `true`.
     pub fn is_on(&self, key: &str) -> bool {
-        self.answers.get(key).and_then(toml::Value::as_bool).unwrap_or(false)
+        self.answers
+            .get(key)
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false)
     }
 
     /// Set one answer.
@@ -122,11 +135,19 @@ mod tests {
         let dir = crate::TempDir::new("manifest").unwrap();
         let nested = dir.path().join("a/b");
         std::fs::create_dir_all(&nested).unwrap();
-        let mut m = Manifest { app: App { name: "x".into() }, ..Manifest::default() };
+        let mut m = Manifest {
+            app: App { name: "x".into() },
+            ..Manifest::default()
+        };
         m.set("ai", toml::Value::Boolean(true));
         m.save(dir.path()).unwrap();
         assert_eq!(Manifest::load(dir.path()).unwrap(), m);
-        assert_eq!(Manifest::find_root(&nested).unwrap(), dir.path().canonicalize().unwrap());
-        assert!(std::fs::read_to_string(dir.path().join(FILE)).unwrap().starts_with("# Kitchen"));
+        assert_eq!(
+            Manifest::find_root(&nested).unwrap(),
+            dir.path().canonicalize().unwrap()
+        );
+        assert!(std::fs::read_to_string(dir.path().join(FILE))
+            .unwrap()
+            .starts_with("# Kitchen"));
     }
 }

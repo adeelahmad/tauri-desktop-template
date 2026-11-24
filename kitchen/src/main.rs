@@ -25,15 +25,26 @@ fn main() -> ExitCode {
         // Interactive: hand the terminal to `cargo tauri`, from the app's root.
         cmd @ ("dev" | "build") => {
             let root = kitchen::manifest::Manifest::find_root(&cwd).unwrap_or(cwd);
-            match std::process::Command::new("cargo").arg("tauri").arg(cmd).args(&args.words[1..]).current_dir(root).status() {
+            match std::process::Command::new("cargo")
+                .arg("tauri")
+                .arg(cmd)
+                .args(&args.words[1..])
+                .current_dir(root)
+                .status()
+            {
                 Ok(s) if s.success() => ExitCode::SUCCESS,
                 Ok(_) => ExitCode::FAILURE,
-                Err(e) => fail(&format!("cargo tauri: {e} (kitchen doctor shows how to install it)")),
+                Err(e) => fail(&format!(
+                    "cargo tauri: {e} (kitchen doctor shows how to install it)"
+                )),
             }
         }
         _ => match cli::run(&args, &cwd) {
             Ok(report) if args.flag("json") => {
-                println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).unwrap_or_default()
+                );
                 ExitCode::SUCCESS
             }
             Ok(report) => {

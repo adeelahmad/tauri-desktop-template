@@ -71,7 +71,10 @@ pub struct Plan {
 impl Plan {
     /// Number of conflicts.
     pub fn conflicts(&self) -> usize {
-        self.changes.iter().filter(|c| c.action == Action::Conflict).count()
+        self.changes
+            .iter()
+            .filter(|c| c.action == Action::Conflict)
+            .count()
     }
 }
 
@@ -88,7 +91,13 @@ pub fn plan(base: &Path, next: &Path, ours: &Path, skip: &[&str]) -> Result<Plan
         }
         let read = |root: &Path| std::fs::read(root.join(&rel)).ok();
         let (b, n, o) = (read(base), read(next), read(ours));
-        let change = |action, note: &str| Some(Change { path: rel.clone(), action, note: note.to_string() });
+        let change = |action, note: &str| {
+            Some(Change {
+                path: rel.clone(),
+                action,
+                note: note.to_string(),
+            })
+        };
         let c = match (&b, &n, &o) {
             _ if b == n => None,
             (_, Some(_), _) if o == n => None,
@@ -117,24 +126,43 @@ pub fn apply(plan: &Plan, base: &Path, next: &Path, ours: &Path) -> Result<()> {
         let dst = ours.join(&c.path);
         let src = next.join(&c.path);
         if let Some(parent) = dst.parent() {
-            io(format!("create {}", parent.display()), std::fs::create_dir_all(parent))?;
+            io(
+                format!("create {}", parent.display()),
+                std::fs::create_dir_all(parent),
+            )?;
         }
         match c.action {
             Action::Create | Action::Update => {
-                io(format!("write {}", dst.display()), std::fs::copy(&src, &dst))?;
+                io(
+                    format!("write {}", dst.display()),
+                    std::fs::copy(&src, &dst),
+                )?;
             }
             Action::Delete => {
-                io(format!("remove {}", dst.display()), std::fs::remove_file(&dst))?;
+                io(
+                    format!("remove {}", dst.display()),
+                    std::fs::remove_file(&dst),
+                )?;
                 remove_empty_parents(&dst, ours);
             }
             Action::Merge | Action::Conflict => {
                 let read = |p: &Path| std::fs::read(p).unwrap_or_default();
-                let merged = if base.join(&c.path).is_file() { merge3(&read(&dst), &read(&base.join(&c.path)), &read(&src)) } else { None };
+                let merged = if base.join(&c.path).is_file() {
+                    merge3(&read(&dst), &read(&base.join(&c.path)), &read(&src))
+                } else {
+                    None
+                };
                 match merged {
-                    Some((text, _)) => io(format!("write {}", dst.display()), std::fs::write(&dst, text))?,
+                    Some((text, _)) => io(
+                        format!("write {}", dst.display()),
+                        std::fs::write(&dst, text),
+                    )?,
                     None => {
                         let side = PathBuf::from(format!("{}.kitchen-new", dst.display()));
-                        io(format!("write {}", side.display()), std::fs::copy(&src, &side))?;
+                        io(
+                            format!("write {}", side.display()),
+                            std::fs::copy(&src, &side),
+                        )?;
                     }
                 }
             }
@@ -156,7 +184,16 @@ fn merge3(ours: &[u8], base: &[u8], theirs: &[u8]) -> Option<(Vec<u8>, i32)> {
     std::fs::write(p("base"), base).ok()?;
     std::fs::write(p("next"), theirs).ok()?;
     let out = std::process::Command::new("git")
-        .args(["merge-file", "-p", "-L", "yours", "-L", "template before", "-L", "template now"])
+        .args([
+            "merge-file",
+            "-p",
+            "-L",
+            "yours",
+            "-L",
+            "template before",
+            "-L",
+            "template now",
+        ])
         .args([p("ours"), p("base"), p("next")])
         .output()
         .ok()?;
@@ -209,11 +246,52 @@ mod tests {
     fn plans_and_applies_every_case() {
         let t = crate::TempDir::new("merge-test").unwrap();
         let (b, n, o) = (t.path().join("b"), t.path().join("n"), t.path().join("o"));
-        tree(&b, &[("same.txt", "x"), ("upd.txt", "1"), ("gone.txt", "g"), ("gone-edited.txt", "g"), ("both.txt", "a\nb\nc\nd\ne\n"), ("clash.txt", "a\n"), ("deleted.txt", "1"), ("kitchen.toml", "a")]);
-        tree(&n, &[("same.txt", "x"), ("upd.txt", "2"), ("new/file.txt", "n"), ("exists.txt", "t"), ("both.txt", "a\nB\nc\nd\ne\n"), ("clash.txt", "T\n"), ("deleted.txt", "2"), ("kitchen.toml", "b")]);
-        tree(&o, &[("same.txt", "x"), ("upd.txt", "1"), ("gone.txt", "g"), ("gone-edited.txt", "mine"), ("exists.txt", "mine"), ("both.txt", "a\nb\nc\nd\nE\n"), ("clash.txt", "M\n"), ("kitchen.toml", "keep")]);
+        tree(
+            &b,
+            &[
+                ("same.txt", "x"),
+                ("upd.txt", "1"),
+                ("gone.txt", "g"),
+                ("gone-edited.txt", "g"),
+                ("both.txt", "a\nb\nc\nd\ne\n"),
+                ("clash.txt", "a\n"),
+                ("deleted.txt", "1"),
+                ("kitchen.toml", "a"),
+            ],
+        );
+        tree(
+            &n,
+            &[
+                ("same.txt", "x"),
+                ("upd.txt", "2"),
+                ("new/file.txt", "n"),
+                ("exists.txt", "t"),
+                ("both.txt", "a\nB\nc\nd\ne\n"),
+                ("clash.txt", "T\n"),
+                ("deleted.txt", "2"),
+                ("kitchen.toml", "b"),
+            ],
+        );
+        tree(
+            &o,
+            &[
+                ("same.txt", "x"),
+                ("upd.txt", "1"),
+                ("gone.txt", "g"),
+                ("gone-edited.txt", "mine"),
+                ("exists.txt", "mine"),
+                ("both.txt", "a\nb\nc\nd\nE\n"),
+                ("clash.txt", "M\n"),
+                ("kitchen.toml", "keep"),
+            ],
+        );
         let p = plan(&b, &n, &o, &["kitchen.toml"]).unwrap();
-        let action = |f: &str| p.changes.iter().find(|c| c.path == Path::new(f)).map(|c| c.action);
+        let action = |f: &str| {
+            p.changes
+                .iter()
+                .find(|c| c.path == Path::new(f))
+                .map(|c| c.action)
+        };
         assert_eq!(action("same.txt"), None);
         assert_eq!(action("upd.txt"), Some(Action::Update));
         assert_eq!(action("new/file.txt"), Some(Action::Create));

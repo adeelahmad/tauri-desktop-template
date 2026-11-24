@@ -87,31 +87,69 @@ impl Args {
 
     /// The last value of `--name`.
     pub fn value(&self, name: &str) -> Option<&str> {
-        self.options.iter().rev().find(|(k, _)| k == name).and_then(|(_, v)| v.as_deref())
+        self.options
+            .iter()
+            .rev()
+            .find(|(k, _)| k == name)
+            .and_then(|(_, v)| v.as_deref())
     }
 
     /// Every value of `--name`, comma lists split.
     pub fn values(&self, name: &str) -> Vec<String> {
-        self.options.iter().filter(|(k, _)| k == name).filter_map(|(_, v)| v.as_deref()).flat_map(|v| v.split(',')).map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
+        self.options
+            .iter()
+            .filter(|(k, _)| k == name)
+            .filter_map(|(_, v)| v.as_deref())
+            .flat_map(|v| v.split(','))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
     }
 
     fn word(&self, i: usize, what: &str) -> Result<&str> {
-        self.words.get(i).map(String::as_str).ok_or_else(|| Error::Usage(format!("missing {what}; see `kitchen --help`")))
+        self.words
+            .get(i)
+            .map(String::as_str)
+            .ok_or_else(|| Error::Usage(format!("missing {what}; see `kitchen --help`")))
     }
 }
 
 /// Run one command that produces a report, as if started in `cwd`.
 pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
-    let opts = Options { dry_run: args.flag("dry-run") };
+    let opts = Options {
+        dry_run: args.flag("dry-run"),
+    };
     let project = || Project::find(cwd);
     let cmd = args.words.first().map(String::as_str).unwrap_or("help");
     match cmd {
         "new" => {
-            let set = args.values("set").into_iter().map(|kv| kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())).ok_or_else(|| Error::Usage(format!("--set {kv}: use key=value")))).collect::<Result<_>>()?;
+            let set = args
+                .values("set")
+                .into_iter()
+                .map(|kv| {
+                    kv.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .ok_or_else(|| Error::Usage(format!("--set {kv}: use key=value")))
+                })
+                .collect::<Result<_>>()?;
             project::create(&NewApp {
                 name: args.word(1, "the app name")?.to_string(),
-                dir: Some(args.value("dir").map(|d| cwd.join(d)).unwrap_or_else(|| cwd.to_path_buf())),
-                source: args.value("source").map(|s| if Path::new(s).is_relative() && cwd.join(s).is_dir() { cwd.join(s).display().to_string() } else { s.to_string() }).unwrap_or_default(),
+                dir: Some(
+                    args.value("dir")
+                        .map(|d| cwd.join(d))
+                        .unwrap_or_else(|| cwd.to_path_buf()),
+                ),
+                source: args
+                    .value("source")
+                    .map(|s| {
+                        if Path::new(s).is_relative() && cwd.join(s).is_dir() {
+                            cwd.join(s).display().to_string()
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .unwrap_or_default(),
                 rev: args.value("rev").map(String::from),
                 enable: args.values("enable"),
                 disable: args.values("disable"),
@@ -121,9 +159,15 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
         }
         "features" | "list" => project()?.features_report(),
         "enable" | "disable" => {
-            let names: Vec<&str> = args.words[1..].iter().flat_map(|w| w.split(',')).filter(|s| !s.is_empty()).collect();
+            let names: Vec<&str> = args.words[1..]
+                .iter()
+                .flat_map(|w| w.split(','))
+                .filter(|s| !s.is_empty())
+                .collect();
             if names.is_empty() {
-                return Err(Error::Usage(format!("name a feature: kitchen {cmd} <feature>; `kitchen features` lists them")));
+                return Err(Error::Usage(format!(
+                    "name a feature: kitchen {cmd} <feature>; `kitchen features` lists them"
+                )));
             }
             let p = project()?;
             if cmd == "enable" {
@@ -134,7 +178,9 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
         }
         "set" => {
             let kv = args.word(1, "name=value")?;
-            let (k, v) = kv.split_once('=').ok_or_else(|| Error::Usage(format!("{kv}: use name=value")))?;
+            let (k, v) = kv
+                .split_once('=')
+                .ok_or_else(|| Error::Usage(format!("{kv}: use name=value")))?;
             project()?.set_answer(k, v, &opts)
         }
         "upgrade" => project()?.upgrade(args.value("rev"), &opts),
@@ -144,15 +190,26 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             let name = args.word(2, "a name")?;
             match kind {
                 "module" | "mod" => generate::module(&root, name, args.flag("config"), &opts),
-                "setting" => generate::setting(&root, name, args.word(3, "the type (bool, int, float, text, list)")?, args.words.get(4).map(String::as_str), args.value("label"), &opts),
+                "setting" => generate::setting(
+                    &root,
+                    name,
+                    args.word(3, "the type (bool, int, float, text, list)")?,
+                    args.words.get(4).map(String::as_str),
+                    args.value("label"),
+                    &opts,
+                ),
                 "command" | "cmd" => generate::command(&root, name, &opts),
                 "page" => generate::page(&root, name, &opts),
-                other => Err(Error::Usage(format!("cannot generate {other:?}: module, setting, command or page"))),
+                other => Err(Error::Usage(format!(
+                    "cannot generate {other:?}: module, setting, command or page"
+                ))),
             }
         }
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
         "help" => Ok(Report::new(HELP.trim_end())),
-        other => Err(Error::Usage(format!("unknown command {other:?}; see `kitchen --help`"))),
+        other => Err(Error::Usage(format!(
+            "unknown command {other:?}; see `kitchen --help`"
+        ))),
     }
 }
 
@@ -168,7 +225,16 @@ mod tests {
 
     #[test]
     fn parses_options() {
-        let a = Args::parse(["new", "x", "--enable", "a,b", "--enable=c", "--no-git", "--set", "k=v"]);
+        let a = Args::parse([
+            "new",
+            "x",
+            "--enable",
+            "a,b",
+            "--enable=c",
+            "--no-git",
+            "--set",
+            "k=v",
+        ]);
         assert_eq!(a.words, ["new", "x"]);
         assert_eq!(a.values("enable"), ["a", "b", "c"]);
         assert!(a.flag("no-git"));
@@ -178,10 +244,17 @@ mod tests {
     #[test]
     fn errors_are_helpful() {
         let dir = crate::TempDir::new("cli").unwrap();
-        let e = run(&Args::parse(["features"]), dir.path()).unwrap_err().to_string();
+        let e = run(&Args::parse(["features"]), dir.path())
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("kitchen new"), "{e}");
-        let e = run(&Args::parse(["frobnicate"]), dir.path()).unwrap_err().to_string();
+        let e = run(&Args::parse(["frobnicate"]), dir.path())
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("--help"), "{e}");
-        assert!(run(&Args::parse(["help"]), dir.path()).unwrap().summary.contains("kitchen new"));
+        assert!(run(&Args::parse(["help"]), dir.path())
+            .unwrap()
+            .summary
+            .contains("kitchen new"));
     }
 }
