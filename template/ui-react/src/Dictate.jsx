@@ -3,7 +3,7 @@
 // resampled to 16 kHz mono by the web view, sent as 16-bit PCM, and the text goes to
 // `onText`. (No double curly braces in this folder: the template engine would eat them.)
 import { useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './ipc.js';
 
 const RATE = 16000;
 
@@ -40,7 +40,7 @@ export default function Dictate({ onText }) {
   const transcribe = async (blob) => {
     setState('working');
     try {
-      const r = await invoke('transcribe', { audio: await toPcm16(blob) });
+      const r = await api.transcribe({ audio: await toPcm16(blob) });
       if (r.text) onText(r.text);
       else setError('No speech heard.');
     } catch (e) {
@@ -98,7 +98,11 @@ export default function Dictate({ onText }) {
           }
         }}
       />
-      {error && <span className="status error">{error}</span>}
+      {error && (
+        <span className="status error" role="alert">
+          {error}
+        </span>
+      )}
     </>
   );
 }

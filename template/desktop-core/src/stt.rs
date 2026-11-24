@@ -83,6 +83,7 @@ const ADDED_SHA: &str = "9715fd2243b6f06a5858b5e32950d2853f73dd5bc201aafcf76f508
 
 /// Speech to text settings (`stt` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct SttConfig {
     /// Allow transcription (off by default).
@@ -289,6 +290,7 @@ pub struct Stt {
 
 /// What `Stt::transcribe` returns.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Transcript {
     /// The text (in English when translating).
     pub text: String,

@@ -30,6 +30,7 @@ const ID: &str = env!("APP_IDENTIFIER");
 
 /// Whether the agent is installed, and where (for Settings).
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AgentStatus {
     /// The agent is set up to start the worker at login.
     pub installed: bool,

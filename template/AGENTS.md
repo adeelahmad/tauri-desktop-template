@@ -166,7 +166,9 @@ This build has:
 3. **Docs with examples.** Every module gets a `//!` doc with a runnable example (doctest;
    `no_run` only for network or devices), `///` docs on public items, and unit tests.
 4. **Thin commands.** Logic goes in `desktop-core`; Tauri commands only turn arguments into
-   a service call. Reuse the crates already in the tree before adding a dependency.
+   a service call. Reuse the crates already in the tree before adding a dependency. A new
+   command or a changed struct it returns means new typed IPC bindings: run
+   `cargo test -p {{project-name}} export_bindings` and commit them (docs/GUIDE.md, "Typed IPC").
 5. **Run `kitchen doctor`** before you start and after big changes: it checks the toolchain
    and that the generator markers are still in place.
 
@@ -208,12 +210,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test -p desktop-core                         # engine tests, nothing to download
 cargo test --workspace                             # also the app (needs the system WebView libraries)
 cargo test -p desktop-core --features <cargo feature>   # one optional part
+cargo test -p {{project-name}} export_bindings     # typed IPC: rewrite the UI's TypeScript types (CI: fails if stale)
 cargo run -p {{project-name}} -- --self-test       # index and search a sample, JSON report
 {%- if python_example %}
 python3 python/test_worker.py
 {%- endif %}
 {%- if frontend == "react" %}
 (cd ui-react && npx prettier --check src && npx eslint src && npm run build)
+(cd ui-react && npm run a11y)                      # axe-core on every screen + pseudo-locale layout (needs Playwright)
 {%- endif %}
 ```
 
@@ -228,7 +232,7 @@ The generators insert code at these comments. Never remove or reword them.
 | `// kitchen:modules` | `desktop-core/src/lib.rs` |
 | `// kitchen:config`, `// kitchen:validate` | `desktop-core/src/config.rs` |
 | `// kitchen:fields`, `// kitchen:defaults` | each generated module with `--config` |
-| `// kitchen:mods`, `// kitchen:handlers` | `src-tauri/src/lib.rs` |
+| `// kitchen:mods`, `// kitchen:handlers`, `// kitchen:bindings` | `src-tauri/src/lib.rs` |
 | `// kitchen:methods` | `src-tauri/src/service.rs` |
 {%- if plugins %}
 | `// kitchen:plugins` | `desktop-core/src/plugin.rs` |

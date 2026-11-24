@@ -30,6 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// `llm.cache` in the config. Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct CacheConfig {
     /// Use the cache (off by default).

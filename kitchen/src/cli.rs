@@ -33,7 +33,7 @@ Usage:
   kitchen upgrade [--rev <rev>]        move to a newer template, keeping your edits
   kitchen generate module <name> [--config]
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
-  kitchen generate command <name>
+  kitchen generate command <name> [--no-bindings]   (also updates the UI's typed IPC bindings)
   kitchen generate page <Name>
   kitchen generate job <name>          a background job type (needs background_jobs)
   kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
@@ -239,7 +239,21 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                     args.value("label"),
                     &opts,
                 ),
-                "command" | "cmd" => generate::command(&root, name, &opts),
+                "command" | "cmd" => {
+                    let mut r = generate::command(&root, name, &opts)?;
+                    // Typed IPC: the UI's TypeScript types follow the new command.
+                    if !opts.dry_run && !args.flag("no-bindings") {
+                        let done = lifecycle::bindings_plan(&root)
+                            .and_then(|p| lifecycle::execute(&p, io_mode, ""));
+                        match done {
+                            Ok(_) => r.lines.push("update   typed IPC bindings (cargo test export_bindings)".into()),
+                            Err(e) => r.next.push(format!(
+                                "update the typed IPC bindings once it builds: KITCHEN_BINDINGS=write cargo test -p <app> --lib export_bindings ({e})"
+                            )),
+                        }
+                    }
+                    Ok(r)
+                }
                 "page" => generate::page(&root, name, &opts),
                 "menu" => generate::menu(
                     &root,

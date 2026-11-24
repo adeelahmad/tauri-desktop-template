@@ -31,6 +31,7 @@ use desktop_core::release::{self, Channel, RollbackRecord};
 {% endif %}
 /// What `check_update` found, for the UI.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     configured: bool,
@@ -183,6 +184,7 @@ fn restart(app: &tauri::AppHandle) -> ! {
 /// What `update_channel_status` reports, for Settings → Updates.
 #[cfg(feature = "release-channels")]
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelStatus {
     channel: Channel,

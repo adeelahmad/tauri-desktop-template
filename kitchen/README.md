@@ -29,7 +29,7 @@ kitchen upgrade                   # move to the newest template, keeping your ed
 
 kitchen generate module invoices --config                     # desktop-core module + settings section
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
-kitchen generate command export_csv                           # Tauri command + backend method
+kitchen generate command export_csv                           # Tauri command + backend method, and the UI's typed IPC bindings
 kitchen generate page Reports                                 # React page on the main screen
 kitchen generate job send_digest                              # background job type (needs background_jobs)
 kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E   # app action in the app menu (tray_menu)
@@ -42,7 +42,7 @@ kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKi
 
 kitchen start                     # cargo tauri dev, KITCHEN_ENV=development: Vite HMR + Rust rebuilds (`dev` works too)
 kitchen start --install           # also installs a missing Tauri CLI first
-kitchen test                      # unit tests, then the real app over WebDriver (KITCHEN_ENV=test)
+kitchen test                      # unit tests, the UI's accessibility check (npm run a11y), then the real app over WebDriver (KITCHEN_ENV=test)
 kitchen test --unit               # cargo test --workspace (nextest + doc tests if nextest is installed)
 kitchen test --feature            # e2e/: tauri-driver on Linux/Windows; --self-test on macOS
 kitchen package --release         # this OS's installers (dmg/app, nsis/msi, appimage/deb) into ./packages
@@ -64,7 +64,7 @@ One path from a new app to a release, like `rails new` → `rails s` → `rails 
 | Command | Runs | Environment |
 |---|---|---|
 | `kitchen start` | `cargo tauri dev` | `KITCHEN_ENV=development` |
-| `kitchen test --unit` | `cargo test --workspace`, or `cargo nextest run --workspace` + `cargo test --doc` | `KITCHEN_ENV=test` |
+| `kitchen test --unit` | `cargo test --workspace`, or `cargo nextest run --workspace` + `cargo test --doc`; then `npm --prefix ui-react run a11y` when Node is installed | `KITCHEN_ENV=test` |
 | `kitchen test --feature` | `cargo tauri build --debug --no-bundle`, then `cargo test -p e2e -- --ignored` (under `xvfb-run` without a display) | `KITCHEN_ENV=test` |
 | `kitchen package [os] [--release]` | `cargo tauri build --bundles <this OS's formats> [--debug]`, then copies to `./packages` | `production` with `--release`, else `development` |
 | `kitchen publish --yes` | `gh release create v<version> packages/* --generate-notes` | |
@@ -78,7 +78,7 @@ app's `docs/GUIDE.md`).
 
 | On the web | In a Kitchen app |
 |---|---|
-| `fetch('/api/...')` | `invoke('command', { ... })`: your API call |
+| `fetch('/api/...')` | `api.command({ ... })` (React, `src/ipc.js`) or `invoke('command', { ... })`: your API call, typed from the Rust code |
 | routes / controllers | Tauri commands (`kitchen generate command <name>`) |
 | your backend service | `desktop_core`, a plain Rust library |
 | `.env`, `config/*.json` | `config/` per environment and OS (build time) + the user's settings (run time) |

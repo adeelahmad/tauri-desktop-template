@@ -419,6 +419,7 @@ mod windows {
 
 /// What `--service status` reports (and the Settings page shows).
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ServiceStatus {
     /// `user` or `system`.
     pub level: Level,

@@ -53,6 +53,7 @@ use std::time::Duration;
 
 /// How the connection to the server is protected.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Security {
     /// TLS from the first byte (SMTPS, usually port 465).
@@ -68,6 +69,7 @@ pub enum Security {
 /// SMTP settings (`mail` in settings). The password is not here: it is kept apart, in an
 /// owner-only file (see [`PasswordFile`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct MailConfig {
     /// Allow sending at all (off by default).
@@ -111,6 +113,7 @@ impl MailConfig {
 
 /// One file to attach.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Attachment {
     /// The file name the recipient sees.
@@ -133,6 +136,7 @@ impl Attachment {
 
 /// An email to send.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Message {
     /// Recipients (`Name <address>` or a bare address).
@@ -156,6 +160,7 @@ pub struct Message {
 
 /// What a successful send returns.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Sent {
     /// The `Message-ID` header the message went out with.

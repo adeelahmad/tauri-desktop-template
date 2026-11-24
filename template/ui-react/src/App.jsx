@@ -1,7 +1,7 @@
 // React frontend talking to the Rust commands in src-tauri/src/lib.rs.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, DESCRIPTION, configGet, setConfig } from './config.js';
@@ -22,8 +22,13 @@ function describe(info, status) {
   return `${base} · ${s.chunks} chunks · ${s.backend} store · ${s.embedder || 'keyword search'}`;
 }
 
+// A live region: screen readers read each new message (errors at once, the rest politely).
 function Status({ text, error }) {
-  return <p className={error ? 'status error' : 'status'}>{text}</p>;
+  return (
+    <p className={error ? 'status error' : 'status'} role={error ? 'alert' : 'status'}>
+      {text}
+    </p>
+  );
 }
 
 function Wizard({ info, onSetup, busy, message }) {
@@ -82,7 +87,8 @@ function UpdateBanner() {
   const [update, setUpdate] = useState(null);
   const [text, setText] = useState('');
   useEffect(() => {
-    invoke('check_update')
+    api
+      .check_update()
       .then((u) => u.available && setUpdate(u))
       .catch(() => {});
   }, []);
@@ -93,7 +99,7 @@ function UpdateBanner() {
       setText(total ? `Downloading… ${Math.round((100 * done) / total)}%` : 'Downloading…');
     });
     try {
-      await invoke('install_update');
+      await api.install_update();
     } catch (e) {
       setText(`Update failed: ${e}`);
       off();
@@ -117,7 +123,7 @@ function AddDocuments({ onChange, mobile }) {
   const addFile = async (p) => {
     setMsg({ text: `Reading ${p}…` });
     try {
-      setMsg({ text: `Added ${await invoke('ingest_file', { path: p })} chunks from ${p}.` });
+      setMsg({ text: `Added ${await api.ingest_file({ path: p })} chunks from ${p}.` });
       onChange();
     } catch (e) {
       setMsg({ text: String(e), error: true });
@@ -138,7 +144,7 @@ function AddDocuments({ onChange, mobile }) {
   const addFolder = async (p) => {
     setMsg({ text: `Reading every document in ${p}…` });
     try {
-      const r = await invoke('ingest_folder', { path: p, recursive: true });
+      const r = await api.ingest_folder({ path: p, recursive: true });
       const failed = r.errors.length ? `, ${r.errors.length} failed: ${r.errors[0]}` : '';
       setMsg({ text: `Added ${r.files} files (${r.chunks} chunks)${failed}.`, error: r.errors.length > 0 });
       onChange();
@@ -149,7 +155,7 @@ function AddDocuments({ onChange, mobile }) {
   const addText = async () => {
     if (!text.trim()) return;
     try {
-      setMsg({ text: `Added ${await invoke('ingest_text', { source: name || 'pasted', text })} chunks.` });
+      setMsg({ text: `Added ${await api.ingest_text({ source: name || 'pasted', text })} chunks.` });
       setText('');
       onChange();
     } catch (e) {
@@ -192,7 +198,7 @@ function Search({ features }) {
     if (!query.trim()) return;
     setError('');
     try {
-      setHits(await invoke('search', { query }));
+      setHits(await api.search({ query }));
     } catch (e) {
       setHits(null);
       setError(String(e));
@@ -238,13 +244,14 @@ function BackgroundAgent() {
   const [agent, setAgent] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
-    invoke('agent_status')
+    api
+      .agent_status()
       .then(setAgent)
       .catch((e) => setError(String(e)));
   }, []);
   const toggle = async (enabled) => {
     try {
-      setAgent(await invoke('set_agent', { enabled }));
+      setAgent(await api.set_agent({ enabled }));
       setError('');
     } catch (e) {
       setError(String(e));
@@ -270,7 +277,7 @@ function PythonExample() {
   const [out, setOut] = useState('');
   const run = async () => {
     try {
-      setOut(JSON.stringify(await invoke('python_call', { method: 'stats', params: { text } }), null, 2));
+      setOut(JSON.stringify(await api.python_call({ method: 'stats', params: { text } }), null, 2));
     } catch (e) {
       setOut(String(e));
     }
@@ -283,7 +290,9 @@ function PythonExample() {
       </p>
       <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} />
       <button onClick={run}>Text stats in Python</button>
-      <pre className="status">{out}</pre>
+      <pre className="status" role="status">
+        {out}
+      </pre>
     </section>
   );
 }
@@ -292,7 +301,7 @@ function ClaudeDesktop() {
   const [msg, setMsg] = useState({ text: '' });
   const connect = async () => {
     try {
-      const r = await invoke('register_claude');
+      const r = await api.register_claude();
       setMsg({ text: `Claude Desktop config ${r.status}${r.backup ? ` (backup: ${r.backup})` : ''}. Preparing the tools once…` });
       const off = await listen('warmup-done', (e) => {
         setMsg(
@@ -340,14 +349,15 @@ export default function App() {
         setPhase('ready');
       }),
     ];
-    invoke('run_setup', { backend, embeddings }).catch((e) => {
+    api.run_setup({ backend, embeddings }).catch((e) => {
       setBusy(false);
       setMessage({ text: String(e), error: true });
     });
   };
 
   useEffect(() => {
-    invoke('app_info')
+    api
+      .app_info()
       .then((i) => {
         setConfig(i.config);
         setInfo(i);
@@ -358,14 +368,14 @@ export default function App() {
   }, []);
 
   const refresh = () =>
-    invoke('app_info').then((i) => {
+    api.app_info().then((i) => {
       setInfo(i);
       setStatus(i.status);
     });
   const clearAll = async () => {
     if (!armed) return setArmed(true);
     setArmed(false);
-    setStatus(await invoke('clear'));
+    setStatus(await api.clear());
   };
   const f = info?.features || {};
 

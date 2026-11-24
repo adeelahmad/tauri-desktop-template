@@ -2,7 +2,7 @@
 // the titlebar's gear button or the app menu. Its capability allows events only.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './ipc.js';
 import Settings from './Settings.jsx';
 import { useAppearance } from './shell.js';
 
@@ -11,10 +11,15 @@ export default function SettingsWindow() {
   const [error, setError] = useState('');
   useAppearance();
   useEffect(() => {
-    invoke('app_info')
+    api.app_info()
       .then((i) => setFeatures(i.features))
       .catch((e) => setError(String(e)));
   }, []);
-  if (error) return <p className="status error">{error}</p>;
+  if (error)
+    return (
+      <p className="status error" role="alert">
+        {error}
+      </p>
+    );
   return features && <Settings features={features} />;
 }

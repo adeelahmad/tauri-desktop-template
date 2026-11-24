@@ -35,6 +35,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Log settings (`log` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct LogConfig {
     /// error, warn, info, debug or trace.

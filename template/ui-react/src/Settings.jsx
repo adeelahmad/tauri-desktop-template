@@ -2,7 +2,7 @@
 // Every optional behaviour is off until it is switched on here.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api, invoke } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
@@ -390,7 +390,8 @@ function WatchStatus() {
   const [st, setSt] = useState(null);
   useEffect(() => {
     const tick = () =>
-      invoke('watch_status')
+      api
+        .watch_status()
         .then(setSt)
         .catch(() => {});
     tick();
@@ -421,14 +422,14 @@ function MailSetup({ from }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    invoke('mail_password').then(
+    api.mail_password().then(
       (r) => setSaved(r.set),
       () => {},
     );
   }, []);
   const store = async () => {
     try {
-      setSaved((await invoke('mail_password', { password })).set);
+      setSaved((await api.mail_password({ password })).set);
       setPassword('');
       setMsg('Password saved.');
     } catch (e) {
@@ -439,7 +440,7 @@ function MailSetup({ from }) {
     setBusy(true);
     setMsg(to ? `Sending to ${to}...` : 'Connecting...');
     try {
-      await invoke('test_mail', { to });
+      await api.test_mail({ to });
       setMsg(to ? `Sent. Check ${to}.` : 'Connected and logged in.');
     } catch (e) {
       setMsg(String(e));
@@ -453,6 +454,7 @@ function MailSetup({ from }) {
       <div className="row">
         <input
           type="password"
+          aria-label="SMTP password"
           placeholder={saved ? 'Password saved (type to replace)' : 'Password or app password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -483,7 +485,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
   const [secrets, setSecrets] = useState({});
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
-  const refresh = () => invoke('oauth_status').then(setStatus, (e) => setMsg(String(e)));
+  const refresh = () => api.oauth_status().then(setStatus, (e) => setMsg(String(e)));
   useEffect(() => {
     refresh();
     const off = listen('oauth-changed', (e) => {
@@ -516,7 +518,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
   };
   const saveSecret = async (id) => {
     try {
-      const r = await invoke('oauth_client_secret', { provider: id, secret: secrets[id] || '' });
+      const r = await api.oauth_client_secret({ provider: id, secret: secrets[id] || '' });
       setSecrets({ ...secrets, [id]: '' });
       setMsg(r.set ? 'Client secret saved in the keychain.' : 'Client secret removed.');
       refresh();
@@ -578,12 +580,12 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
             </div>
             <div className="row">
               {st?.signedIn ? (
-                <button onClick={() => act('signout', () => invoke('oauth_logout', { provider: p.id }))} disabled={!!busy}>
+                <button onClick={() => act('signout', () => api.oauth_logout({ provider: p.id }))} disabled={!!busy}>
                   Sign out
                 </button>
               ) : (
                 <button
-                  onClick={() => act('signin', () => invoke('oauth_login', { provider: p.id }))}
+                  onClick={() => act('signin', () => api.oauth_login({ provider: p.id }))}
                   disabled={!!busy || !st?.ready || !status?.enabled}
                 >
                   Sign in with {PROVIDER_LABELS[p.kind]}
@@ -615,7 +617,7 @@ function PluginList({ settings, onChange }) {
   const [list, setList] = useState([]);
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    invoke('plugins_list').then(setList, (e) => setMsg(String(e)));
+    api.plugins_list().then(setList, (e) => setMsg(String(e)));
   }, []);
   const put = (name, key, v) => onChange({ ...settings, [name]: { ...(settings[name] || {}), [key]: v } });
   return (
@@ -678,8 +680,8 @@ function JobsPanel() {
   const [payload, setPayload] = useState('{}');
   const [msg, setMsg] = useState('');
   const refresh = () => {
-    invoke('jobs_list').then(setSt, (e) => setMsg(String(e)));
-    invoke('jobs_schedules').then(setSchedules, () => {});
+    api.jobs_list().then(setSt, (e) => setMsg(String(e)));
+    api.jobs_schedules().then(setSchedules, () => {});
   };
   useEffect(() => {
     refresh();
@@ -697,7 +699,7 @@ function JobsPanel() {
   };
   const enqueue = async () => {
     try {
-      const job = await invoke('jobs_enqueue', { kind: kind || st.types[0], payload: JSON.parse(payload || '{}') });
+      const job = await api.jobs_enqueue({ kind: kind || st.types[0], payload: JSON.parse(payload || '{}') });
       setMsg(`Queued ${job.kind}.`);
     } catch (e) {
       setMsg(String(e));
@@ -776,13 +778,13 @@ function RcloneSetup() {
   const [text, setText] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const refresh = () => invoke('rclone_status').then(setSt, () => {});
+  const refresh = () => api.rclone_status().then(setSt, () => {});
   useEffect(() => {
     refresh();
   }, []);
   const saveConf = async () => {
     try {
-      setSt(await invoke('rclone_config', { text }));
+      setSt(await api.rclone_config({ text }));
       setText('');
       setMsg(text ? 'Config saved.' : 'Config removed.');
     } catch (e) {
@@ -837,12 +839,12 @@ function TailscaleStatus() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    invoke('tailscale_status').then(setR, (e) => setMsg(String(e)));
+    api.tailscale_status().then(setR, (e) => setMsg(String(e)));
   }, []);
   const apply = async () => {
     setBusy(true);
     try {
-      setR(await invoke('tailscale_apply'));
+      setR(await api.tailscale_apply());
       setMsg('Done.');
     } catch (e) {
       setMsg(String(e));
@@ -881,13 +883,13 @@ function ServiceSetup() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    invoke('service_status').then(setSt, (e) => setMsg(String(e)));
-    invoke('service_system_hint').then(setHint, () => {});
+    api.service_status().then(setSt, (e) => setMsg(String(e)));
+    api.service_system_hint().then(setHint, () => {});
   }, []);
   const toggle = async (enabled) => {
     setBusy(true);
     try {
-      setSt(await invoke('set_service', { enabled }));
+      setSt(await api.set_service({ enabled }));
       setMsg(enabled ? 'Installed.' : 'Removed.');
     } catch (e) {
       setMsg(String(e));
@@ -913,7 +915,9 @@ function ServiceSetup() {
       <div className="hint">
         To start it at boot for the whole machine instead, run as administrator: <code>{hint}</code>
       </div>
-      <p className="status">{msg}</p>
+      <p className="status" role="status">
+        {msg}
+      </p>
     </>
   );
 }
@@ -931,7 +935,7 @@ function WebviewTry() {
   }, []);
   const open = async () => {
     try {
-      const label = await invoke('webview_open', { url, name: 'settings' });
+      const label = await api.webview_open({ url, name: 'settings' });
       setMsg(`Opened in ${label}.`);
     } catch (e) {
       setMsg(String(e));
@@ -941,7 +945,7 @@ function WebviewTry() {
     <div className="row">
       <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Web page to open" />
       <button onClick={open}>Open</button>
-      <button className="link" onClick={() => invoke('webview_close', { name: 'settings' }).catch((e) => setMsg(String(e)))}>
+      <button className="link" onClick={() => api.webview_close({ name: 'settings' }).catch((e) => setMsg(String(e)))}>
         Close
       </button>
       <span className="hint">{msg}</span>
@@ -954,7 +958,7 @@ function HttpApiInfo() {
   const [r, setR] = useState(null);
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    invoke('http_api_info').then(setR, (e) => setMsg(String(e)));
+    api.http_api_info().then(setR, (e) => setMsg(String(e)));
   }, []);
   const copy = async (text, what) => {
     try {
@@ -998,7 +1002,7 @@ function VoiceDownload() {
     setBusy(true);
     const unlisten = await listen('voice-progress', (e) => setMsg(`Downloading ${e.payload}`));
     try {
-      await invoke('download_voice');
+      await api.download_voice();
       setMsg('Voice ready.');
     } catch (e) {
       setMsg(String(e));
@@ -1024,7 +1028,7 @@ function SttDownload() {
     setBusy(true);
     const unlisten = await listen('stt-progress', (e) => setMsg(`Downloading ${e.payload}`));
     try {
-      await invoke('download_stt');
+      await api.download_stt();
       setMsg('Model ready.');
     } catch (e) {
       setMsg(String(e));
@@ -1049,7 +1053,8 @@ function Profiles() {
   const [name, setName] = useState('');
   const [msg, setMsg] = useState('');
   const load = () =>
-    invoke('list_profiles')
+    api
+      .list_profiles()
       .then(setP)
       .catch((e) => setMsg(String(e)));
   useEffect(() => {
@@ -1073,12 +1078,12 @@ function Profiles() {
             {x.name}
             {x.id === p.running ? ' (open now)' : ''}{' '}
             {x.id !== p.running && (
-              <button className="link" onClick={act(() => invoke('switch_profile', { id: x.id }))}>
+              <button className="link" onClick={act(() => api.switch_profile({ id: x.id }))}>
                 Switch
               </button>
             )}
             {x.id !== p.running && x.id !== 'default' && (
-              <button className="link" onClick={act(() => invoke('remove_profile', { id: x.id, deleteData: false }))}>
+              <button className="link" onClick={act(() => api.remove_profile({ id: x.id, deleteData: false }))}>
                 Remove (keeps its files)
               </button>
             )}
@@ -1086,11 +1091,11 @@ function Profiles() {
         ))}
       </ul>
       <div className="row">
-        <input placeholder="New profile name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="New profile name" aria-label="New profile name" value={name} onChange={(e) => setName(e.target.value)} />
         <button
           disabled={!name.trim()}
           onClick={act(async () => {
-            await invoke('create_profile', { name });
+            await api.create_profile({ name });
             setName('');
           })}
         >
@@ -1109,7 +1114,8 @@ function Backups() {
   const [recovery, setRecovery] = useState('');
   const [key, setKey] = useState('');
   const load = () =>
-    invoke('list_backups')
+    api
+      .list_backups()
       .then(setList)
       .catch((e) => setMsg(String(e)));
   useEffect(() => {
@@ -1126,10 +1132,10 @@ function Backups() {
     setBusy(false);
     load();
   };
-  const now = () => run('Backing up…', async () => `Backed up ${(await invoke('backup_now')).chunks} chunks.`);
+  const now = () => run('Backing up…', async () => `Backed up ${(await api.backup_now()).chunks} chunks.`);
   const restore = (b) =>
     run('Restoring…', async () => {
-      const s = await invoke('restore_backup', { path: b.path, key: key || null });
+      const s = await api.restore_backup({ path: b.path, key: key || null });
       return `Restored ${s.chunks} chunks. The index it replaced was backed up first.`;
     });
   return (
@@ -1156,7 +1162,7 @@ function Backups() {
         <button
           className="link"
           onClick={() =>
-            invoke('backup_recovery_key').then(
+            api.backup_recovery_key().then(
               (r) => setRecovery(r.key),
               (e) => setMsg(String(e)),
             )
@@ -1178,7 +1184,8 @@ function Backups() {
 function TelemetryStatus() {
   const [s, setS] = useState(null);
   useEffect(() => {
-    invoke('telemetry_status')
+    api
+      .telemetry_status()
       .then(setS)
       .catch(() => {});
   }, []);
@@ -1198,13 +1205,14 @@ function McpConnect() {
   const [setup, setSetup] = useState(null);
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    invoke('mcp_setup')
+    api
+      .mcp_setup()
       .then(setSetup)
       .catch(() => {});
   }, []);
   const register = async () => {
     try {
-      const r = await invoke('mcp_register_claude');
+      const r = await api.mcp_register_claude();
       setMsg(`Claude Desktop: ${r}. Restart Claude Desktop to load it.`);
     } catch (e) {
       setMsg(String(e));
@@ -1229,7 +1237,8 @@ function McpConnect() {
 function McpPolicies({ policies, onChange }) {
   const [tools, setTools] = useState([]);
   useEffect(() => {
-    invoke('mcp_setup')
+    api
+      .mcp_setup()
       .then((s) => setTools(['*', ...s.tools]))
       .catch(() => {});
   }, []);
@@ -1263,7 +1272,8 @@ function McpPending() {
   const [msg, setMsg] = useState('');
   useEffect(() => {
     const tick = () =>
-      invoke('mcp_pending')
+      api
+        .mcp_pending()
         .then(setCalls)
         .catch(() => {});
     tick();
@@ -1272,7 +1282,7 @@ function McpPending() {
   }, []);
   const decide = async (id, allow) => {
     try {
-      setCalls(await invoke('mcp_decide', { id, allow }));
+      setCalls(await api.mcp_decide({ id, allow }));
       setMsg('');
     } catch (e) {
       setMsg(String(e));
@@ -1306,7 +1316,7 @@ function ModelDownload({ onDone }) {
     setBusy(true);
     const unlisten = await listen('model-progress', (e) => setMsg(`Downloading: ${e.payload}`));
     try {
-      const path = await invoke('download_model', {});
+      const path = await api.download_model({});
       onDone(path);
       setMsg(`Ready: ${path}`);
     } catch (e) {
@@ -1332,13 +1342,14 @@ function AiKeys() {
   const [key, setKey] = useState('');
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    invoke('ai_keys')
+    api
+      .ai_keys()
       .then(setHave)
       .catch(() => {});
   }, []);
   const save = async (value) => {
     try {
-      setHave(await invoke('set_ai_key', { provider, key: value }));
+      setHave(await api.set_ai_key({ provider, key: value }));
       setKey('');
       setMsg(value ? 'Key saved.' : 'Key removed.');
     } catch (e) {
@@ -1381,7 +1392,8 @@ function AiUsage() {
   const [u, setU] = useState(null);
   const [err, setErr] = useState('');
   const load = () =>
-    invoke('ai_usage')
+    api
+      .ai_usage()
       .then(setU)
       .catch((e) => setErr(String(e)));
   useEffect(() => {
@@ -1521,7 +1533,12 @@ function EntryList({ title, entries, actions, onChange, keys }) {
           <ActionPick value={e.action} actions={actions} separator onChange={(v) => put(i, 'action', v)} />
           {e.action !== 'separator' && (
             <>
-              <input value={e.label} placeholder="Label (empty = default)" onChange={(x) => put(i, 'label', x.target.value)} />
+              <input
+                value={e.label}
+                placeholder="Label (empty = default)"
+                aria-label="Menu label"
+                onChange={(x) => put(i, 'label', x.target.value)}
+              />
               {keys && <KeyCapture label="" value={e.shortcutHint} onChange={(v) => put(i, 'shortcutHint', v || null)} />}
             </>
           )}
@@ -1554,7 +1571,8 @@ function EntryList({ title, entries, actions, onChange, keys }) {
 function TrayShortcuts({ cfg, setCfg }) {
   const [status, setStatus] = useState({ actions: [], problems: [], shortcuts: [] });
   useEffect(() => {
-    invoke('tray_status')
+    api
+      .tray_status()
       .then(setStatus)
       .catch(() => {});
     const off = listen('tray-status', (e) => setStatus(e.payload));
@@ -1625,19 +1643,25 @@ function UpdateChannel() {
   const [st, setSt] = useState(null);
   const [msg, setMsg] = useState('');
   useEffect(() => {
-    invoke('update_channel_status')
+    api
+      .update_channel_status()
       .then(setSt)
       .catch((e) => setMsg(String(e)));
   }, []);
   const rollback = async () => {
     setMsg(`Going back to ${st.previous}...`);
     try {
-      await invoke('rollback_update');
+      await api.rollback_update();
     } catch (e) {
       setMsg(`Rollback failed: ${e}`);
     }
   };
-  if (!st) return <p className="status">{msg}</p>;
+  if (!st)
+    return (
+      <p className="status" role="status">
+        {msg}
+      </p>
+    );
   return (
     <div className="hint">
       <div>Save to switch channels; the next update check uses the new one.</div>
@@ -1657,7 +1681,9 @@ function UpdateChannel() {
       ) : (
         <div>No earlier version to roll back to yet.</div>
       )}
-      <p className="status">{msg}</p>
+      <p className="status" role="status">
+        {msg}
+      </p>
     </div>
   );
 }
@@ -1668,7 +1694,8 @@ function Licences() {
   const [filter, setFilter] = useState('');
   const [full, setFull] = useState(false);
   useEffect(() => {
-    invoke('third_party_notices')
+    api
+      .third_party_notices()
       .then(setN)
       .catch(() => {});
   }, []);
@@ -1716,7 +1743,8 @@ export default function Settings({ features }) {
   const [msg, setMsg] = useState('');
   const [open, setOpen] = useState('');
   useEffect(() => {
-    invoke('get_config')
+    api
+      .get_config()
       .then(setCfg)
       .catch((e) => setMsg(String(e)));
   }, []);
@@ -1729,7 +1757,7 @@ export default function Settings({ features }) {
   };
   const save = async () => {
     try {
-      setCfg(await invoke('set_config', { config: cfg }));
+      setCfg(await api.set_config({ config: cfg }));
       setMsg('Saved.');
     } catch (e) {
       setMsg(`Not saved: ${e}`);
@@ -1737,7 +1765,7 @@ export default function Settings({ features }) {
   };
   const reset = async () => {
     setMsg('');
-    setCfg(await invoke('set_config', { config: {} }));
+    setCfg(await api.set_config({ config: {} }));
   };
   const needs = {
     appearance: 'appShell',

@@ -2,7 +2,7 @@
 // `ask-token` events, and the passages it was given are listed under it as citations.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 import Speak from './Speak.jsx';
 import Dictate from './Dictate.jsx';
@@ -22,7 +22,7 @@ export default function Ask({ features }) {
     setResult(null);
     const unlisten = await listen('ask-token', (e) => setAnswer((a) => a + e.payload));
     try {
-      const r = await invoke('ask', { question });
+      const r = await api.ask({ question });
       setAnswer(r.reply.text);
       setResult(r);
     } catch (e) {
@@ -61,7 +61,11 @@ export default function Ask({ features }) {
         </button>
         {features?.stt && <Dictate onText={setQuestion} />}
       </div>
-      {error && <p className="status error">{error}</p>}
+      {error && (
+        <p className="status error" role="alert">
+          {error}
+        </p>
+      )}
       {answer && <div className="answer">{answer}</div>}
       {result && (
         <>

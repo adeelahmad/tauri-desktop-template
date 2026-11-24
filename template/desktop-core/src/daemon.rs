@@ -51,6 +51,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Who the service belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
     /// The signed-in user: a LaunchAgent, a `systemctl --user` unit, or a Windows Run entry.
@@ -245,6 +246,7 @@ pub const STABLE_SECS: u64 = 600;
 /// its heartbeat refreshed while it runs, and removed on a clean stop. A file left behind
 /// means the last run crashed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Health {
     /// The daemon's process id.
     pub pid: u32,

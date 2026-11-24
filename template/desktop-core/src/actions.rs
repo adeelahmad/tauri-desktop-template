@@ -374,6 +374,7 @@ pub fn action_of(menu_id: &str) -> Option<&str> {
 
 /// A tray or menu entry in settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct MenuEntry {
     /// The item's own id (unique in its menu).
@@ -412,6 +413,7 @@ impl MenuEntry {
 
 /// The system tray (Windows, Linux) or menu-bar icon (macOS).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct TrayConfig {
     /// Show the icon. Off by default.
@@ -440,6 +442,7 @@ impl Default for TrayConfig {
 
 /// The app-defined menu next to the platform's own (App, Edit, Window on macOS).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct MenuConfig {
     /// Its title in the menu bar.
@@ -456,6 +459,7 @@ impl Default for MenuConfig {
 
 /// A global shortcut: works while another app is in front.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct ShortcutBinding {
     /// Like `CmdOrCtrl+Shift+K`; empty turns off the code's default for this action.

@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
-  { ignores: ['dist'] },
+  { ignores: ['dist', 'src/bindings'] },
   js.configs.recommended,
   react.configs.flat.recommended,
   react.configs.flat['jsx-runtime'],
@@ -24,5 +24,11 @@ export default [
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       'react/prop-types': 'off',
     },
+  },
+  // Node scripts (npm run a11y; its page.evaluate callbacks run in the browser) and the Vite config.
+  {
+    files: ['scripts/**/*.mjs', 'vite.config.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    settings: { react: { version: 'detect' } },
   },
 ];

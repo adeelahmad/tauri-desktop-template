@@ -3,7 +3,7 @@
 // draws the custom titlebar.
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './ipc.js';
 import { listen } from '@tauri-apps/api/event';
 
 export const os = () => document.documentElement.dataset.os || '';
@@ -14,14 +14,14 @@ export const hasShell = () => typeof window !== 'undefined' && !!window.__appear
 /** Whether this window draws its own titlebar (desktop main window only). */
 export const drawsTitlebar = () => hasShell() && !['ios', 'android'].includes(os());
 
-export const openSettings = () => invoke('open_settings').catch(() => {});
+export const openSettings = () => api.open_settings().catch(() => {});
 
 /** Apply saved appearance changes (from any window) as they happen. */
 export function useAppearance() {
   useEffect(() => {
     if (!hasShell()) return;
     const off = listen('appearance', (e) => window.__appearance.apply(e.payload));
-    invoke('get_appearance')
+    api.get_appearance()
       .then((a) => window.__appearance.apply(a))
       .catch(() => {});
     return () => {

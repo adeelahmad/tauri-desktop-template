@@ -50,6 +50,7 @@ const VERSION: u32 = 1;
 
 /// Backup settings (`backup` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct BackupConfig {
     /// Back up on this schedule (0 = only when asked).
@@ -140,6 +141,7 @@ impl BackupConfig {
 
 /// Line 1 of a backup file: what it holds and how to check it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     /// Always `desktop-core-backup`.
@@ -168,6 +170,7 @@ pub struct Manifest {
 
 /// One backup file, for lists and results.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BackupInfo {
     /// The backup file.

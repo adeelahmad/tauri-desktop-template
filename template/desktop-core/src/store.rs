@@ -33,6 +33,7 @@ use std::sync::Mutex;
 
 /// One search result: a chunk, where it came from and how it scored.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Hit {
     /// The source path or name of the chunk.
     pub source: String,
@@ -143,6 +144,7 @@ pub fn bm25_scores<'a>(query: &str, texts: impl Iterator<Item = &'a str>) -> Vec
 const FILE_FORMAT: u32 = 1;
 
 #[derive(Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct FileData {
     /// Format version (see `FILE_FORMAT`); files from a newer app are refused, not damaged.
     #[serde(default)]
@@ -152,6 +154,7 @@ struct FileData {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct Record {
     #[serde(flatten)]
     chunk: Chunk,

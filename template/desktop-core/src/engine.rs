@@ -36,6 +36,7 @@ use std::sync::{Mutex, RwLock};
 {% if ai %}/// What `Engine::ask` returns: the model's reply and the passages it was given.
 #[cfg(feature = "ai")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Answer {
     /// The model's reply, with the provider, model and token counts.
     pub reply: crate::llm::Reply,
@@ -48,6 +49,7 @@ pub struct Answer {
 
 {% endif %}/// Where chunks are stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
     /// One JSON file in the data folder (`FileStore`); no setup, fine for tens of thousands of chunks.
@@ -59,6 +61,7 @@ pub enum Backend {
 
 /// What [`Engine::open`] needs: the data folder, the store, the model switch and the config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EngineOptions {
     /// Private folder for the store, the database and the model cache.
     pub data_dir: PathBuf,
@@ -82,6 +85,7 @@ fn yes() -> bool {
 
 /// A snapshot of the engine for the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Status {
     /// `file` or `postgres`.
     pub backend: String,
@@ -114,6 +118,7 @@ pub struct Engine {
 
 /// What `ingest_paths` did.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct IngestReport {
     /// Files ingested.
     pub files: usize,

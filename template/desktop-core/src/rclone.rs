@@ -84,6 +84,7 @@ pub type Result<T, E = RcloneError> = std::result::Result<T, E>;
 
 /// Which way files go.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
     /// Copy new and changed files up; nothing is deleted (`rclone copy`).
@@ -99,6 +100,7 @@ pub enum Direction {
 
 /// What is synced.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Folder {
     /// The backups folder (`backup.folder`, or `<data>/backups`).
@@ -110,6 +112,7 @@ pub enum Folder {
 
 /// Cloud sync settings (`rclone` in settings). Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct RcloneConfig {
     /// Allow syncing (off by default).
@@ -329,6 +332,7 @@ pub fn remotes_in(text: &str) -> Vec<String> {
 
 /// How the last sync went.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LastRun {
     /// RFC 3339, UTC.
     pub finished: String,
@@ -342,6 +346,7 @@ pub struct LastRun {
 
 /// What Settings shows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     /// The pinned rclone version.

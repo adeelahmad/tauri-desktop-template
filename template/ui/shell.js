@@ -2,7 +2,8 @@
 // The theme is already on <html> before this runs (a script from src-tauri/src/shell.rs).
 (() => {
   if (!window.__appearance) return;
-  const { invoke } = window.__TAURI__.core;
+  /** @type {import('./bindings/commands').Invoke} (typed IPC, see app.js) */
+  const invoke = window.__TAURI__.core.invoke;
   const { listen } = window.__TAURI__.event;
   const root = document.documentElement;
   const os = root.dataset.os || '';

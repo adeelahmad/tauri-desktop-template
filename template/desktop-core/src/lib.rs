@@ -21,7 +21,8 @@
 //! meter; feature `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `oauth`, `telemetry`, `webview`,
 //! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`),
 //! `notices` (licence notices, feature `supply-chain`), `release` (update channels, feature
-//! `release-channels`).
+//! `release-channels`), `bindings` (typed IPC: TypeScript types for the Tauri commands; feature
+//! `ts`, tests only).
 //!
 //! # Example
 //!
@@ -45,6 +46,8 @@
 
 pub mod audio;
 pub mod backup;
+#[cfg(feature = "ts")]
+pub mod bindings;
 pub mod chunk;
 pub mod config;
 pub mod dotenv;

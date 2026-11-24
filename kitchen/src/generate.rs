@@ -375,7 +375,7 @@ pub fn command(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     let mut r = e.finish(root, format!("Generated command {name}"), opts)?;
     r.next = vec![
         format!(
-            "Edit src-tauri/src/{name}.rs, then call invoke('{name}', {{ input }}) from the UI"
+            "Edit src-tauri/src/{name}.rs, then call api.{name}({{ input }}) from the UI (import {{ api }} from './ipc.js')"
         ),
         "kitchen test --unit   # runs its test".into(),
     ];

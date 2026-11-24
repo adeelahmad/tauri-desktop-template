@@ -47,6 +47,8 @@ pub fn registry() -> Registry {
 
 /// One global shortcut and whether it could be registered.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(rename = "ShortcutState"))]
 pub struct Bound {
     accelerator: String,
     action: String,
@@ -55,6 +57,8 @@ pub struct Bound {
 
 /// What Settings shows: the actions to pick from, problems, and the shortcuts' state.
 #[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(rename = "TrayStatus"))]
 pub struct Status {
     actions: Vec<Value>,
     problems: Vec<String>,

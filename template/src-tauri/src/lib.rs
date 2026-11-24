@@ -125,6 +125,7 @@ struct AppState {
 
 /// Saved in the app's config folder; the wizard writes it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 struct Settings {
     #[serde(default)]
@@ -191,41 +192,111 @@ fn save_config(config: Config) -> Result<(), String> {
 /// (embedded Postgres, folder watching, the worker process, the background agent, the
 /// updater, the MCP server, Python and Claude Desktop) are compiled out and report `false`,
 /// and `mobile` is `true`, so the UI hides their sections.
-fn features() -> Value {
-    json!({
-        "mobile": cfg!(mobile),
-        "appShell": cfg!(feature = "app-shell"),
-        "embed": cfg!(feature = "embed"),
-        "postgres": cfg!(all(desktop, feature = "postgres")),
-        "bm25": cfg!(all(desktop, feature = "bm25")),
-        "watch": cfg!(all(desktop, feature = "watch")),
-        "ai": cfg!(feature = "ai"),
-        "llama": cfg!(feature = "llama"),
-        "tts": cfg!(feature = "tts"),
-        "stt": cfg!(feature = "stt"),
-        "mail": cfg!(feature = "mail"),
-        "plugins": cfg!(feature = "plugins"),
-        "jobs": cfg!(feature = "jobs-queue"),
-        "rclone": cfg!(feature = "rclone"),
-        "tailscale": cfg!(feature = "tailscale"),
-        "oauth": cfg!(feature = "oauth"),
-        "oauthDeepLink": {% if tauri_plugins %}{% if tauri_deep_link %}cfg!(feature = "oauth"){% else %}false{% endif %}{% else %}false{% endif %},
-        "webview": cfg!(all(desktop, feature = "webview")),
-        "httpApi": cfg!(all(desktop, feature = "http-api")),
-        "telemetry": cfg!(feature = "telemetry"),
-        "mcp": cfg!(all(desktop, feature = "mcp")),
-        "pdf": cfg!(feature = "pdf"),
-        "wizard": cfg!(feature = "wizard"),
-        "updater": cfg!(all(desktop, feature = "updater")),
-        "ipcWorker": cfg!(all(desktop, feature = "ipc-worker")),
-        "backgroundAgent": cfg!(all(desktop, feature = "background-agent")),
-        "daemon": cfg!(all(desktop, feature = "daemon")),
-        "pythonExample": cfg!(all(desktop, feature = "python-example")),
-        "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
-        "trayMenu": cfg!(all(desktop, feature = "tray-menu")),
-        "supplyChain": cfg!(feature = "supply-chain"),
-        "releaseChannels": cfg!(all(desktop, feature = "release-channels")),
-    })
+#[derive(Debug, Clone, Copy, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+struct Features {
+    /// This is the iOS or Android app.
+    mobile: bool,
+    /// Titlebar, themes and the Settings window (`app-shell`).
+    app_shell: bool,
+    /// Local embeddings (`embed`).
+    embed: bool,
+    /// Embedded Postgres (`postgres`, desktop).
+    postgres: bool,
+    /// BM25 keyword ranking in Postgres (`bm25`).
+    bm25: bool,
+    /// Folder watching (`watch`).
+    watch: bool,
+    /// AI chat (`ai`).
+    ai: bool,
+    /// Built-in llama.cpp (`llama`).
+    llama: bool,
+    /// Text to speech (`tts`).
+    tts: bool,
+    /// Speech to text (`stt`).
+    stt: bool,
+    /// Email (`mail`).
+    mail: bool,
+    /// Plugins (`plugins`).
+    plugins: bool,
+    /// Background jobs (`jobs-queue`).
+    jobs: bool,
+    /// Cloud sync with rclone (`rclone`).
+    rclone: bool,
+    /// Tailscale (`tailscale`).
+    tailscale: bool,
+    /// Sign-in (`oauth`).
+    oauth: bool,
+    /// Sign-in can return through the app's own URL scheme.
+    oauth_deep_link: bool,
+    /// Embedded web views (`webview`, desktop).
+    webview: bool,
+    /// The local REST API (`http-api`, desktop).
+    http_api: bool,
+    /// Opt-in telemetry (`telemetry`).
+    telemetry: bool,
+    /// The MCP server (`mcp`, desktop).
+    mcp: bool,
+    /// PDF text (`pdf`).
+    pdf: bool,
+    /// The first-run wizard (`wizard`).
+    wizard: bool,
+    /// Auto-update (`updater`, desktop).
+    updater: bool,
+    /// The backend runs in a worker process (`ipc-worker`, desktop).
+    ipc_worker: bool,
+    /// The worker starts at login (`background-agent`, desktop).
+    background_agent: bool,
+    /// Daemon mode and OS services (`daemon`, desktop).
+    daemon: bool,
+    /// The Python worker example (`python-example`, desktop).
+    python_example: bool,
+    /// Claude Desktop registration (`claude-mcp`, desktop).
+    claude_mcp: bool,
+    /// Tray, global shortcuts and app menu (`tray-menu`, desktop).
+    tray_menu: bool,
+    /// Licence notices and supply-chain checks (`supply-chain`).
+    supply_chain: bool,
+    /// Update channels, staged rollout and rollback (`release-channels`, desktop).
+    release_channels: bool,
+}
+
+fn features() -> Features {
+    Features {
+        mobile: cfg!(mobile),
+        app_shell: cfg!(feature = "app-shell"),
+        embed: cfg!(feature = "embed"),
+        postgres: cfg!(all(desktop, feature = "postgres")),
+        bm25: cfg!(all(desktop, feature = "bm25")),
+        watch: cfg!(all(desktop, feature = "watch")),
+        ai: cfg!(feature = "ai"),
+        llama: cfg!(feature = "llama"),
+        tts: cfg!(feature = "tts"),
+        stt: cfg!(feature = "stt"),
+        mail: cfg!(feature = "mail"),
+        plugins: cfg!(feature = "plugins"),
+        jobs: cfg!(feature = "jobs-queue"),
+        rclone: cfg!(feature = "rclone"),
+        tailscale: cfg!(feature = "tailscale"),
+        oauth: cfg!(feature = "oauth"),
+        oauth_deep_link: {% if tauri_plugins %}{% if tauri_deep_link %}cfg!(feature = "oauth"){% else %}false{% endif %}{% else %}false{% endif %},
+        webview: cfg!(all(desktop, feature = "webview")),
+        http_api: cfg!(all(desktop, feature = "http-api")),
+        telemetry: cfg!(feature = "telemetry"),
+        mcp: cfg!(all(desktop, feature = "mcp")),
+        pdf: cfg!(feature = "pdf"),
+        wizard: cfg!(feature = "wizard"),
+        updater: cfg!(all(desktop, feature = "updater")),
+        ipc_worker: cfg!(all(desktop, feature = "ipc-worker")),
+        background_agent: cfg!(all(desktop, feature = "background-agent")),
+        daemon: cfg!(all(desktop, feature = "daemon")),
+        python_example: cfg!(all(desktop, feature = "python-example")),
+        claude_mcp: cfg!(all(desktop, feature = "claude-mcp")),
+        tray_menu: cfg!(all(desktop, feature = "tray-menu")),
+        supply_chain: cfg!(feature = "supply-chain"),
+        release_channels: cfg!(all(desktop, feature = "release-channels")),
+    }
 }
 
 /// Embedded Postgres runs on desktop only: iOS and Android always use the file store.
@@ -252,27 +323,55 @@ fn call(state: &tauri::State<AppState>, method: &str, params: Value) -> Result<V
     state.service.call(method, params, &mut |_| {})
 }
 
+/// What the UI needs at start: the app, the parts built in, the saved settings and the store.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    name: String,
+    version: String,
+    features: Features,
+    /// Postgres can run on this computer (when built in).
+    postgres_available: bool,
+    settings: Settings,
+    /// The open store, or `null` before setup.
+    status: Option<Status>,
+    data_dir: PathBuf,
+    /// The running profile's id.
+    profile: String,
+    /// The build-time app config (config/*.json merged for this build); see `app_config`.
+    config: Value,
+}
+
+/// The app, the parts built in, the saved settings and the open store's status.
 #[tauri::command(async)]
-fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
-    let status = call(&state, "status", Value::Null).ok().filter(|s| !s.is_null());
-    Ok(json!({
-        "name": app.package_info().name,
-        "version": app.package_info().version.to_string(),
-        "features": features(),
-        "postgresAvailable": postgres_available(),
-        "settings": load_settings(&app),
-        "status": status,
-        "dataDir": paths::app_dirs().1,
-        "profile": paths::profile(),
-        // The build-time app config (config/*.json merged for this build); see `app_config`.
-        "config": app_config::CONFIG.clone(),
-    }))
+fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<AppInfo, String> {
+    let status = call(&state, "status", Value::Null).ok().filter(|s| !s.is_null()).and_then(|s| serde_json::from_value(s).ok());
+    Ok(AppInfo {
+        name: app.package_info().name.clone(),
+        version: app.package_info().version.to_string(),
+        features: features(),
+        postgres_available: postgres_available(),
+        settings: load_settings(&app),
+        status,
+        data_dir: paths::app_dirs().1,
+        profile: paths::profile().to_string(),
+        config: app_config::CONFIG.clone(),
+    })
+}
+
+/// The profiles: which one is running, and the saved list (with the one the next start opens).
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+struct ProfileList {
+    running: String,
+    saved: paths::Profiles,
 }
 
 /// The profiles, which one is running and which one the next start opens.
 #[tauri::command]
-fn list_profiles() -> Value {
-    json!({ "running": paths::profile(), "saved": paths::profiles() })
+fn list_profiles() -> ProfileList {
+    ProfileList { running: paths::profile().to_string(), saved: paths::profiles() }
 }
 
 #[tauri::command]
@@ -866,7 +965,7 @@ const SAMPLE: &str = "Tauri apps draw their interface with the system web view.\
 /// it) each index a sample and find the right chunk. Prints JSON; returns the exit code.
 pub fn self_test(out: Option<&Path>) -> i32 {
     let mut report = serde_json::Map::new();
-    report.insert("features".into(), features());
+    report.insert("features".into(), json!(features()));
     // Which config/ layers this build was made with (see `app_config`).
     report.insert("env".into(), json!(app_config::env()));
     let mut ok = true;
@@ -1299,6 +1398,73 @@ mod tests {
 
     #[test]
     fn features_say_whether_this_is_the_mobile_app() {
-        assert_eq!(features()["mobile"], cfg!(mobile));
+        assert_eq!(features().mobile, cfg!(mobile));
+    }
+
+    /// Typed IPC: writes the TypeScript types of every command and the types they use into
+    /// the UI ({% if frontend == "react" %}`ui-react/src/bindings/`{% else %}`ui/bindings/`{% endif %}). With `CI` set it only compares, and fails when they
+    /// are stale. Run it with the default features: `cargo test -p {{project-name}} export_bindings`.
+    /// A new command that returns a new struct: derive `ts_rs::TS` on it
+    /// (`#[cfg_attr(test, derive(ts_rs::TS))]`) and add it below. See docs/GUIDE.md, "Typed IPC".
+    #[test]
+    fn export_bindings() {
+        use desktop_core::bindings::{check_mode, sync, Bindings};
+        let mut b = Bindings::new();
+        // The types the commands name, under the path each command's file writes them with.
+        b.add::<AppInfo>("AppInfo").add::<ProfileList>("ProfileList").add::<paths::Profile>("paths::Profile");
+        b.add::<Backend>("Backend").add::<Config>("Config").add::<SearchConfig>("SearchConfig");
+        b.add::<Hit>("Hit").add::<IngestReport>("IngestReport").add::<Status>("Status");
+{% if mcp_server %}        #[cfg(all(desktop, feature = "mcp"))]
+        b.add::<mcp::Setup>("mcp::Setup");
+{% endif %}{% if ipc_worker %}{% if background_agent %}        #[cfg(all(desktop, feature = "background-agent"))]
+        b.add::<agent::AgentStatus>("agent::AgentStatus");
+{% endif %}{% if daemon %}        #[cfg(all(desktop, feature = "daemon"))]
+        b.add::<daemon::ServiceStatus>("daemon::ServiceStatus");
+{% endif %}{% endif %}{% if claude_mcp %}        #[cfg(all(desktop, feature = "claude-mcp"))]
+        b.add::<claude::Registration>("claude::Registration");
+{% endif %}{% if tray_menu %}        #[cfg(all(desktop, feature = "tray-menu"))]
+        b.add::<tray::Status>("tray::Status");
+{% endif %}{% if updater %}        #[cfg(all(desktop, feature = "updater"))]
+        b.add::<update::UpdateInfo>("update::UpdateInfo");
+{% if release_channels %}        #[cfg(all(desktop, feature = "release-channels"))]
+        b.add::<update::ChannelStatus>("update::ChannelStatus");
+{% endif %}{% endif %}        // kitchen:bindings (types of generated commands go above this line)
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let module = |m: &str| {
+            let base = src.join(m.replace("::", "/"));
+            std::fs::read_to_string(base.with_extension("rs")).or_else(|_| std::fs::read_to_string(base.join("mod.rs"))).ok()
+        };
+        let lib = std::fs::read_to_string(src.join("lib.rs")).expect("read src/lib.rs");
+        let commands = b.commands(&lib, &module, &cfg_holds).unwrap_or_else(|e| panic!("{e}"));
+        let how = "cargo test -p {{project-name}} export_bindings";
+        let files = b.render(&commands, how);
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("{% if frontend == "react" %}../ui-react/src/bindings{% else %}../ui/bindings{% endif %}");
+        for f in sync(&dir, &files, check_mode(), how).unwrap_or_else(|e| panic!("{e}")) {
+            println!("wrote {}", f.display());
+        }
+    }
+
+    /// Whether a `#[cfg(...)]` predicate in the command list holds in this build.
+    fn cfg_holds(key: &str, value: Option<&str>) -> Option<bool> {
+        macro_rules! features {
+            ($($f:literal),* $(,)?) => {
+                match value {
+                    $(Some($f) => Some(cfg!(feature = $f)),)*
+                    _ => None,
+                }
+            };
+        }
+        match key {
+            "desktop" => Some(cfg!(desktop)),
+            "mobile" => Some(cfg!(mobile)),
+            "debug_assertions" => Some(cfg!(debug_assertions)),
+            "target_os" => value.map(|os| os == std::env::consts::OS),
+            "feature" => features!(
+                "embed", "postgres", "bm25", "watch", "ai", "llama", "mcp", "tts", "stt", "mail", "oauth", "telemetry", "plugins", "jobs-queue", "rclone", "tailscale",
+                "http-api", "webview", "single-instance", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "daemon", "python-example", "claude-mcp",
+                "tray-menu", "app-shell", "supply-chain", "release-channels", "ts",
+            ),
+            _ => None,
+        }
     }
 }

@@ -63,6 +63,7 @@ pub const MAX_MESSAGE: usize = 64 * 1024;
 
 /// What happens to a navigation the allowlist does not cover.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Blocked {
     /// Refuse it and log it.
@@ -75,6 +76,7 @@ pub enum Blocked {
 
 /// Where a web view keeps cookies, local storage and cache.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Isolation {
     /// A separate, persistent jar for each app profile (`<profile data>/webview`).
@@ -97,6 +99,7 @@ pub enum Verdict {
 
 /// Embedded web view settings (`webview` in settings). Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct WebviewConfig {
     /// Let the app open remote pages in its own windows.

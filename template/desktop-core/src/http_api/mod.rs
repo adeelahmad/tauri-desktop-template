@@ -71,6 +71,7 @@ use std::sync::Arc;
 
 /// HTTP API settings (`httpApi` in settings). Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct HttpApiConfig {
     /// Serve the API (off by default).
