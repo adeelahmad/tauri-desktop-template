@@ -11,7 +11,7 @@
 <body>
   <div id="update-banner" class="banner" hidden>
     <span id="update-text"></span>
-    <button id="update-install">Install and restart</button>
+    <button id="update-install" data-i18n="update-install">Install and restart</button>
   </div>
 
   <header>
@@ -19,31 +19,31 @@
     <p class="sub">{{description}}</p>
   </header>
 
-  <section id="loading"><p class="status">Starting…</p></section>
-  <section id="pg-upgrade" hidden aria-label="Database upgrade">
-    <button id="pg-upgrade-yes">Upgrade database</button> <button id="pg-upgrade-no">Not now</button>
+  <section id="loading"><p class="status" data-i18n="starting">Starting…</p></section>
+  <section id="pg-upgrade" hidden aria-label="Database upgrade" data-i18n-aria-label="upgrade-label">
+    <button id="pg-upgrade-yes" data-i18n="upgrade-go">Upgrade database</button> <button id="pg-upgrade-no" data-i18n="upgrade-later">Not now</button>
   </section>
   <p id="store-notice" class="status error" role="alert" hidden></p>
 
   <section id="wizard" hidden>
-    <h2>Welcome</h2>
-    <p class="hint">A one-time setup. Everything stays on this computer.</p>
+    <h2 data-i18n="wizard-title">Welcome</h2>
+    <p class="hint" data-i18n="wizard-intro">A one-time setup. Everything stays on this computer.</p>
     <ol class="steps">
       <li id="w-store">
-        <h3>1. Where to keep your data</h3>
-        <label><input type="radio" name="backend" value="file" checked> A simple file (fast, nothing to download)</label>
-        <label id="w-pg-option"><input type="radio" name="backend" value="postgres"> A private Postgres database with vector search
-          (downloads about 30 MB the first time)</label>
+        <h3 data-i18n="wizard-store">1. Where to keep your data</h3>
+        <label><input type="radio" name="backend" value="file" checked> <span data-i18n="wizard-store-file">A simple file (fast, nothing to download)</span></label>
+        <label id="w-pg-option"><input type="radio" name="backend" value="postgres"> <span data-i18n="wizard-store-postgres">A private Postgres database with vector search
+          (downloads about 30 MB the first time)</span></label>
         <p id="w-pg-note" class="hint" hidden></p>
       </li>
       <li id="w-model">
-        <h3>2. Smart search</h3>
-        <label><input type="checkbox" id="w-embed" checked> Search by meaning with a local AI model
-          (<span id="w-embed-size">downloads it once, 100–500 MB</span>; nothing is sent anywhere)</label>
+        <h3 data-i18n="wizard-model">2. Smart search</h3>
+        <label><input type="checkbox" id="w-embed" checked> <span id="w-embed-text" data-i18n="wizard-model-embed">Search by meaning with a local AI model
+          (downloads it once, 100–500 MB; nothing is sent anywhere)</span></label>
       </li>
       <li>
-        <h3>3. Set up</h3>
-        <button id="w-go">Set up</button>
+        <h3 data-i18n="wizard-go-title">3. Set up</h3>
+        <button id="w-go" data-i18n="wizard-go">Set up</button>
         <progress id="w-progress" hidden></progress>
         <p id="w-status" class="status"></p>
       </li>
@@ -52,29 +52,29 @@
 
   <main id="main" hidden>
     <section>
-      <h2>Add documents</h2>
-      <p class="hint">Drop files on this window (PDF, .txt, .md), give a file path, or paste text.</p>
+      <h2 data-i18n="add-title">Add documents</h2>
+      <p class="hint" data-i18n="add-hint">Drop files on this window (PDF, .txt, .md), give a file path, or paste text.</p>
       <div class="row">
-        <input id="file-path" placeholder="/path/to/file.pdf">
-        <button id="add-file">Add file</button>
-        <button id="add-folder">Add folder</button>
+        <input id="file-path" placeholder="/path/to/file.pdf" aria-label="File or folder path" data-i18n-placeholder="add-path-placeholder" data-i18n-aria-label="add-path-label">
+        <button id="add-file" data-i18n="add-file">Add file</button>
+        <button id="add-folder" data-i18n="add-folder">Add folder</button>
       </div>
-      <textarea id="paste" rows="4" placeholder="Paste text here"></textarea>
+      <textarea id="paste" rows="4" placeholder="Paste text here" aria-label="Text to add" data-i18n-placeholder="add-paste-placeholder" data-i18n-aria-label="add-paste-label"></textarea>
       <div class="row">
-        <input id="paste-name" placeholder="Name for the pasted text" value="pasted">
-        <button id="add-text">Add text</button>
+        <input id="paste-name" placeholder="Name for the pasted text" data-i18n-placeholder="add-name" value="pasted">
+        <button id="add-text" data-i18n="add-text">Add text</button>
       </div>
       <p id="add-status" class="status"></p>
     </section>
 
     <section>
-      <h2>Search</h2>
+      <h2 data-i18n="search-title">Search</h2>
       <div class="row">
-        <input id="query" placeholder="What are you looking for?">
-        <button id="search">Search</button>
+        <input id="query" placeholder="What are you looking for?" data-i18n-placeholder="search-placeholder">
+        <button id="search" data-i18n="search-go">Search</button>
         <span id="stt" hidden>
           <button id="dictate" title="Dictate (press again to stop)" aria-label="Dictate">🎤</button>
-          <button id="stt-file-go" class="link">Audio file</button>
+          <button id="stt-file-go" class="link" data-i18n="dictate-file">Audio file</button>
           <input id="stt-file" type="file" accept="audio/*" hidden>
           <button id="stt-download" class="link">Download the Whisper model</button>
         </span>
@@ -84,15 +84,15 @@
     </section>
 
     <section id="ask" hidden>
-      <h2>Ask</h2>
+      <h2 data-i18n="ask-title">Ask</h2>
       <div class="row">
-        <input id="question" placeholder="Ask about your documents" aria-label="Question">
-        <button id="ask-go">Ask</button>
+        <input id="question" placeholder="Ask about your documents" aria-label="Question" data-i18n-placeholder="ask-placeholder" data-i18n-aria-label="ask-question">
+        <button id="ask-go" data-i18n="ask-go">Ask</button>
       </div>
       <div id="answer" class="answer"></div>
       <ol id="sources" class="sources"></ol>
       <div class="row" id="tts" hidden>
-        <button id="speak-go" class="link">Read aloud</button>
+        <button id="speak-go" class="link" data-i18n="speak">Read aloud</button>
         <button id="voice-go" class="link">Download the voice (25 MB)</button>
         <span id="voice-status" class="hint"></span>
       </div>
@@ -117,19 +117,26 @@
     </section>
 
     <section id="settings-section">
-      <h2>Settings</h2>
+      <h2 data-i18n="settings-title">Settings</h2>
       <p class="hint">Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).</p>
+{%- if i18n %}
+      <div class="row">
+        <label><span data-i18n="setting-ui-language">Language</span>
+          <select id="language"><option value="system" data-i18n="setting-ui-language-system">Same as the system</option></select>
+        </label>
+      </div>
+{%- endif %}
       <textarea id="config" rows="10" spellcheck="false"></textarea>
       <div class="row">
-        <button id="config-save">Save settings</button>
-        <button id="config-reset" class="link">Reset to defaults</button>
+        <button id="config-save" data-i18n="settings-save">Save settings</button>
+        <button id="config-reset" class="link" data-i18n="settings-reset">Reset to defaults</button>
       </div>
       <p id="config-status" class="status"></p>
     </section>
 
     <section id="agent" hidden>
-      <h2>Background</h2>
-      <label><input type="checkbox" id="agent-on"> Keep the backend running after the window closes, and start it at login</label>
+      <h2 data-i18n="agent-title">Background</h2>
+      <label><input type="checkbox" id="agent-on"> <span data-i18n="agent-toggle">Keep the backend running after the window closes, and start it at login</span></label>
       <p id="agent-status" class="hint"></p>
     </section>
 
@@ -141,16 +148,16 @@
     </section>
 
     <section id="python" hidden>
-      <h2>Python example</h2>
+      <h2 data-i18n="python-title">Python example</h2>
       <p class="hint">Sends the text box above to <code>python/worker.py</code>, a separate Python process.</p>
-      <button id="python-go">Text stats in Python</button>
+      <button id="python-go" data-i18n="python-go">Text stats in Python</button>
       <pre id="python-out" class="status"></pre>
     </section>
 
     <section id="claude" hidden>
-      <h2>Claude Desktop</h2>
-      <p class="hint">Adds this app's tools to Claude Desktop (your current settings are backed up first).</p>
-      <button id="claude-go">Connect Claude Desktop</button>
+      <h2 data-i18n="claude-title">Claude Desktop</h2>
+      <p class="hint" data-i18n="claude-hint">Adds this app's tools to Claude Desktop (your current settings are backed up first).</p>
+      <button id="claude-go" data-i18n="claude-go">Connect Claude Desktop</button>
       <p id="claude-status" class="status"></p>
     </section>
   </main>
@@ -158,10 +165,11 @@
   <footer>
     <span id="about"></span>
     <button id="check-update" class="link" hidden>Check for updates</button>
-    <button id="clear" class="link" hidden>Clear all data</button>
+    <button id="clear" class="link" hidden data-i18n="clear">Clear all data</button>
   </footer>
 
-  <script src="errors.js"></script>
+  <script src="errors.js"></script>{% if i18n %}
+  <script src="i18n.js"></script>{% endif %}
   <script src="app.js"></script>{% if app_shell %}
   <script src="shell.js"></script>{% endif %}
 </body>

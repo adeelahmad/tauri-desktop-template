@@ -13,7 +13,7 @@
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
 use crate::{
-    audit, doctor, eval, generate, hooks, models, service, Error, Options, Report, Result,
+    audit, doctor, eval, generate, hooks, i18n, models, service, Error, Options, Report, Result,
 };
 use std::path::{Path, PathBuf};
 
@@ -41,6 +41,11 @@ Usage:
   kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
   kitchen generate shortcut <action> <keys>                                   (tray_menu)
   kitchen generate route <name>        POST /v1/<name> on the HTTP API (needs http_api)
+  kitchen generate locale <code> [--pseudo]
+                                       locales/<code>/app.ftl from English, each message marked
+                                       untranslated (or pseudo-translated) (needs i18n)
+  kitchen i18n check                   every locale has exactly English's messages, valid Fluent,
+                                       and the UI only asks for ids English has (needs i18n)
   kitchen hooks <install|uninstall|status>
                                        git hooks in .githooks/ (fmt, clippy, prettier, eslint)
   kitchen doctor [--json]              check this machine and this app
@@ -249,7 +254,7 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             let root = project()?.root;
             let kind = args.word(
                 1,
-                "what to generate (module, setting, command, page, menu, shortcut, job, route)",
+                "what to generate (module, setting, command, page, menu, shortcut, job, route, locale)",
             )?;
             let name = args.word(2, "a name")?;
             match kind {
@@ -293,8 +298,9 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 ),
                 "job" => generate::job(&root, name, &opts),
                 "route" => generate::route(&root, name, &opts),
+                "locale" => i18n::generate_locale(&root, name, args.flag("pseudo"), &opts),
                 other => Err(Error::Usage(format!(
-                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut, job or route"
+                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut, job, route or locale"
                 ))),
             }
         }
@@ -336,6 +342,12 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             opts.dry_run,
         ),
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
+        "i18n" => match args.words.get(1).map(String::as_str).unwrap_or("check") {
+            "check" => i18n::check(&project()?.root),
+            other => Err(Error::Usage(format!(
+                "kitchen i18n {other}: the only subcommand is check"
+            ))),
+        },
         "start" | "dev" => {
             let root = project()?.root;
             if io_mode == Io::Capture {
@@ -495,6 +507,12 @@ fn test(args: &Args, root: &Path, io_mode: Io) -> Result<Report> {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|s| s.success());
+    // Translations (feature i18n) are checked first: no build needed.
+    let translations = if root.join("locales").is_dir() {
+        Some(i18n::check(root)?)
+    } else {
+        None
+    };
     let drivers = lifecycle::Drivers::detect();
     let mut plan = match lifecycle::test_plan(root, kinds, host, nextest, drivers) {
         Err(e) if !feature && kinds.feature => {
@@ -521,7 +539,11 @@ fn test(args: &Args, root: &Path, io_mode: Io) -> Result<Report> {
     {
         lifecycle::prerequisites(root, args.flag("install"), false, &mut plan)?;
     }
-    lifecycle::execute(&plan, io_mode, "Tests passed.")
+    let mut r = lifecycle::execute(&plan, io_mode, "Tests passed.")?;
+    if let Some(t) = translations {
+        r.lines.insert(0, t.summary);
+    }
+    Ok(r)
 }
 
 /// The folder a command runs in: `--project <dir>` style callers pass it, else the

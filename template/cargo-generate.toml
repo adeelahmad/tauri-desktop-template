@@ -117,6 +117,11 @@ type = "bool"
 prompt = "System tray / macOS menu-bar icon with a menu, global shortcuts and an app menu, all from Settings (desktop)?"
 default = false
 
+[placeholders.i18n]
+type = "bool"
+prompt = "Translations: Fluent (.ftl) messages for the UI, menus, tray, email and errors; a language switcher, the OS language by default, right-to-left layouts (en, de, ar to start)?"
+default = false
+
 [placeholders.stt]
 type = "bool"
 prompt = "Speech to text with Whisper (tiny/base/small, multilingual, MIT; ONNX Runtime, model downloads on first use): dictate questions or transcribe audio files?"
@@ -410,6 +415,9 @@ ignore = ["desktop-core/src/actions.rs", "src-tauri/src/tray.rs"]
 
 [conditional.'!app_shell']
 ignore = ["desktop-core/src/appearance.rs", "src-tauri/src/shell.rs", "src-tauri/capabilities/shell.json", "src-tauri/capabilities/settings.json", "src-tauri/tauri.macos.conf.json", "ui-react/settings.html", "ui-react/src/settings-main.jsx", "ui-react/src/shell.js", "ui-react/src/Titlebar.jsx", "ui-react/src/SettingsWindow.jsx", "ui-react/src/shell.css", "ui/settings.html", "ui/settings.js", "ui/shell.js", "ui/shell.css"]
+
+[conditional.'!i18n']
+ignore = ["desktop-core/src/i18n.rs", "locales", "ui-react/src/locales.js", "ui/i18n.js"]
 
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]

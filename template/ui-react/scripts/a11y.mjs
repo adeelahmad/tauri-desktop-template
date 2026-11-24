@@ -4,7 +4,9 @@
 // and runs axe-core (https://github.com/dequelabs/axe-core) on the main screen, the first-run
 // wizard and every Settings section, in light and dark mode. Serious or critical issues fail
 // the run, as does a Tab stop that cannot be seen. It also renders each screen with the pseudo-locale (accented text, 30% longer;
-// src/pseudo.js) and fails when the page then grows wider than the window.
+// src/pseudo.js) and fails when the page then grows wider than the window. With translations
+// (src/locales.js) it also checks every screen in Arabic (right to left, ?locale=ar): axe-core,
+// and nothing may stick out past either edge of the window.
 //
 // Needs Playwright with Chromium, which is not a dependency of this app (it is large):
 // `npm i -g playwright && npx playwright install chromium` (with NODE_PATH pointing at the
@@ -69,7 +71,7 @@ async function layout(page, where) {
     const width = document.documentElement.clientWidth;
     for (const el of document.querySelectorAll('body *')) {
       const r = el.getBoundingClientRect();
-      if (r.width && r.right > width + 1)
+      if (r.width && (r.right > width + 1 || r.left < -1))
         out.push(el.tagName.toLowerCase() + (el.id ? `#${el.id}` : '') + (el.className ? `.${el.className}` : ''));
     }
     return out.slice(0, 5);
@@ -120,8 +122,12 @@ async function screens(page, label, run) {
   }
 }
 
+// Each screen as it is, in the pseudo-locale, and (with translations) in Arabic.
+const variants = [{}, { pseudo: true }];
+if (fs.existsSync(path.join(root, 'src', 'locales.js'))) variants.push({ locale: 'ar' });
+
 for (const scheme of ['light', 'dark']) {
-  for (const pseudo of [false, true]) {
+  for (const { pseudo, locale } of variants) {
     const context = await browser.newContext({ colorScheme: scheme, viewport: { width: 900, height: 800 } });
     const page = await context.newPage();
     page.on('pageerror', (e) => {
@@ -130,13 +136,17 @@ for (const scheme of ['light', 'dark']) {
       problems.push(line);
     });
     for (const [name, url] of [...pages, ['wizard', '/?wizard=1']]) {
-      const q = `${url}${url.includes('?') ? '&' : '?'}mode=${scheme}${pseudo ? '&pseudo=1' : ''}`;
+      const q = `${url}${url.includes('?') ? '&' : '?'}mode=${scheme}${pseudo ? '&pseudo=1' : ''}${locale ? `&locale=${locale}` : ''}`;
       await page.goto(base + q);
       await page.waitForSelector('main, .settings, h2', { timeout: 15000 });
       await page.waitForTimeout(400);
-      const label = `${name} (${scheme}${pseudo ? ', pseudo-locale' : ''})`;
-      const run = (where) => (pseudo ? layout(page, where) : axe(page, where));
-      if (!pseudo) await keyboard(page, label);
+      const label = `${name} (${scheme}${pseudo ? ', pseudo-locale' : ''}${locale ? `, ${locale}` : ''})`;
+      const run = pseudo
+        ? (where) => layout(page, where)
+        : locale
+          ? async (where) => (await axe(page, where), await layout(page, where))
+          : (where) => axe(page, where);
+      if (!pseudo && !locale) await keyboard(page, label);
       if (name === 'wizard') await run(label);
       else await screens(page, label, run);
     }

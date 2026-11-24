@@ -350,6 +350,7 @@ pub const LICENCES: &[Licence] = &[
     Licence { feature: "ipc_worker", licences: "interprocess: 0BSD OR Apache-2.0", notice: "" },
     Licence { feature: "background_jobs", licences: "croner: MIT; jiff: Unlicense OR MIT", notice: "" },
     Licence { feature: "http_api", licences: "axum: MIT; tokio: MIT", notice: "" },
+    Licence { feature: "i18n", licences: "fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT", notice: "" },
 ];
 
 /// How serious a [`Finding`] is.

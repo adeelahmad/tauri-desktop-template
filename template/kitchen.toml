@@ -61,6 +61,7 @@ tailscale = {% if tailscale %}true{% else %}false{% endif %}
 app_shell = {% if app_shell %}true{% else %}false{% endif %}
 http_api = {% if http_api %}true{% else %}false{% endif %}
 webview = {% if webview %}true{% else %}false{% endif %}
+i18n = {% if i18n %}true{% else %}false{% endif %}
 tray_menu = {% if tray_menu %}true{% else %}false{% endif %}
 tauri_plugins = {% if tauri_plugins %}true{% else %}false{% endif %}
 tauri_dialog = {% if tauri_dialog %}true{% else %}false{% endif %}

@@ -9,6 +9,7 @@ import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
 import Dictate from './Dictate.jsx';
 import { provenance } from './provenance.js';
+import { setLocale, t, useLocale } from './i18n.js';
 {% if app_shell %}import Titlebar from './Titlebar.jsx';
 import { drawsTitlebar, useAppearance, useSettingsShortcut } from './shell.js';
 {% endif %}// kitchen:imports (`kitchen generate page` adds imports above this line)
@@ -21,7 +22,12 @@ function describe(info, status) {
   const s = status || info.status;
   const base = `${info.name} ${info.version}`;
   if (!s) return base;
-  return `${base} · ${s.chunks} chunks · ${s.backend} store · ${s.embedder || 'keyword search'}`;
+  return t('footer-status', '{ $app } · { $chunks } chunks · { $backend } store · { $embedder }', {
+    app: base,
+    chunks: s.chunks,
+    backend: s.backend,
+    embedder: s.embedder || t('footer-keyword-search', 'keyword search'),
+  });
 }
 
 // A live region: screen readers read each new message (errors at once, the rest politely).
@@ -41,14 +47,18 @@ function Wizard({ info, onSetup, busy, message }) {
   const embedBundled = (info.models || []).some((m) => m.kind === 'embed' && m.present);
   return (
     <section>
-      <h2>Welcome</h2>
-      <p className="hint">A one-time setup. Everything stays on this {f.mobile ? 'device' : 'computer'}.</p>
+      <h2>{t('wizard-title', 'Welcome')}</h2>
+      <p className="hint">
+        {f.mobile
+          ? t('wizard-intro-device', 'A one-time setup. Everything stays on this device.')
+          : t('wizard-intro', 'A one-time setup. Everything stays on this computer.')}
+      </p>
       <ol className="steps">
         <li>
-          <h3>1. Where to keep your data</h3>
+          <h3>{t('wizard-store', '1. Where to keep your data')}</h3>
           <label>
-            <input type="radio" checked={backend === 'file'} onChange={() => setBackend('file')} /> A simple file (fast, nothing to
-            download)
+            <input type="radio" checked={backend === 'file'} onChange={() => setBackend('file')} />{' '}
+            {t('wizard-store-file', 'A simple file (fast, nothing to download)')}
           </label>
           {f.postgres && (
             <label>
@@ -58,26 +68,33 @@ function Wizard({ info, onSetup, busy, message }) {
                 checked={backend === 'postgres'}
                 onChange={() => setBackend('postgres')}
               />{' '}
-              A private Postgres database with vector search (downloads about 30 MB the first time)
+              {t('wizard-store-postgres', 'A private Postgres database with vector search (downloads about 30 MB the first time)')}
             </label>
           )}
           {f.postgres && !info.postgresAvailable && (
-            <p className="hint">This processor cannot run the bundled database; the file store works the same.</p>
+            <p className="hint">
+              {t('wizard-no-postgres', 'This processor cannot run the bundled database; the file store works the same.')}
+            </p>
           )}
         </li>
         {f.embed && (
           <li>
-            <h3>2. Smart search</h3>
+            <h3>{t('wizard-model', '2. Smart search')}</h3>
             <label>
-              <input type="checkbox" checked={embed} onChange={(e) => setEmbed(e.target.checked)} /> Search by meaning with a local AI model
-              ({embedBundled ? 'built into the app, no download' : 'downloads once'}, nothing is sent anywhere)
+              <input type="checkbox" checked={embed} onChange={(e) => setEmbed(e.target.checked)} />{' '}
+              {embedBundled
+                ? t(
+                    'wizard-model-embed-bundled',
+                    'Search by meaning with a local AI model (built into the app, no download; nothing is sent anywhere)',
+                  )
+                : t('wizard-model-embed', 'Search by meaning with a local AI model (downloads once, nothing is sent anywhere)')}
             </label>
           </li>
         )}
         <li>
-          <h3>3. Set up</h3>
+          <h3>{t('wizard-go-title', '3. Set up')}</h3>
           <button disabled={busy} onClick={() => onSetup(backend, embed)}>
-            Set up
+            {t('wizard-go', 'Set up')}
           </button>
           {busy && <progress />}
           <Status text={message.text} error={message.error} />
@@ -100,19 +117,29 @@ function UpdateBanner() {
   const install = async () => {
     const off = await listen('update-progress', (e) => {
       const [done, total] = e.payload;
-      setText(total ? `Downloading… ${Math.round((100 * done) / total)}%` : 'Downloading…');
+      setText(
+        total
+          ? t('update-downloading-percent', 'Downloading… { $percent }%', { percent: Math.round((100 * done) / total) })
+          : t('update-downloading', 'Downloading…'),
+      );
     });
     try {
       await api.install_update();
     } catch (e) {
-      setText(`Update failed: ${errorText(e)}`);
+      setText(t('update-failed', 'Update failed: { $error }', { error: errorText(e) }));
       off();
     }
   };
   return (
     <div className="banner">
-      <span>{text || `Version ${update.version} is available (you have ${update.current}).`}</span>
-      <button onClick={install}>Install and restart</button>
+      <span>
+        {text ||
+          t('update-available', 'Version { $version } is available (you have { $current }).', {
+            version: update.version,
+            current: update.current,
+          })}
+      </span>
+      <button onClick={install}>{t('update-install', 'Install and restart')}</button>
     </div>
   );
 }
@@ -125,9 +152,10 @@ function AddDocuments({ onChange, mobile }) {
   const [name, setName] = useState('pasted');
   const [msg, setMsg] = useState({ text: '' });
   const addFile = async (p) => {
-    setMsg({ text: `Reading ${p}…` });
+    setMsg({ text: t('add-reading', 'Reading { $path }…', { path: p }) });
     try {
-      setMsg({ text: `Added ${await api.ingest_file({ path: p })} chunks from ${p}.` });
+      const count = await api.ingest_file({ path: p });
+      setMsg({ text: t('add-file-done', 'Added { $count } chunks from { $path }.', { count, path: p }) });
       onChange();
     } catch (e) {
       setMsg({ text: errorText(e), error: true });
@@ -146,11 +174,16 @@ function AddDocuments({ onChange, mobile }) {
     };
   }, []);
   const addFolder = async (p) => {
-    setMsg({ text: `Reading every document in ${p}…` });
+    setMsg({ text: t('add-reading-folder', 'Reading every document in { $path }…', { path: p }) });
     try {
       const r = await api.ingest_folder({ path: p, recursive: true });
-      const failed = r.errors.length ? `, ${r.errors.length} failed: ${r.errors[0]}` : '';
-      setMsg({ text: `Added ${r.files} files (${r.chunks} chunks)${failed}.`, error: r.errors.length > 0 });
+      const args = { files: r.files, chunks: r.chunks, failed: r.errors.length, error: r.errors[0] || '' };
+      setMsg({
+        text: r.errors.length
+          ? t('add-folder-failed', 'Added { $files } files ({ $chunks } chunks), { $failed } failed: { $error }.', args)
+          : t('add-folder-done', 'Added { $files } files ({ $chunks } chunks).', args),
+        error: r.errors.length > 0,
+      });
       onChange();
     } catch (e) {
       setMsg({ text: errorText(e), error: true });
@@ -159,7 +192,8 @@ function AddDocuments({ onChange, mobile }) {
   const addText = async () => {
     if (!text.trim()) return;
     try {
-      setMsg({ text: `Added ${await api.ingest_text({ source: name || 'pasted', text })} chunks.` });
+      const count = await api.ingest_text({ source: name || 'pasted', text });
+      setMsg({ text: t('add-text-done', 'Added { $count } chunks.', { count }) });
       setText('');
       onChange();
     } catch (e) {
@@ -168,26 +202,37 @@ function AddDocuments({ onChange, mobile }) {
   };
   return (
     <section>
-      <h2>Add documents</h2>
+      <h2>{t('add-title', 'Add documents')}</h2>
       <p className="hint">
         {mobile
-          ? 'Paste text, or give the path of a file in this app.'
-          : 'Drop files on this window (PDF, .txt, .md), give a file path, or paste text.'}
+          ? t('add-hint-mobile', 'Paste text, or give the path of a file in this app.')
+          : t('add-hint', 'Drop files on this window (PDF, .txt, .md), give a file path, or paste text.')}
       </p>
       <div className="row">
-        <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/file.pdf" aria-label="File or folder path" />
-        <button onClick={() => path.trim() && addFile(path.trim())}>Add file</button>
-        {!mobile && <button onClick={() => path.trim() && addFolder(path.trim())}>Add folder</button>}
+        <input
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          placeholder={t('add-path-placeholder', '/path/to/file.pdf')}
+          aria-label={t('add-path-label', 'File or folder path')}
+        />
+        <button onClick={() => path.trim() && addFile(path.trim())}>{t('add-file', 'Add file')}</button>
+        {!mobile && <button onClick={() => path.trim() && addFolder(path.trim())}>{t('add-folder', 'Add folder')}</button>}
       </div>
-      <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text here" aria-label="Text to add" />
+      <textarea
+        rows={4}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={t('add-paste-placeholder', 'Paste text here')}
+        aria-label={t('add-paste-label', 'Text to add')}
+      />
       <div className="row">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Name for the pasted text"
-          aria-label="Name for the pasted text"
+          placeholder={t('add-name', 'Name for the pasted text')}
+          aria-label={t('add-name', 'Name for the pasted text')}
         />
-        <button onClick={addText}>Add text</button>
+        <button onClick={addText}>{t('add-text', 'Add text')}</button>
       </div>
       <Status text={msg.text} error={msg.error} />
     </section>
@@ -210,30 +255,30 @@ function Search({ features }) {
   };
   return (
     <section>
-      <h2>Search</h2>
+      <h2>{t('search-title', 'Search')}</h2>
       <div className="row">
         <input
           id="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && run()}
-          placeholder="What are you looking for?"
-          aria-label="Search"
+          placeholder={t('search-placeholder', 'What are you looking for?')}
+          aria-label={t('search-title', 'Search')}
         />
-        <button onClick={run}>Search</button>
+        <button onClick={run}>{t('search-go', 'Search')}</button>
         {features?.stt && <Dictate onText={setQuery} />}
       </div>
       {error && <Status text={error} error />}
       {hits && (
         <ol id="results">
-          {hits.length === 0 && <li className="meta">Nothing found.</li>}
+          {hits.length === 0 && <li className="meta">{t('search-none', 'Nothing found.')}</li>}
           {hits.map((h, i) => (
             <li key={i}>
               <div className="meta" title={provenance(h.prov)}>
                 {h.source}
-                {h.page ? `, page ${h.page}` : ''} · {h.score.toFixed(3)}
-                {h.vector_score != null && ` · vector ${h.vector_score.toFixed(3)}`}
-                {h.keyword_score != null && ` · keyword ${h.keyword_score.toFixed(2)}`}
+                {h.page ? t('search-page', ', page { $page }', { page: h.page }) : ''} · {h.score.toFixed(3)}
+                {h.vector_score != null && t('search-vector-score', ' · vector { $score }', { score: h.vector_score.toFixed(3) })}
+                {h.keyword_score != null && t('search-keyword-score', ' · keyword { $score }', { score: h.keyword_score.toFixed(2) })}
               </div>
               <div>{h.text}</div>
             </li>
@@ -263,13 +308,20 @@ function BackgroundAgent() {
   };
   return (
     <section>
-      <h2>Background</h2>
+      <h2>{t('agent-title', 'Background')}</h2>
       <label>
-        <input type="checkbox" checked={!!agent?.installed} onChange={(e) => toggle(e.target.checked)} /> Keep the backend running after the
-        window closes, and start it at login
+        <input type="checkbox" checked={!!agent?.installed} onChange={(e) => toggle(e.target.checked)} />{' '}
+        {t('agent-toggle', 'Keep the backend running after the window closes, and start it at login')}
       </label>
       <Status
-        text={error || (agent ? (agent.installed ? `On: ${agent.kind} at ${agent.location}` : `Off (${agent.kind})`) : '')}
+        text={
+          error ||
+          (agent
+            ? agent.installed
+              ? t('agent-on', 'On: { $kind } at { $location }', { kind: agent.kind, location: agent.location })
+              : t('agent-off', 'Off ({ $kind })', { kind: agent.kind })
+            : '')
+        }
         error={!!error}
       />
     </section>
@@ -288,12 +340,12 @@ function PythonExample() {
   };
   return (
     <section>
-      <h2>Python example</h2>
+      <h2>{t('python-title', 'Python example')}</h2>
       <p className="hint">
-        Sends this text to <code>python/worker.py</code>, a separate Python process.
+        {t('python-hint', 'Sends this text to a separate Python process:')} <code>python/worker.py</code>
       </p>
       <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} />
-      <button onClick={run}>Text stats in Python</button>
+      <button onClick={run}>{t('python-go', 'Text stats in Python')}</button>
       <pre className="status" role="status">
         {out}
       </pre>
@@ -306,12 +358,16 @@ function ClaudeDesktop() {
   const connect = async () => {
     try {
       const r = await api.register_claude();
-      setMsg({ text: `Claude Desktop config ${r.status}${r.backup ? ` (backup: ${r.backup})` : ''}. Preparing the tools once…` });
+      setMsg({
+        text: r.backup
+          ? t('claude-registered-backup', 'Claude Desktop config { $status } (backup: { $backup }). Preparing the tools once…', r)
+          : t('claude-registered', 'Claude Desktop config { $status }. Preparing the tools once…', r),
+      });
       const off = await listen('warmup-done', (e) => {
         setMsg(
           e.payload
-            ? { text: 'Ready. Restart Claude Desktop to use it.' }
-            : { text: 'Connected; the first start failed and will retry when Claude starts.', error: true },
+            ? { text: t('claude-ready', 'Ready. Restart Claude Desktop to use it.') }
+            : { text: t('claude-retry', 'Connected; the first start failed and will retry when Claude starts.'), error: true },
         );
         off();
       });
@@ -321,9 +377,9 @@ function ClaudeDesktop() {
   };
   return (
     <section>
-      <h2>Claude Desktop</h2>
-      <p className="hint">Adds this app’s tools to Claude Desktop (your current settings are backed up first).</p>
-      <button onClick={connect}>Connect Claude Desktop</button>
+      <h2>{t('claude-title', 'Claude Desktop')}</h2>
+      <p className="hint">{t('claude-hint', 'Adds this app’s tools to Claude Desktop (your current settings are backed up first).')}</p>
+      <button onClick={connect}>{t('claude-go', 'Connect Claude Desktop')}</button>
       <Status text={msg.text} error={msg.error} />
     </section>
   );
@@ -333,7 +389,8 @@ export default function App() {
   const [info, setInfo] = useState(null);
   const [phase, setPhase] = useState('loading'); // loading | wizard | ready
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState({ text: 'Starting…' });
+  const [message, setMessage] = useState({ text: t('starting', 'Starting…') });
+  useLocale();
   const [status, setStatus] = useState(null);
   const [armed, setArmed] = useState(false);
   const [upgrade, setUpgrade] = useState(null);
@@ -358,7 +415,7 @@ export default function App() {
           setMessage({ text: error.slice(error.indexOf(UPGRADE_NEEDED) + UPGRADE_NEEDED.length + 1).trim() });
           return setUpgrade({ backend, embeddings });
         }
-        if (!e.payload.ok) return setMessage({ text: `Setup failed: ${error}`, error: true });
+        if (!e.payload.ok) return setMessage({ text: t('setup-failed', 'Setup failed: { $error }', { error }), error: true });
         setStatus(e.payload.status);
         if (e.payload.status?.notice) setStoreNotice(e.payload.status.notice);
         setPhase('ready');
@@ -373,7 +430,9 @@ export default function App() {
   useEffect(() => {
     api
       .app_info()
-      .then((i) => {
+      .then(async (i) => {
+        // The saved language, or the OS one (feature i18n; nothing to do without it).
+        await setLocale(i.settings.config?.ui?.language || 'system');
         setConfig(i.config);
         setInfo(i);
         if (i.features.wizard && !i.settings.setupDone) setPhase('wizard');
@@ -426,9 +485,9 @@ export default function App() {
       )}
       {phase === 'wizard' && <Wizard info={info} onSetup={setup} busy={busy} message={message} />}
       {upgrade && (
-        <section className="upgrade" aria-label="Database upgrade">
-          <button onClick={() => setup(upgrade.backend, upgrade.embeddings, true)}>Upgrade database</button>{' '}
-          <button onClick={() => setup(upgrade.backend, upgrade.embeddings, false)}>Not now</button>
+        <section className="upgrade" aria-label={t('upgrade-label', 'Database upgrade')}>
+          <button onClick={() => setup(upgrade.backend, upgrade.embeddings, true)}>{t('upgrade-go', 'Upgrade database')}</button>{' '}
+          <button onClick={() => setup(upgrade.backend, upgrade.embeddings, false)}>{t('upgrade-later', 'Not now')}</button>
         </section>
       )}
       {storeNotice && <Status text={storeNotice} error />}
@@ -448,10 +507,12 @@ export default function App() {
       )}
       <footer>
         <span>{describe(info, status)}</span>
-        {configGet('ui.showEnvBadge', false, info?.config) && <span className="meta">{info.config.env} build</span>}
+        {configGet('ui.showEnvBadge', false, info?.config) && (
+          <span className="meta">{t('footer-env', '{ $env } build', { env: info?.config?.env })}</span>
+        )}
         {phase === 'ready' && (
           <button className="link" onClick={clearAll}>
-            {armed ? 'Click again to clear everything' : 'Clear all data'}
+            {armed ? t('clear-confirm', 'Click again to clear everything') : t('clear', 'Clear all data')}
           </button>
         )}
       </footer>

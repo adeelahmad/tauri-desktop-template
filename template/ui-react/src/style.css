@@ -72,7 +72,7 @@ header + main > section:first-child {
   margin-top: 16px;
 }
 .steps {
-  padding-left: 0;
+  padding-inline-start: 0;
   list-style: none;
 }
 .steps li {
@@ -193,7 +193,7 @@ code {
   overflow-wrap: anywhere;
 }
 #results {
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 #results li {
   margin-bottom: 10px;
@@ -231,7 +231,7 @@ footer {
   gap: 4px 16px;
 }
 footer button.link {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 13px;
 }
 #root {
@@ -259,7 +259,7 @@ footer button.link {
 .settings-nav button {
   background: none;
   color: inherit;
-  text-align: left;
+  text-align: start;
   font-weight: 400;
   padding: 6px 10px;
   min-height: 32px;
@@ -274,6 +274,10 @@ footer button.link {
   color: var(--fg, inherit);
   font-weight: 600;
   box-shadow: inset 3px 0 0 var(--accent);
+}
+/* Right to left (Arabic, Hebrew, ...): the marker on the other side. */
+[dir='rtl'] .settings-nav button[aria-current='page'] {
+  box-shadow: inset -3px 0 0 var(--accent);
 }
 .settings-pane {
   min-width: 0;
@@ -321,7 +325,7 @@ footer button.link {
   margin: 12px 0;
 }
 .panel ul {
-  padding-left: 1.25em;
+  padding-inline-start: 1.25em;
   margin: 4px 0 12px;
 }
 .panel li {
@@ -363,18 +367,18 @@ footer button.link {
 }
 .sources {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 .row-tools {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .row-tools .field {
   min-height: 0;
-  margin-right: 4px;
+  margin-inline-end: 4px;
 }
 .entry select {
   flex: 1 1 160px;
@@ -397,7 +401,7 @@ table.licences {
 }
 table.licences th,
 table.licences td {
-  text-align: left;
+  text-align: start;
   padding: 2px 6px;
   border-bottom: 1px solid #8883;
 }

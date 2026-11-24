@@ -229,7 +229,10 @@ impl Engine {
     /// Apply new settings (validated first). Takes effect for the next ingest or search.
     pub fn configure(&self, config: Config) -> Result<()> {
         let config = config.validated();
-        self.store.configure(&config)?;
+{% if i18n %}        // Messages made here (errors, results) follow the user's language.
+        #[cfg(feature = "i18n")]
+        crate::i18n::set_locale(&config.ui.language);
+{% endif %}        self.store.configure(&config)?;
         crate::net::configure(config.net.clone());
         *self.config.write().map_err(|_| Error::Store("lock poisoned".into()))? = config;
         Ok(())

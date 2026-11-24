@@ -4,6 +4,8 @@
 const invoke = window.__TAURI__.core.invoke;
 const $ = (id) => document.getElementById(id);
 const say = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
+// Translations (feature `i18n`, ui/i18n.js); English without it.
+const t = window.i18n ? window.i18n.t : (id, english, args = {}) => english.replace(/\{ \$(\w+) \}/g, (_, k) => String(args[k] ?? ''));
 const FIELDS = { mode: 'mode', theme: 'theme', uiFont: 'ui-font', monoFont: 'mono-font', fontSize: 'font-size' };
 
 function show(config) {
@@ -15,8 +17,8 @@ function show(config) {
 async function save(config) {
   try {
     show(await invoke('set_config', { config }));
-    say('Saved.');
-  } catch (e) { say(`Not saved: ${errorText(e)}`, true); }
+    say(t('settings-saved', 'Saved.'));
+  } catch (e) { say(t('settings-not-saved', 'Not saved: { $error }', { error: errorText(e) }), true); }
 }
 
 $('save').onclick = () => {

@@ -96,6 +96,10 @@ app-shell = []
 # Service files, the daemon's health file and crash backoff (std only; see daemon.rs).
 daemon = []
 {% endif -%}{% endif -%}
+{% if i18n -%}
+# Translations (desktop_core::i18n): Fluent messages, plural rules, OS language; pure Rust.
+i18n = ["dep:fluent-bundle", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "dep:sys-locale", "dep:jiff"]
+{% endif -%}
 {% if tray_menu -%}
 # The action registry for the tray, global shortcuts and the app menu (no extra crates).
 tray-menu = []
@@ -137,7 +141,19 @@ quote = { version = "1", optional = true }
 # Cron parsing and next-run times (croner), in local time with DST through jiff (pure Rust; the
 # system time zone database, bundled on Windows only).
 croner = { version = "5", optional = true, default-features = false, features = ["std", "jiff"] }
+{% endif -%}
+{% if background_jobs or i18n -%}
+# Local dates and time zones (already in the tree through serde_with); jobs and i18n dates.
 jiff = { version = "1.0.1", optional = true }
+{% endif -%}
+{% if i18n -%}
+# Fluent (Mozilla's localization system, pure Rust): messages, CLDR plural rules, language
+# tags. sys-locale reads the OS language (no dependencies of its own on desktop).
+fluent-bundle = { version = "0.16", optional = true }
+fluent-syntax = { version = "0.12", optional = true }
+intl-memoizer = { version = "0.5", optional = true }
+unic-langid = { version = "0.9", optional = true }
+sys-locale = { version = "0.3", optional = true }
 {% endif -%}
 {% if email -%}
 # The same rustls and Mozilla roots ureq already uses (no new crates in the build).

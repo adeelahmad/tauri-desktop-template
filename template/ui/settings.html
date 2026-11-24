@@ -9,10 +9,10 @@
   <link rel="stylesheet" href="shell.css">
 </head>
 <body>
-  <header><h1>Settings</h1></header>
+  <header><h1 data-i18n="settings-title">Settings</h1></header>
 
   <section>
-    <h2>Appearance</h2>
+    <h2 data-i18n="section-appearance">Appearance</h2>
     <div class="row">
       <label>Light or dark
         <select id="mode">
@@ -49,12 +49,13 @@
   </section>
 
   <div class="row">
-    <button id="save">Save settings</button>
-    <button id="reset" class="link">Reset to defaults</button>
+    <button id="save" data-i18n="settings-save">Save settings</button>
+    <button id="reset" class="link" data-i18n="settings-reset">Reset to defaults</button>
   </div>
   <p id="status" class="status"></p>
 
-  <script src="errors.js"></script>
+  <script src="errors.js"></script>{% if i18n %}
+  <script src="i18n.js"></script>{% endif %}
   <script src="settings.js"></script>
   <script src="shell.js"></script>
 </body>

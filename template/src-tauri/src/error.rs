@@ -142,7 +142,11 @@ impl CommandError {
 
     /// Code `not_ready`: the backend is still starting.
     pub fn not_ready() -> Self {
-        Self::new(codes::NOT_READY, "Still starting; try again in a moment.")
+{% if i18n %}        #[cfg(feature = "i18n")]
+        let message = desktop_core::t!("error-not-ready");
+        #[cfg(not(feature = "i18n"))]
+{% endif %}        let message = "Still starting; try again in a moment.";
+        Self::new(codes::NOT_READY, message)
     }
 }
 
@@ -207,7 +211,17 @@ part_errors! {
 impl From<desktop_core::Error> for CommandError {
     fn from(e: desktop_core::Error) -> Self {
         use desktop_core::Error as E;
-        let message = e.to_string();
+{% if i18n %}        // In the user's language; the code stays the same in every language.
+        #[cfg(feature = "i18n")]
+        let message = match &e {
+            E::Embed(d) => desktop_core::t!("error-embedding", detail = d.as_str()),
+            E::Store(d) => desktop_core::t!("error-store", detail = d.as_str()),
+            E::Llm(d) => desktop_core::t!("error-ai", detail = d.as_str()),
+            E::NotBuilt(part) => desktop_core::t!("error-not-built", part = *part),
+            _ => e.to_string(),
+        };
+        #[cfg(not(feature = "i18n"))]
+{% endif %}        let message = e.to_string();
         match e {
             E::Io(io) => io.into(),
             E::Json(_) => Self::new(codes::BAD_DATA, message),
