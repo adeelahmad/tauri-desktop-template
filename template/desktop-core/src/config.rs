@@ -75,6 +75,9 @@ pub struct Config {
 {% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
+{% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
+    #[cfg(feature = "webview")]
+    pub webview: crate::webview::WebviewConfig,
 {% endif %}{% if tray_menu %}    /// The tray or menu-bar icon and its menu.
     #[cfg(feature = "tray-menu")]
     pub tray: crate::actions::TrayConfig,
@@ -306,6 +309,10 @@ impl Config {
 {% endif %}{% if tailscale %}        #[cfg(feature = "tailscale")]
         {
             self.tailscale = self.tailscale.validated();
+        }
+{% endif %}{% if webview %}        #[cfg(feature = "webview")]
+        {
+            self.webview = self.webview.validated();
         }
 {% endif %}{% if tray_menu %}        #[cfg(feature = "tray-menu")]
         {

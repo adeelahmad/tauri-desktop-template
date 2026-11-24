@@ -14,6 +14,7 @@
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
 //! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
+//! - `webview_open`, `webview_close`, `webview_post` (feature `webview`, desktop only),
 //! - `jobs_list`, `jobs_enqueue`, `jobs_cancel`, `jobs_retry`, `jobs_schedules` and
 //!   `jobs_set_schedule` (feature `jobs-queue`),
 //! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu).
@@ -48,7 +49,7 @@
 //!
 //! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
 //! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
-//! `update`, `single`, `python`, `claude`.
+//! `update`, `single`, `python`, `claude`, `webview`.
 //!
 //! # Example
 //!
@@ -81,6 +82,8 @@ mod ipc;
 mod python;
 {% endif %}{% if mcp_server %}#[cfg(all(desktop, feature = "mcp"))]
 mod mcp;
+{% endif %}{% if webview %}#[cfg(all(desktop, feature = "webview"))]
+mod webview;
 {% endif %}mod guard;
 mod paths;
 mod service;
@@ -170,6 +173,7 @@ fn features() -> Value {
         "jobs": cfg!(feature = "jobs-queue"),
         "rclone": cfg!(feature = "rclone"),
         "tailscale": cfg!(feature = "tailscale"),
+        "webview": cfg!(all(desktop, feature = "webview")),
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(all(desktop, feature = "mcp")),
         "pdf": cfg!(feature = "pdf"),
@@ -903,7 +907,7 @@ pub fn run() {
         Ok(())
     });
     builder
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({% if webview %}guarded({% endif %}tauri::generate_handler![
             app_info,
             run_setup,
             ingest_text,
@@ -1000,8 +1004,14 @@ pub fn run() {
             tray::tray_status,
             #[cfg(all(desktop, feature = "tray-menu"))]
             tray::run_action,
-            // kitchen:handlers
-        ])
+{% if webview %}            #[cfg(all(desktop, feature = "webview"))]
+            webview::webview_open,
+            #[cfg(all(desktop, feature = "webview"))]
+            webview::webview_close,
+            #[cfg(all(desktop, feature = "webview"))]
+            webview::webview_post,
+{% endif %}            // kitchen:handlers
+        ]{% if webview %}){% endif %})
         .build(tauri::generate_context!())
         .expect("error while building the app")
         .run(|app, event| {
@@ -1011,7 +1021,20 @@ pub fn run() {
         });
 }
 
-/// Stop what this window started, in order: a running ingest stops after its current
+{% if webview %}/// Every command call goes through here: calls from embedded web views (feature `webview`)
+/// are refused before any command runs.
+#[cfg(all(desktop, feature = "webview"))]
+fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    move |invoke| webview::guard_invoke(invoke, handler)
+}
+
+/// Without feature `webview` there are no web view windows to refuse.
+#[cfg(not(all(desktop, feature = "webview")))]
+fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> fn(tauri::ipc::Invoke) -> bool {
+    handler
+}
+
+{% endif %}/// Stop what this window started, in order: a running ingest stops after its current
 /// files (the rest is journaled and resumes next time), telemetry is flushed, then the
 /// worker and the database stop. A worker kept by the background agent keeps running.
 fn on_exit(app: &tauri::AppHandle) {
