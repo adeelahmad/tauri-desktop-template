@@ -1,0 +1,8 @@
+{
+  "search": {
+    "defaultTopK": 5
+  },
+  "ui": {
+    "showEnvBadge": true
+  }
+}

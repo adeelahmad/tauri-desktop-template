@@ -50,6 +50,16 @@ fn tools() -> Value {
              "project": project, "dry_run": dry}, "required": ["kind", "name"]}},
         {"name": "doctor", "description": "Check the machine and the app; each problem comes with its fix.",
          "inputSchema": {"type": "object", "properties": {"project": project}}},
+        {"name": "start", "description": "How to run the app with hot reload. It keeps running, so this returns the command for a terminal instead of blocking.",
+         "inputSchema": {"type": "object", "properties": {"project": project}}},
+        {"name": "test", "description": "Run the app's tests and return the report: unit (cargo test or nextest) and feature (the real app over tauri-driver; --self-test on macOS). Neither flag: both, skipping feature tests this machine cannot run.",
+         "inputSchema": {"type": "object", "properties": {"unit": {"type": "boolean"}, "feature": {"type": "boolean"}, "project": project}}},
+        {"name": "package", "description": "Build installers for this OS (mac: app,dmg; windows: nsis,msi; linux: appimage,deb) and copy them to ./packages. Other OSes are refused.",
+         "inputSchema": {"type": "object", "properties": {"platform": {"type": "string", "enum": ["mac", "windows", "linux"]}, "release": {"type": "boolean"}, "project": project}}},
+        {"name": "publish", "description": "Create a GitHub release with ./packages through gh. Only shows the command unless yes is true.",
+         "inputSchema": {"type": "object", "properties": {"tag": {"type": "string"}, "yes": {"type": "boolean"}, "project": project}}},
+        {"name": "eject", "description": "Where a tool's own config lives (vite, tauri or cargo) and what Kitchen sets on top of it.",
+         "inputSchema": {"type": "object", "properties": {"tool": {"type": "string", "enum": ["vite", "tauri", "cargo"]}, "project": project}, "required": ["tool"]}},
         {"name": "new", "description": "Create a new app from the template in folder `dir` (default: the server's folder).",
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
     ])
@@ -70,7 +80,35 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             .unwrap_or_default()
     };
     let mut w: Vec<String> = match tool {
-        "features" | "doctor" => vec![tool.into()],
+        "features" | "doctor" | "start" => vec![tool.into()],
+        "test" => {
+            let mut v = vec!["test".to_string()];
+            for k in ["unit", "feature"] {
+                if a.get(k).and_then(Value::as_bool) == Some(true) {
+                    v.push(format!("--{k}"));
+                }
+            }
+            v
+        }
+        "package" => {
+            let mut v = vec!["package".to_string()];
+            v.extend(s("platform"));
+            if a.get("release").and_then(Value::as_bool) == Some(true) {
+                v.push("--release".into());
+            }
+            v
+        }
+        "publish" => {
+            let mut v = vec!["publish".to_string()];
+            if let Some(t) = s("tag") {
+                v.extend(["--tag".into(), t]);
+            }
+            if a.get("yes").and_then(Value::as_bool) == Some(true) {
+                v.push("--yes".into());
+            }
+            v
+        }
+        "eject" => vec!["eject".into(), need("tool")?],
         "enable" | "disable" => {
             let f = strings("features");
             if f.is_empty() {
@@ -139,7 +177,7 @@ pub fn handle(msg: &Value, cwd: &Path) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOL),
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "kitchen", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": "Kitchen builds cross-platform desktop apps from a template. Use `features` first, `doctor` when a build fails, and dry_run before changing files."
+            "instructions": "Kitchen builds cross-platform desktop apps from a template. Use `features` first, `doctor` when a build fails, and dry_run before changing files. Lifecycle: `start` (gives the command to run in a terminal), `test`, `package`, `publish` (dry run unless yes)."
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools": tools()})),
@@ -226,6 +264,15 @@ mod tests {
             ["new", "x", "--no-git", "--enable", "a,b"]
         );
         assert!(argv("enable", &json!({})).is_err());
+        assert_eq!(
+            argv("test", &json!({"feature": true})).unwrap(),
+            ["test", "--feature"]
+        );
+        assert_eq!(
+            argv("package", &json!({"platform": "linux", "release": true})).unwrap(),
+            ["package", "linux", "--release"]
+        );
+        assert_eq!(argv("publish", &json!({})).unwrap(), ["publish"]);
     }
 
     #[test]
@@ -243,5 +290,14 @@ mod tests {
         let dir = crate::TempDir::new("mcp").unwrap();
         let call = handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "features", "arguments": {}}}), dir.path()).unwrap();
         assert_eq!(call["result"]["isError"], true);
+        // `start` never blocks: in an app it answers with the command to run.
+        std::fs::write(
+            dir.path().join("kitchen.toml"),
+            "[app]\nname = \"x\"\n[template]\nsource = \"\"\nrev = \"\"\n",
+        )
+        .unwrap();
+        let start = handle(&json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "start", "arguments": {}}}), dir.path()).unwrap();
+        let text = start["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("kitchen start"), "{text}");
     }
 }

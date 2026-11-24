@@ -14,6 +14,10 @@
 //! kitchen generate command export_csv
 //! kitchen generate page Reports
 //! kitchen doctor                           # what this machine is missing, and the fix
+//! kitchen start                            # run it with hot reload (KITCHEN_ENV=development)
+//! kitchen test                             # unit tests + the real app over WebDriver
+//! kitchen package --release                # installers for this OS, in ./packages
+//! kitchen publish --yes                    # a GitHub release with them
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
 //!
@@ -41,11 +45,12 @@
 //!
 //! Modules: [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
-//! generators), [`doctor`] (machine checks), [`mcp`] (the MCP server), [`cli`] (arguments).
+//! generators), [`lifecycle`] (start, test, package, publish, eject), [`doctor`] (machine checks), [`mcp`] (the MCP server), [`cli`] (arguments).
 
 pub mod cli;
 pub mod doctor;
 pub mod generate;
+pub mod lifecycle;
 pub mod manifest;
 pub mod mcp;
 pub mod merge;

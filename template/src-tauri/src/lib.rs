@@ -43,7 +43,10 @@
 //! `paths` for profiles); `get_config` / `set_config` read and write the `config` part, and
 //! `set_config` also hands it to the running engine (`configure`).
 //!
-//! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
+//! Build-time app config (the `config/` folder, merged per environment and OS) is
+//! [`app_config`]; the user's run-time settings are `settings.json`.
+//!
+//! Modules: `app_config` and `config_layers` (build-time config), `service` (the backend), `paths` (folders and profiles), `guard` (window
 //! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
 //! `update`, `single`, `python`, `claude`.
 //!
@@ -78,7 +81,10 @@ mod ipc;
 mod python;
 {% endif %}{% if mcp_server %}#[cfg(all(desktop, feature = "mcp"))]
 mod mcp;
-{% endif %}mod guard;
+{% endif %}pub mod app_config;
+pub mod config_layers;
+pub mod error;
+mod guard;
 mod paths;
 mod service;
 // kitchen:mods (`kitchen generate command` adds modules above this line)
@@ -212,6 +218,8 @@ fn app_info(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Valu
         "status": status,
         "dataDir": paths::app_dirs().1,
         "profile": paths::profile(),
+        // The build-time app config (config/*.json merged for this build); see `app_config`.
+        "config": app_config::CONFIG.clone(),
     }))
 }
 
@@ -631,6 +639,8 @@ const SAMPLE: &str = "Tauri apps draw their interface with the system web view.\
 pub fn self_test(out: Option<&Path>) -> i32 {
     let mut report = serde_json::Map::new();
     report.insert("features".into(), features());
+    // Which config/ layers this build was made with (see `app_config`).
+    report.insert("env".into(), json!(app_config::env()));
     let mut ok = true;
     let tmp = std::env::temp_dir().join(format!("app-self-test-{}", std::process::id()));
     let mut backends = vec![Backend::File];

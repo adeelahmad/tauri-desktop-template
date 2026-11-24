@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["desktop-core", "src-tauri"]
+members = ["desktop-core", "src-tauri", "e2e"]
 # `cargo test` from here skips the desktop shell (it needs WebKitGTK on Linux).
 # Build the app with `cargo tauri dev` or `cargo build -p {{project-name}}`.
 default-members = ["desktop-core"]

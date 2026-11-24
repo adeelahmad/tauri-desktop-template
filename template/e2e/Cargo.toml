@@ -1,0 +1,17 @@
+[package]
+name = "e2e"
+description = "Feature tests: drive the real app through tauri-driver (WebDriver)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# Test-only: nothing here is linked into the app. The WebDriver client in tests/webdriver/mod.rs
+# is plain HTTP + JSON on ureq (already in the tree), so there is no async runtime to build.
+[dev-dependencies]
+serde_json.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
