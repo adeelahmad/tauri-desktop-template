@@ -12,7 +12,7 @@ ui: $(UI_DEPS) ## Build the React UI (the app embeds ui-react/dist)
 ui: ## Nothing to build: the UI is plain files in ui/
 	@true
 {% endif %}
-.PHONY: help setup dev build test lint fmt audit self-test ui db-up db-down docker-test hooks clean
+.PHONY: help setup dev build test lint fmt audit self-test {% if evals %}eval {% endif %}ui db-up db-down docker-test hooks clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -69,6 +69,11 @@ audit: ## Supply chain: cargo-deny (deny.toml), cargo-audit{% if frontend == "re
 self-test: ui ## What CI checks on every installer
 	cargo run -p $(APP) -- --self-test
 
+{% if evals -%}
+eval: ui ## Search evals on evals/dataset.jsonl, compared with evals/baseline.json (fails on a regression)
+	cargo run -p $(APP) -- --eval evals/dataset.jsonl --baseline evals/baseline.json
+
+{% endif -%}
 db-up: ## Postgres + pgvector in Docker (then: export APP_PG_URL=postgres://app:app@localhost:5433/app)
 	docker compose up -d db
 

@@ -28,6 +28,7 @@ ai = {% if ai %}true{% else %}false{% endif %}
 local_llm = {% if local_llm %}true{% else %}false{% endif %}
 tts = {% if tts %}true{% else %}false{% endif %}
 email = {% if email %}true{% else %}false{% endif %}
+evals = {% if evals %}true{% else %}false{% endif %}
 oauth = {% if oauth %}true{% else %}false{% endif %}
 stt = {% if stt %}true{% else %}false{% endif %}
 telemetry = {% if telemetry %}true{% else %}false{% endif %}

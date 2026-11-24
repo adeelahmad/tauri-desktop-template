@@ -71,6 +71,14 @@ fn tools() -> Value {
              "lines": {"type": "integer", "description": "logs: how many lines"},
              "allow_changes": {"type": "boolean", "description": "Really install, start, stop ... (default: only say what would run)"},
              "project": project}}},
+        {"name": "eval", "description": "Run the app's search evals (template feature `evals`): builds the app, runs `<app> --eval` and returns recall@k, MRR, nDCG@k and p50/p95 latency per search mode, plus the full JSON report. Fails (isError) on a regression against `baseline`. `answers` also runs the AI answer path with an LLM faithfulness judge (skipped without an API key).",
+         "inputSchema": {"type": "object", "properties": {
+             "dataset": {"type": "string", "description": "JSONL dataset (default: the bundled sample); the corpus is corpus.jsonl next to it"},
+             "baseline": {"type": "string", "description": "A saved report to compare with, e.g. evals/baseline.json"},
+             "threshold": {"type": "number", "description": "Largest allowed drop in a metric (default 0.02)"},
+             "k": {"type": "integer", "description": "Results scored per query (default 5)"},
+             "answers": {"type": "boolean"},
+             "project": project, "dry_run": dry}}},
         {"name": "new", "description": "Create a new app from the template in folder `dir` (default: the server's folder).",
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "with_deps": deps, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
     ])
@@ -127,6 +135,22 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             v
         }
         "eject" => vec!["eject".into(), need("tool")?],
+        "eval" => {
+            let mut v = vec!["eval".to_string()];
+            v.extend(s("dataset"));
+            if let Some(b) = s("baseline") {
+                v.extend(["--baseline".into(), b]);
+            }
+            for k in ["threshold", "k"] {
+                if let Some(n) = a.get(k).filter(|n| n.is_number()) {
+                    v.extend([format!("--{k}"), n.to_string()]);
+                }
+            }
+            if a.get("answers").and_then(Value::as_bool) == Some(true) {
+                v.push("--answers".into());
+            }
+            v
+        }
         "enable" | "disable" => {
             let f = strings("features");
             if f.is_empty() {
@@ -316,6 +340,14 @@ mod tests {
             ["generate", "shortcut", "search", "Ctrl+K"]
         );
         assert!(argv("generate", &json!({"kind": "shortcut", "name": "search"})).is_err());
+        assert_eq!(
+            argv(
+                "eval",
+                &json!({"dataset": "d.jsonl", "baseline": "b.json", "threshold": 0.05, "k": 3, "answers": true})
+            )
+            .unwrap(),
+            ["eval", "d.jsonl", "--baseline", "b.json", "--threshold", "0.05", "--k", "3", "--answers"]
+        );
         assert_eq!(
             argv("new", &json!({"name": "x", "enable": ["a", "b"]})).unwrap(),
             ["new", "x", "--no-git", "--enable", "a,b"]

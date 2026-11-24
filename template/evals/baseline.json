@@ -1,0 +1,219 @@
+{
+  "k": 5,
+  "chunks": 20,
+  "backend": "file",
+  "runs": {
+    "keyword": {
+      "queries": 15,
+      "recall_at_k": 0.9333333333333333,
+      "mrr": 0.8833333333333333,
+      "ndcg_at_k": 0.895378437204893,
+      "latency": {
+        "p50_ms": 0.428813,
+        "p95_ms": 0.548153,
+        "mean_ms": 0.43392840000000005
+      },
+      "per_query": [
+        {
+          "query": "how do I know when bread dough has finished rising",
+          "retrieved": [
+            "bread-proofing",
+            "resting-meat",
+            "maillard",
+            "salt-types"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.548153
+        },
+        {
+          "query": "feeding schedule for a sourdough starter",
+          "retrieved": [
+            "sourdough-starter",
+            "rice-absorption",
+            "egg-boiling",
+            "salt-types",
+            "resting-meat"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.414852
+        },
+        {
+          "query": "how much salt goes in pasta water",
+          "retrieved": [
+            "pasta-water",
+            "salt-types",
+            "sous-vide",
+            "herbs-storage",
+            "emulsions"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.41591300000000003
+        },
+        {
+          "query": "my mayonnaise split, how can I rescue it",
+          "retrieved": [
+            "emulsions",
+            "broken-mayo-fix",
+            "cast-iron-care",
+            "sous-vide",
+            "sourdough-starter"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.431036
+        },
+        {
+          "query": "why does meat turn brown when it is seared",
+          "retrieved": [
+            "maillard",
+            "resting-meat",
+            "stock",
+            "cast-iron-care",
+            "emulsions"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.479273
+        },
+        {
+          "query": "stop a cast iron skillet from rusting",
+          "retrieved": [
+            "cast-iron-care",
+            "sous-vide"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.410008
+        },
+        {
+          "query": "keep green vegetables bright before freezing them",
+          "retrieved": [
+            "blanching",
+            "herbs-storage",
+            "pasta-water",
+            "stock",
+            "egg-boiling"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.433123
+        },
+        {
+          "query": "what temperature should chicken be cooked to",
+          "retrieved": [
+            "sous-vide",
+            "sourdough-starter",
+            "caramel",
+            "resting-meat",
+            "baking-powder-soda"
+          ],
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg": 0.0,
+          "latency_ms": 0.442149
+        },
+        {
+          "query": "difference between baking soda and baking powder",
+          "retrieved": [
+            "baking-powder-soda",
+            "food-safety-temps",
+            "cast-iron-care",
+            "maillard",
+            "knife-sharpening"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.419091
+        },
+        {
+          "query": "why did my stock turn cloudy",
+          "retrieved": [
+            "stock"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.376152
+        },
+        {
+          "query": "how long to boil an egg for a jammy yolk",
+          "retrieved": [
+            "broken-mayo-fix",
+            "emulsions",
+            "rice-absorption",
+            "egg-boiling",
+            "sous-vide"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "ndcg": 0.43067655807339306,
+          "latency_ms": 0.46464
+        },
+        {
+          "query": "how to keep parsley and basil fresh",
+          "retrieved": [
+            "herbs-storage",
+            "pasta-water",
+            "broken-mayo-fix",
+            "egg-boiling",
+            "caramel"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.428813
+        },
+        {
+          "query": "should a steak rest before slicing",
+          "retrieved": [
+            "resting-meat",
+            "blanching",
+            "sous-vide"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.39835800000000005
+        },
+        {
+          "query": "what angle to hold a knife on a whetstone",
+          "retrieved": [
+            "knife-sharpening",
+            "gluten-free-flour",
+            "salt-types",
+            "cast-iron-care",
+            "caramel"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.44181800000000004
+        },
+        {
+          "query": "what holds gluten-free bread together",
+          "retrieved": [
+            "gluten-free-flour",
+            "bread-proofing",
+            "sous-vide"
+          ],
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg": 1.0,
+          "latency_ms": 0.40554700000000005
+        }
+      ]
+    }
+  },
+  "ok": true
+}

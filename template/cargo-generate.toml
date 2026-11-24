@@ -147,6 +147,11 @@ type = "bool"
 prompt = "PDF text extraction (docling.rs, tesseract OCR fallback)?"
 default = false
 
+[placeholders.evals]
+type = "bool"
+prompt = "Search and RAG evals: recall@k, MRR, nDCG@k and latency on a labelled dataset (`<app> --eval`, `kitchen eval`, `make eval`), checked against a saved baseline?"
+default = false
+
 [placeholders.wizard]
 type = "bool"
 prompt = "First-run setup wizard?"
@@ -333,6 +338,9 @@ ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]
+
+[conditional.'!evals']
+ignore = ["desktop-core/src/eval.rs", "src-tauri/src/eval.rs", "evals"]
 
 [conditional.'!tts']
 ignore = ["desktop-core/src/tts.rs"]
