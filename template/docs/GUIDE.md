@@ -25,6 +25,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Tests](#tests)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
+- [Feature dependencies](#feature-dependencies)
 - [Kitchen CLI](#kitchen-cli)
 - [Notes for AI agents](#notes-for-ai-agents)
 
@@ -471,6 +472,54 @@ cargo test -p desktop-core --doc        # doctests only
 
 If you changed `ui-react`, also run `npx prettier --check src`, `npx eslint src` and
 `npm run build` in that folder.
+
+## Feature dependencies
+
+Some features only work with others. `kitchen enable`, `disable` and `set` check these rules
+before they render anything (add `--with-deps` to switch the dependencies too), and
+`kitchen features --check` checks this app's `kitchen.toml`.
+
+<!-- kitchen:feature-dependencies (generated; see kitchen/src/compat.rs) -->
+Generated from `kitchen/src/compat.rs`; the template's pre-hook (`hooks/compat.rhai`) and
+`kitchen enable` / `disable` / `set` / `features --check` apply the same rules.
+
+| Feature | Needs | Why |
+|---|---|---|
+| `background_agent` | `ipc_worker` | it starts the worker process at login |
+| `daemon` | `ipc_worker` | the daemon is the worker process run headless |
+| `bm25` | `postgres` | VectorChord-BM25 is a Postgres extension |
+| `local_llm` | `ai` | llama.cpp is the local provider of AI chat |
+| `tauri_dialog`, `tauri_fs`, `tauri_clipboard`, `tauri_notification`, `tauri_opener`, `tauri_store`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_deep_link`, `tauri_window_state`, `tauri_os`, `tauri_process`, `tauri_log`, `tauri_http`, `tauri_positioner`, `tauri_shell` | `tauri_plugins` | each Tauri plugin is wired in only with tauri_plugins |
+| `macos_pkg` | `installers` | the release workflow builds it |
+| `install_scripts` | `installers` | they download what the release workflow builds |
+| `linux` | `installers` | the release workflow builds them |
+
+Warnings (it still generates):
+
+| Feature | Without | What is missing |
+|---|---|---|
+| `oauth` | `tauri_deep_link` | the deep-link redirect (oauth.redirect = deepLink) needs the deep-link plugin; without it sign-in uses the loopback redirect |
+| `ipc_worker`, `background_agent`, `daemon`, `updater`, `single_instance`, `mcp_server`, `python_example`, `claude_mcp`, `watch_folders`, `postgres`, `http_api`, `webview`, `tray_menu`, `app_shell`, `tauri_global_shortcut`, `tauri_autostart`, `tauri_window_state`, `tauri_process`, `tauri_positioner`, `tauri_shell` | a desktop target (`mobile` on) | desktop only: compiled out on iOS and Android |
+
+Licences checked for each feature (the pre-hook prints a notice for anything beyond MIT / Apache-2.0):
+
+| Feature | Brings in | Notice |
+|---|---|---|
+| `postgres` | PostgreSQL 16 server and pgvector: PostgreSQL; postgresql_embedded: (MIT OR Apache-2.0) AND PostgreSQL | PostgreSQL and pgvector are under the PostgreSQL Licence (permissive, BSD-like): keep their copyright notice with the app |
+| `bm25` | VectorChord-BM25: AGPL-3.0 OR Elastic-2.0; pg_tokenizer: Apache-2.0 | VectorChord-BM25 is AGPL-3.0 or Elastic License 2.0: pick one before you ship (ELv2 forbids offering it as a managed service; AGPL asks for your source) |
+| `embeddings` | fastembed, hf-hub: Apache-2.0; ONNX Runtime: MIT; Oniguruma: BSD-2-Clause; models: Apache-2.0 (nomic, MiniLM) or MIT (BGE, E5) | the tokenizer's Oniguruma regex library is BSD-2-Clause: keep its copyright notice with the app |
+| `pdf` | docling: MIT; docling-pdf: MIT AND BSD-3-Clause (Adobe mapping resources and glyph list); tesseract (optional, not bundled): Apache-2.0 | docling-pdf embeds Adobe's PDF mapping resources and glyph list (BSD-3-Clause): keep their licence text with the app |
+| `watch_folders` | notify: CC0-1.0; notify-debouncer-full: MIT OR Apache-2.0 | notify is CC0-1.0 (public domain dedication): nothing to do |
+| `local_llm` | llama.cpp: MIT; llama-cpp-2: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `tts` | ONNX Runtime: MIT; ort: MIT OR Apache-2.0; tiny-voca model: Apache-2.0 | none (MIT / Apache-2.0) |
+| `stt` | ONNX Runtime: MIT; ort: MIT OR Apache-2.0; Whisper models: MIT | none (MIT / Apache-2.0) |
+| `rclone` | rclone (downloaded on first use): MIT | none (MIT / Apache-2.0) |
+| `daemon` | service-manager, signal-hook, windows-service: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `oauth` | keyring: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `ipc_worker` | interprocess: 0BSD OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `background_jobs` | croner: MIT; chrono: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
+<!-- /kitchen:feature-dependencies -->
 
 ## Kitchen CLI
 
