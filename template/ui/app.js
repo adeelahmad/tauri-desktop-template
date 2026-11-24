@@ -7,6 +7,9 @@ const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 const show = (id, on = true) => { $(id).hidden = !on; };
 const say = (id, text, error = false) => { $(id).textContent = text; $(id).classList.toggle('error', error); };
+// Translations (feature `i18n`, ui/i18n.js): t(id, english, args), English with { $name } variables. Without
+// the feature the English is used as it is.
+const t = window.i18n ? window.i18n.t : (id, english, args = {}) => english.replace(/\{ \$(\w+) \}/g, (_, k) => String(args[k] ?? ''));
 
 /** @type {import('./bindings/types').AppInfo} */
 let info;
@@ -19,6 +22,7 @@ function provenance(p) {
 }
 
 async function start() {
+  if (window.i18n) await window.i18n.ready;
   info = await invoke('app_info');
   const f = info.features;
   $('about').textContent = `${info.name} ${info.version}`;
@@ -35,12 +39,16 @@ async function start() {
   show('w-pg-option', f.postgres);
   if (f.postgres && !info.postgresAvailable) {
     $('w-pg-option').querySelector('input').disabled = true;
-    say('w-pg-note', 'This computer\'s processor cannot run the bundled database; the file store works the same.');
+    say('w-pg-note', t('wizard-no-postgres', 'This processor cannot run the bundled database; the file store works the same.'));
     show('w-pg-note');
   }
   show('w-model', f.embed);
   // A model built into the installer (bundled models) needs no download step.
-  if ((info.models || []).some((m) => m.kind === 'embed' && m.present)) $('w-embed-size').textContent = 'built into the app, no download';
+  if ((info.models || []).some((m) => m.kind === 'embed' && m.present)) {
+    const en = 'Search by meaning with a local AI model (built into the app, no download; nothing is sent anywhere)';
+    Object.assign($('w-embed-text').dataset, { i18n: 'wizard-model-embed-bundled', i18nEn: en });
+    $('w-embed-text').textContent = t('wizard-model-embed-bundled', en);
+  }
   // iOS and Android: no folders of the user's to read.
   show('add-folder', !f.mobile);
   if (f.wizard && !info.settings.setupDone) {
@@ -75,12 +83,11 @@ function setup(backend, embeddings, statusArea, pgUpgrade) {
       $('pg-upgrade-no').onclick = () => setup(backend, embeddings, statusArea, false);
       return show('pg-upgrade');
     }
-    if (!e.payload.ok) return line(`Setup failed: ${error}`, true);
+    if (!e.payload.ok) return line(t('setup-failed', 'Setup failed: { $error }', { error }), true);
     if (e.payload.status.notice) { $('store-notice').textContent = e.payload.status.notice; show('store-notice'); }
     show('wizard', false); show('loading', false); show('main'); show('clear'); loadConfig().catch(() => {});
     const s = e.payload.status;
-    $('about').textContent = `${info.name} ${info.version} · ${s.chunks} chunks · ${s.backend} store` +
-      (s.embedder ? ` · ${s.embedder}` : ' · keyword search');
+    $('about').textContent = footer(info, s);
   }).then((u) => offs.push(u));
   invoke('run_setup', { backend, embeddings, pgUpgrade }).catch((e) => line(errorText(e), true));
 }
@@ -92,17 +99,20 @@ $('w-go').onclick = () => {
   setup(backend, $('w-embed').checked, 'wizard');
 };
 
+// The footer line: name, version, chunks, store and embedder.
+const footer = (i, s) => t('footer-status', '{ $app } · { $chunks } chunks · { $backend } store · { $embedder }', {
+  app: `${i.name} ${i.version}`, chunks: s.chunks, backend: s.backend, embedder: s.embedder || t('footer-keyword-search', 'keyword search'),
+});
 async function refreshAbout() {
   const i = await invoke('app_info');
-  if (i.status) $('about').textContent = `${i.name} ${i.version} · ${i.status.chunks} chunks · ${i.status.backend} store` +
-    (i.status.embedder ? ` · ${i.status.embedder}` : ' · keyword search');
+  if (i.status) $('about').textContent = footer(i, i.status);
 }
 
 async function addFile(path) {
-  say('add-status', `Reading ${path}…`);
+  say('add-status', t('add-reading', 'Reading { $path }…', { path }));
   try {
     const n = await invoke('ingest_file', { path });
-    say('add-status', `Added ${n} chunks from ${path}.`);
+    say('add-status', t('add-file-done', 'Added { $count } chunks from { $path }.', { count: n, path }));
     refreshAbout();
   } catch (e) { say('add-status', errorText(e), true); }
 }
@@ -111,10 +121,12 @@ $('add-file').onclick = () => { const p = $('file-path').value.trim(); if (p) ad
 $('add-folder').onclick = async () => {
   const path = $('file-path').value.trim();
   if (!path) return;
-  say('add-status', `Reading every document in ${path}…`);
+  say('add-status', t('add-reading-folder', 'Reading every document in { $path }…', { path }));
   try {
     const r = await invoke('ingest_folder', { path, recursive: true });
-    say('add-status', `Added ${r.files} files (${r.chunks} chunks)${r.errors.length ? `, ${r.errors.length} failed: ${r.errors[0]}` : ''}.`, r.errors.length > 0);
+    say('add-status', r.errors.length
+      ? t('add-folder-failed', 'Added { $files } files ({ $chunks } chunks), { $failed } failed: { $error }.', { files: r.files, chunks: r.chunks, failed: r.errors.length, error: r.errors[0] })
+      : t('add-folder-done', 'Added { $files } files ({ $chunks } chunks).', { files: r.files, chunks: r.chunks }), r.errors.length > 0);
     refreshAbout();
   } catch (e) { say('add-status', errorText(e), true); }
 };
@@ -124,8 +136,8 @@ async function loadConfig() { $('config').value = JSON.stringify(await invoke('g
 async function saveConfig(config) {
   try {
     $('config').value = JSON.stringify(await invoke('set_config', { config }), null, 2);
-    say('config-status', 'Saved.');
-  } catch (e) { say('config-status', `Not saved: ${errorText(e)}`, true); }
+    say('config-status', t('settings-saved', 'Saved.'));
+  } catch (e) { say('config-status', t('settings-not-saved', 'Not saved: { $error }', { error: errorText(e) }), true); }
 }
 $('config-save').onclick = () => {
   let config;
@@ -138,7 +150,7 @@ $('add-text').onclick = async () => {
   if (!text.trim()) return;
   try {
     const n = await invoke('ingest_text', { source: $('paste-name').value || 'pasted', text });
-    say('add-status', `Added ${n} chunks.`);
+    say('add-status', t('add-text-done', 'Added { $count } chunks.', { count: n }));
     $('paste').value = '';
     refreshAbout();
   } catch (e) { say('add-status', errorText(e), true); }
@@ -152,13 +164,14 @@ async function runSearch() {
   list.innerHTML = '';
   try {
     const hits = await invoke('search', { query });
-    if (!hits.length) list.innerHTML = '<li class="meta">Nothing found.</li>';
+    if (!hits.length) { const li = document.createElement('li'); li.className = 'meta'; li.textContent = t('search-none', 'Nothing found.'); list.append(li); }
     for (const h of hits) {
       const li = document.createElement('li');
       const meta = document.createElement('div');
       meta.className = 'meta';
-      meta.textContent = `${h.source}${h.page ? `, page ${h.page}` : ''} · ${h.score.toFixed(3)}` +
-        (h.vector_score != null ? ` · vector ${h.vector_score.toFixed(3)}` : '') + (h.keyword_score != null ? ` · keyword ${h.keyword_score.toFixed(2)}` : '');
+      meta.textContent = `${h.source}${h.page ? t('search-page', ', page { $page }', { page: h.page }) : ''} · ${h.score.toFixed(3)}` +
+        (h.vector_score != null ? t('search-vector-score', ' · vector { $score }', { score: h.vector_score.toFixed(3) }) : '') +
+        (h.keyword_score != null ? t('search-keyword-score', ' · keyword { $score }', { score: h.keyword_score.toFixed(2) }) : '');
       meta.title = provenance(h.prov);
       const body = document.createElement('div');
       body.textContent = h.text;
@@ -171,8 +184,8 @@ $('search').onclick = runSearch;
 $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
 
 $('clear').onclick = async () => {
-  if ($('clear').dataset.armed !== '1') { $('clear').dataset.armed = '1'; $('clear').textContent = 'Click again to clear everything'; return; }
-  $('clear').dataset.armed = ''; $('clear').textContent = 'Clear all data';
+  if ($('clear').dataset.armed !== '1') { $('clear').dataset.armed = '1'; $('clear').textContent = t('clear-confirm', 'Click again to clear everything'); return; }
+  $('clear').dataset.armed = ''; $('clear').textContent = t('clear', 'Clear all data');
   await invoke('clear');
   refreshAbout();
 };
@@ -183,7 +196,7 @@ async function checkUpdate(quiet) {
     const u = await invoke('check_update');
     if (!u.configured) { if (!quiet) say('add-status', 'Updates are not set up in this build (no updater public key).'); return; }
     if (u.available) {
-      $('update-text').textContent = `Version ${u.version} is available (you have ${u.current}).`;
+      $('update-text').textContent = t('update-available', 'Version { $version } is available (you have { $current }).', { version: u.version, current: u.current });
       show('update-banner');
     } else if (!quiet) say('add-status', `You have the newest version (${u.current}).`);
   } catch (e) { if (!quiet) say('add-status', `Update check failed: ${errorText(e)}`, true); }
@@ -193,9 +206,9 @@ $('update-install').onclick = async () => {
   $('update-install').disabled = true;
   listen('update-progress', (e) => {
     const [done, total] = e.payload;
-    $('update-text').textContent = total ? `Downloading… ${Math.round((100 * done) / total)}%` : 'Downloading…';
+    $('update-text').textContent = total ? t('update-downloading-percent', 'Downloading… { $percent }%', { percent: Math.round((100 * done) / total) }) : t('update-downloading', 'Downloading…');
   });
-  try { await invoke('install_update'); } catch (e) { $('update-text').textContent = `Update failed: ${errorText(e)}`; $('update-install').disabled = false; }
+  try { await invoke('install_update'); } catch (e) { $('update-text').textContent = t('update-failed', 'Update failed: { $error }', { error: errorText(e) }); $('update-install').disabled = false; }
 };
 
 // ---- background agent (feature `background-agent`) ----
@@ -203,7 +216,7 @@ async function refreshAgent(set) {
   try {
     const a = set === undefined ? await invoke('agent_status') : await invoke('set_agent', { enabled: set });
     $('agent-on').checked = a.installed;
-    say('agent-status', a.installed ? `On: ${a.kind} at ${a.location}` : `Off (${a.kind})`);
+    say('agent-status', a.installed ? t('agent-on', 'On: { $kind } at { $location }', a) : t('agent-off', 'Off ({ $kind })', a));
   } catch (e) { say('agent-status', errorText(e), true); }
 }
 $('agent-on').onchange = () => refreshAgent($('agent-on').checked);
@@ -232,13 +245,39 @@ $('claude-go').onclick = async () => {
   $('claude-go').disabled = true;
   try {
     const r = await invoke('register_claude');
-    say('claude-status', `Claude Desktop config ${r.status}${r.backup ? ` (backup: ${r.backup})` : ''}. Preparing the tools once…`);
-    listen('warmup-done', (e) => say('claude-status', e.payload ? 'Ready. Restart Claude Desktop to use it.' : 'Connected, but the first start failed; it will retry when Claude starts.', !e.payload));
+    say('claude-status', r.backup
+      ? t('claude-registered-backup', 'Claude Desktop config { $status } (backup: { $backup }). Preparing the tools once…', r)
+      : t('claude-registered', 'Claude Desktop config { $status }. Preparing the tools once…', r));
+    listen('warmup-done', (e) => say('claude-status', e.payload ? t('claude-ready', 'Ready. Restart Claude Desktop to use it.') : t('claude-retry', 'Connected; the first start failed and will retry when Claude starts.'), !e.payload));
   } catch (e) { say('claude-status', errorText(e), true); }
   $('claude-go').disabled = false;
 };
 
 start().catch((e) => say('loading', errorText(e), true));
+
+// Language (feature `i18n`): switches at once, saves only `ui.language`, and tells the
+// Settings window.
+if (window.i18n && $('language')) {
+  window.i18n.ready.then(async () => {
+    for (const l of window.i18n.available()) {
+      const o = document.createElement('option');
+      o.value = l.code; o.textContent = l.name; o.lang = l.code; o.dir = l.dir;
+      $('language').append(o);
+    }
+    $('language').value = (await invoke('get_config')).ui?.language || 'system';
+  });
+  $('language').onchange = async () => {
+    const language = $('language').value;
+    try {
+      const saved = await invoke('get_config');
+      await invoke('set_config', { config: { ...saved, ui: { ...saved.ui, language } } });
+      await window.i18n.load(language);
+      await window.__TAURI__.event.emit('locale-changed', language);
+      refreshAbout();
+      loadConfig().catch(() => {});
+    } catch (e) { say('config-status', errorText(e), true); }
+  };
+}
 
 // AI answers (feature `ai`): the reply streams in as `ask-token` events.
 async function ask() {
@@ -313,7 +352,7 @@ async function transcribe(blob) {
   try {
     const r = await invoke('transcribe', { audio: await toPcm16(blob) });
     $('query').value = r.text;
-    say('stt-status', r.text ? `${r.language}, ${r.seconds.toFixed(1)} s` : 'No speech heard.');
+    say('stt-status', r.text ? `${r.language}, ${r.seconds.toFixed(1)} s` : t('dictate-nothing', 'No speech heard.'));
   } catch (e) { say('stt-status', errorText(e), true); }
 }
 let recorder = null;
@@ -325,8 +364,8 @@ $('dictate').onclick = async () => {
     const r = new MediaRecorder(stream);
     r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     r.onstop = () => { stream.getTracks().forEach((t) => t.stop()); transcribe(new Blob(chunks, { type: r.mimeType })); };
-    r.start(); recorder = r; $('dictate').textContent = '■ Stop'; say('stt-status', 'Listening…');
-  } catch (e) { say('stt-status', `Microphone: ${e.message || e}`, true); }
+    r.start(); recorder = r; $('dictate').textContent = t('dictate-stop', '■ Stop'); say('stt-status', 'Listening…');
+  } catch (e) { say('stt-status', t('dictate-mic-error', 'Microphone: { $error }', { error: e.message || e }), true); }
 };
 $('stt-file-go').onclick = () => $('stt-file').click();
 $('stt-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) transcribe(f); };

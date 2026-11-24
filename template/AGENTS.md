@@ -118,6 +118,9 @@ This build has:
 {% if claude_mcp -%}
 - `claude_mcp` (cargo feature `claude-mcp`): bundled uv registers a Python MCP server in Claude Desktop, `src-tauri/src/claude.rs`.
 {% endif -%}
+{% if i18n -%}
+- `i18n` (cargo feature `i18n`): translations, `desktop-core/src/i18n.rs` (`t!("id", count = n)` in Rust), `locales/<code>/app.ftl` (Fluent; English is the source), {% if frontend == "react" %}`t('id', 'English', { args })` from `ui-react/src/i18n.js`{% else %}`t('id', 'English', { args })` and `data-i18n="id"` from `ui/i18n.js`{% endif %}. A new user-facing string gets an id in `locales/en/app.ftl` and every other locale; run `kitchen i18n check`. Use logical CSS (`margin-inline-start`, not `margin-left`) so right-to-left languages work.
+{% endif -%}
 {% if mobile -%}
 - `mobile`: iOS and Android builds; desktop-only code is behind `cfg(desktop)`.
 {% endif -%}

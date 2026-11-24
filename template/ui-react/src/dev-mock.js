@@ -10,7 +10,8 @@
 // when you add a Tauri command. Each call is logged to the console as `[dev-mock]`.
 //
 // URL options: ?mode=light|dark (default: the OS), ?theme=nord (any theme in shell.css),
-// ?os=macos|windows|linux, ?wizard=1 (start at the setup wizard).
+// ?os=macos|windows|linux, ?wizard=1 (start at the setup wizard), ?locale=ar (feature i18n: the
+// saved language; with ?pseudo=1 the pseudo-locale en-XA).
 // (No double curly braces in this folder: the template engine would eat them.)
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
@@ -47,6 +48,7 @@ const FEATURES = {
   pythonExample: {% if python_example %}true{% else %}false{% endif %},
   claudeMcp: {% if claude_mcp %}true{% else %}false{% endif %},
   trayMenu: {% if tray_menu %}true{% else %}false{% endif %},
+  i18n: {% if i18n %}true{% else %}false{% endif %},
 };
 
 const params = new URLSearchParams(location.search);
@@ -111,6 +113,7 @@ const DEFAULTS = {
   },
   shortcuts: [],
   menu: { title: 'Actions', extra: [] },
+  ui: { language: params.get('locale') || (params.get('pseudo') === '1' ? 'en-XA' : 'system') },
 };
 
 // Sample documents, so search has something to find.
@@ -153,7 +156,7 @@ const commands = {
     version: '0.1.0',
     features: FEATURES,
     postgresAvailable: FEATURES.postgres,
-    settings: state.settings,
+    settings: { ...state.settings, config: state.config },
     status: status(),
     dataDir: '/home/you/.local/share/app',
     profile: 'default',
@@ -265,6 +268,8 @@ const commands = {
     shortcuts: [],
   }),
   run_action: () => null,
+  // The OS language is the browser's here; the React UI embeds the messages itself.
+  i18n_bundle: ({ locale }) => ({ locale: !locale || locale === 'system' ? navigator.language || 'en' : locale }),
 };
 
 // Reject the way a real command does: with a CommandError, { code, message, details? }

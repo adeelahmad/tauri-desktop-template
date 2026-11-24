@@ -11,7 +11,8 @@
     "format": "prettier --write . && eslint --fix ."
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.9.0",
+{% if i18n %}    "@fluent/bundle": "^0.19.1",
+{% endif %}    "@tauri-apps/api": "^2.9.0",
 {% if tauri_plugins %}{% if tauri_autostart %}    "@tauri-apps/plugin-autostart": "^2.7.0",
 {% endif %}{% if tauri_clipboard %}    "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
 {% endif %}{% if tauri_deep_link %}    "@tauri-apps/plugin-deep-link": "^2.6.3",

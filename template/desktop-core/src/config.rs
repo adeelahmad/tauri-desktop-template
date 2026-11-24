@@ -103,6 +103,9 @@ pub struct Config {
 {% endif %}{% if release_channels %}    /// Update channel (stable or beta) for the updater.
     #[cfg(feature = "release-channels")]
     pub updates: crate::release::UpdatesConfig,
+{% endif %}{% if i18n %}    /// The interface language (`ui.language`: `system` or a locale code).
+    #[cfg(feature = "i18n")]
+    pub ui: crate::i18n::UiConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -365,6 +368,10 @@ impl Config {
 {% endif %}{% if release_channels %}        #[cfg(feature = "release-channels")]
         {
             self.updates = self.updates.validated();
+        }
+{% endif %}{% if i18n %}        #[cfg(feature = "i18n")]
+        {
+            self.ui = self.ui.validated();
         }
 {% endif %}        // kitchen:validate
         self

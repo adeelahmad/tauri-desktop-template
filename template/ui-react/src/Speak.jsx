@@ -2,6 +2,7 @@
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useRef, useState } from 'react';
 import { api } from './ipc.js';
+import { t } from './i18n.js';
 
 export default function Speak({ text }) {
   const [busy, setBusy] = useState(false);
@@ -24,7 +25,7 @@ export default function Speak({ text }) {
   return (
     <span>
       <button className="link" onClick={play} disabled={busy || !text}>
-        {busy ? 'Preparing…' : 'Read aloud'}
+        {busy ? t('speak-preparing', 'Preparing…') : t('speak', 'Read aloud')}
       </button>
       {error && (
         <span className="status error" role="alert">

@@ -3,7 +3,8 @@
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useEffect, useState } from 'react';
 import { api, errorText, invoke } from './ipc.js';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
+import { available, setLocale, t } from './i18n.js';
 
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
 
@@ -296,8 +297,19 @@ const FIELDS = [
   // kitchen:settings (`kitchen generate setting` adds fields above this line)
 ];
 
+// Message ids (locales/*/app.ftl): 'setting-<section>-<key>' for a field, with '-<option>' for
+// its option labels, and 'section-<id>' for a title. camelCase and dots become dashes.
+const kebab = (s) =>
+  String(s)
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[._]/g, '-')
+    .toLowerCase();
+const fieldId = (section, key) => `setting-${kebab(section)}-${kebab(key)}`;
+const title = (id) => t(`section-${kebab(id)}`, TITLES[id] || id);
+
 const TITLES = {
   appearance: 'Appearance',
+  language: 'Language',
   search: 'Search',
   postgres: 'Database',
   ingest: 'Ingest',
@@ -326,7 +338,7 @@ const TITLES = {
   // kitchen:titles
 };
 
-function Field({ kind, label, value, extra, onChange }) {
+function Field({ kind, label, value, extra, onChange, msg }) {
   if (kind === 'bool')
     return (
       <label className="field">
@@ -340,7 +352,7 @@ function Field({ kind, label, value, extra, onChange }) {
         <select value={value} onChange={(e) => onChange(extra.numeric ? Number(e.target.value) : e.target.value)}>
           {extra.options.map((o, i) => (
             <option key={o} value={o}>
-              {extra.labels ? extra.labels[i] : o}
+              {extra.labels ? (msg ? t(`${msg}-${kebab(o)}`, extra.labels[i]) : extra.labels[i]) : o}
             </option>
           ))}
         </select>
@@ -443,17 +455,17 @@ function MailSetup({ from }) {
     try {
       setSaved((await api.mail_password({ password })).set);
       setPassword('');
-      setMsg('Password saved.');
+      setMsg(t('mail-password-saved', 'Password saved.'));
     } catch (e) {
       setMsg(errorText(e));
     }
   };
   const test = async (to) => {
     setBusy(true);
-    setMsg(to ? `Sending to ${to}...` : 'Connecting...');
+    setMsg(to ? t('mail-sending', 'Sending to { $to }…', { to }) : t('mail-connecting', 'Connecting…'));
     try {
       await api.test_mail({ to });
-      setMsg(to ? `Sent. Check ${to}.` : 'Connected and logged in.');
+      setMsg(to ? t('mail-sent', 'Sent. Check { $to }.', { to }) : t('mail-logged-in', 'Connected and logged in.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -466,21 +478,25 @@ function MailSetup({ from }) {
       <div className="row">
         <input
           type="password"
-          aria-label="SMTP password"
-          placeholder={saved ? 'Password saved (type to replace)' : 'Password or app password'}
+          aria-label={t('mail-password', 'SMTP password')}
+          placeholder={
+            saved ? t('mail-password-kept', 'Password saved (type to replace)') : t('mail-password-placeholder', 'Password or app password')
+          }
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button onClick={store}>{password ? 'Save password' : 'Remove password'}</button>
+        <button onClick={store}>
+          {password ? t('mail-password-save', 'Save password') : t('mail-password-remove', 'Remove password')}
+        </button>
       </div>
       <div className="row">
         <button onClick={() => test(null)} disabled={busy}>
-          Test login
+          {t('mail-test-login', 'Test login')}
         </button>
         <button onClick={() => test(me)} disabled={busy || !me}>
-          Send a test email to myself
+          {t('mail-test-send', 'Send a test email to myself')}
         </button>
-        <span className="hint">{msg || 'Save settings first.'}</span>
+        <span className="hint">{msg || t('save-first', 'Save settings first.')}</span>
       </div>
     </>
   );
@@ -712,7 +728,7 @@ function JobsPanel() {
   const enqueue = async () => {
     try {
       const job = await api.jobs_enqueue({ kind: kind || st.types[0], payload: JSON.parse(payload || '{}') });
-      setMsg(`Queued ${job.kind}.`);
+      setMsg(t('jobs-queued', 'Queued { $kind }.', { kind: job.kind }));
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -721,60 +737,70 @@ function JobsPanel() {
   if (!st) return <p className="hint">{msg}</p>;
   return (
     <div className="panel">
-      {!st.enabled && <div>Jobs are kept but not run until you turn them on above and save.</div>}
+      {!st.enabled && <div>{t('jobs-off', 'Jobs are kept but not run until you turn them on above and save.')}</div>}
       <div className="row">
-        <select value={kind || st.types[0]} onChange={(e) => setKind(e.target.value)} aria-label="Job type">
+        <select value={kind || st.types[0]} onChange={(e) => setKind(e.target.value)} aria-label={t('jobs-type', 'Job type')}>
           {st.types.map((t) => (
             <option key={t}>{t}</option>
           ))}
         </select>
-        <input value={payload} onChange={(e) => setPayload(e.target.value)} aria-label="Payload (JSON)" placeholder="Payload (JSON)" />
-        <button onClick={enqueue}>Run now</button>
+        <input
+          value={payload}
+          onChange={(e) => setPayload(e.target.value)}
+          aria-label={t('jobs-payload', 'Payload (JSON)')}
+          placeholder={t('jobs-payload', 'Payload (JSON)')}
+        />
+        <button onClick={enqueue}>{t('jobs-run', 'Run now')}</button>
       </div>
-      <div>{st.jobs.length ? 'Queue:' : 'The queue is empty.'}</div>
+      <div>{st.jobs.length ? t('jobs-queue', 'Queue:') : t('jobs-queue-empty', 'The queue is empty.')}</div>
       <ul className="pending">
         {st.jobs.map((j) => (
           <li key={j.id}>
-            <code>{j.kind}</code> {j.state}, attempt {j.attempts} of {j.maxAttempts},{' '}
-            {j.state === 'running' ? 'now' : `at ${when(j.runAt)}`}
+            <code>{j.kind}</code>{' '}
+            {t('jobs-attempt', '{ $state }, attempt { $attempt } of { $max },', {
+              state: j.state,
+              attempt: j.attempts,
+              max: j.maxAttempts,
+            })}{' '}
+            {j.state === 'running' ? t('jobs-now', 'now') : t('jobs-at', 'at { $time }', { time: when(j.runAt) })}
             {j.lastError ? ` (${j.lastError})` : ''}{' '}
             <button className="link" onClick={act('jobs_cancel', { id: j.id })}>
-              Cancel
+              {t('jobs-cancel', 'Cancel')}
             </button>
           </li>
         ))}
       </ul>
-      {st.dead.length > 0 && <div>Dead letters (out of attempts):</div>}
+      {st.dead.length > 0 && <div>{t('jobs-dead', 'Dead letters (out of attempts):')}</div>}
       <ul className="pending">
         {st.dead.map((j) => (
           <li key={j.id}>
-            <code>{j.kind}</code> after {j.attempts} attempts: {j.lastError}{' '}
+            <code>{j.kind}</code> {t('jobs-dead-item', 'after { $count } attempts:', { count: j.attempts })} {j.lastError}{' '}
             <button className="link" onClick={act('jobs_retry', { id: j.id })}>
-              Retry
+              {t('jobs-retry', 'Retry')}
             </button>
             <button className="link" onClick={act('jobs_cancel', { id: j.id })}>
-              Drop
+              {t('jobs-drop', 'Drop')}
             </button>
           </li>
         ))}
       </ul>
-      <div>{schedules.length ? 'Schedules:' : 'No schedules.'}</div>
+      <div>{schedules.length ? t('jobs-schedules', 'Schedules:') : t('jobs-schedules-none', 'No schedules.')}</div>
       <ul className="pending">
         {schedules.map((s) => (
           <li key={s.id}>
-            <b>{s.id}</b>: <code>{s.kind}</code> {s.cron ? `cron ${s.cron}` : `every ${s.everySecs} s`},{' '}
-            {s.paused ? 'paused' : `next ${when(s.nextRun)}`}{' '}
+            <b>{s.id}</b>: <code>{s.kind}</code> {s.cron ? `cron ${s.cron}` : t('jobs-every', 'every { $secs } s', { secs: s.everySecs })},{' '}
+            {s.paused ? t('jobs-paused', 'paused') : t('jobs-next', 'next { $time }', { time: when(s.nextRun) })}{' '}
             <button className="link" onClick={act('jobs_set_schedule', { schedule: { id: s.id, paused: !s.paused } })}>
-              {s.paused ? 'Resume' : 'Pause'}
+              {s.paused ? t('jobs-resume', 'Resume') : t('jobs-pause', 'Pause')}
             </button>
           </li>
         ))}
       </ul>
-      <div>{st.history.length ? 'Recent runs:' : 'No runs yet.'}</div>
+      <div>{st.history.length ? t('jobs-history', 'Recent runs:') : t('jobs-history-none', 'No runs yet.')}</div>
       <ul className="pending">
         {st.history.slice(0, 10).map((r, i) => (
           <li key={i}>
-            {when(r.finished)} <code>{r.kind}</code> attempt {r.attempt}: {r.outcome}
+            {when(r.finished)} <code>{r.kind}</code> {t('jobs-run-item', 'attempt { $attempt }:', { attempt: r.attempt })} {r.outcome}
             {r.message ? ` (${r.message})` : ''}
           </li>
         ))}
@@ -975,7 +1001,7 @@ function HttpApiInfo() {
   const copy = async (text, what) => {
     try {
       await navigator.clipboard.writeText(text);
-      setMsg(`${what} copied.`);
+      setMsg(t('http-copied', '{ $what } copied.', { what }));
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -984,25 +1010,29 @@ function HttpApiInfo() {
   return (
     <>
       <div className="hint">
-        {r.running ? `Listening on ${r.url}.` : r.error ? `Not running: ${r.error}` : 'Not running. Turn it on and save settings.'}
+        {r.running
+          ? t('http-listening', 'Listening on { $url }.', { url: r.url })
+          : r.error
+            ? t('http-error', 'Not running: { $error }', { error: r.error })
+            : t('http-off', 'Not running. Turn it on and save settings.')}
       </div>
       {r.url && (
         <div className="row">
           <code>{r.url}</code>
-          <button className="link" onClick={() => copy(r.url, 'URL')}>
-            Copy URL
+          <button className="link" onClick={() => copy(r.url, t('http-url', 'URL'))}>
+            {t('http-copy-url', 'Copy URL')}
           </button>
         </div>
       )}
       {r.token && (
         <div className="row">
           <code>{`${r.token.slice(0, 8)}…`}</code>
-          <button className="link" onClick={() => copy(r.token, 'Token')}>
-            Copy token
+          <button className="link" onClick={() => copy(r.token, t('http-token', 'Token'))}>
+            {t('http-copy-token', 'Copy token')}
           </button>
         </div>
       )}
-      <span className="hint">{msg || 'Send the token as Authorization: Bearer <token>. Keep it secret.'}</span>
+      <span className="hint">{msg || t('http-token-hint', 'Send the token as Authorization: Bearer <token>. Keep it secret.')}</span>
     </>
   );
 }
@@ -1088,22 +1118,27 @@ function Profiles() {
         {p.saved.profiles.map((x) => (
           <li key={x.id}>
             {x.name}
-            {x.id === p.running ? ' (open now)' : ''}{' '}
+            {x.id === p.running ? t('profiles-open-now', ' (open now)') : ''}{' '}
             {x.id !== p.running && (
               <button className="link" onClick={act(() => api.switch_profile({ id: x.id }))}>
-                Switch
+                {t('profiles-switch', 'Switch')}
               </button>
             )}
             {x.id !== p.running && x.id !== 'default' && (
               <button className="link" onClick={act(() => api.remove_profile({ id: x.id, deleteData: false }))}>
-                Remove (keeps its files)
+                {t('profiles-remove', 'Remove (keeps its files)')}
               </button>
             )}
           </li>
         ))}
       </ul>
       <div className="row">
-        <input placeholder="New profile name" aria-label="New profile name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          placeholder={t('profiles-new', 'New profile name')}
+          aria-label={t('profiles-new', 'New profile name')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
         <button
           disabled={!name.trim()}
           onClick={act(async () => {
@@ -1111,7 +1146,7 @@ function Profiles() {
             setName('');
           })}
         >
-          Add profile
+          {t('profiles-add', 'Add profile')}
         </button>
       </div>
       <p className="hint">{msg}</p>
@@ -1144,28 +1179,36 @@ function Backups() {
     setBusy(false);
     load();
   };
-  const now = () => run('Backing up…', async () => `Backed up ${(await api.backup_now()).chunks} chunks.`);
+  const now = () =>
+    run(t('backup-running', 'Backing up…'), async () =>
+      t('backup-done', 'Backed up { $chunks } chunks.', { chunks: (await api.backup_now()).chunks }),
+    );
   const restore = (b) =>
-    run('Restoring…', async () => {
+    run(t('backup-restoring', 'Restoring…'), async () => {
       const s = await api.restore_backup({ path: b.path, key: key || null });
-      return `Restored ${s.chunks} chunks. The index it replaced was backed up first.`;
+      return t('backup-restored', 'Restored { $chunks } chunks. The index it replaced was backed up first.', { chunks: s.chunks });
     });
   return (
     <div>
       <div className="row">
         <button onClick={now} disabled={busy}>
-          Back up now
+          {t('backup-now', 'Back up now')}
         </button>
         <span className="hint">{msg}</span>
       </div>
-      {list.length === 0 && <p className="hint">No backups yet.</p>}
+      {list.length === 0 && <p className="hint">{t('backup-none', 'No backups yet.')}</p>}
       <ul className="backups">
         {list.map((b) => (
           <li key={b.path}>
-            {new Date(b.created).toLocaleString()}: {b.chunks} chunks from {b.sources} sources ({Math.ceil(b.bytes / 1024)} KB)
-            {b.encrypted ? ', encrypted' : ''}{' '}
+            {t('backup-item', '{ $created }: { $chunks } chunks from { $sources } sources ({ $kb } KB)', {
+              created: new Date(b.created).toLocaleString(),
+              chunks: b.chunks,
+              sources: b.sources,
+              kb: Math.ceil(b.bytes / 1024),
+            })}
+            {b.encrypted ? t('backup-encrypted', ', encrypted') : ''}{' '}
             <button className="link" disabled={busy} onClick={() => restore(b)}>
-              Restore
+              {t('backup-restore', 'Restore')}
             </button>
           </li>
         ))}
@@ -1180,13 +1223,17 @@ function Backups() {
             )
           }
         >
-          Show the recovery key
+          {t('backup-show-key', 'Show the recovery key')}
         </button>
         {recovery && <code>{recovery}</code>}
       </div>
-      {recovery && <p className="hint">Keep it somewhere safe: an encrypted backup cannot be restored on another computer without it.</p>}
+      {recovery && (
+        <p className="hint">
+          {t('backup-key-hint', 'Keep it somewhere safe: an encrypted backup cannot be restored on another computer without it.')}
+        </p>
+      )}
       <label className="field">
-        Recovery key for a backup from another computer (optional)
+        {t('backup-key-label', 'Recovery key for a backup from another computer (optional)')}
         <input value={key} onChange={(e) => setKey(e.target.value)} />
       </label>
     </div>
@@ -1363,14 +1410,14 @@ function AiKeys() {
     try {
       setHave(await api.set_ai_key({ provider, key: value }));
       setKey('');
-      setMsg(value ? 'Key saved.' : 'Key removed.');
+      setMsg(value ? t('ai-key-saved', 'Key saved.') : t('ai-key-removed', 'Key removed.'));
     } catch (e) {
       setMsg(errorText(e));
     }
   };
   return (
     <div className="row">
-      <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Key for provider">
+      <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label={t('ai-key-provider', 'Key for provider')}>
         {['anthropic', 'openai', 'gemini', 'ollama', 'compatible'].map((p) => (
           <option key={p}>{p}</option>
         ))}
@@ -1380,19 +1427,19 @@ function AiKeys() {
         autoComplete="off"
         value={key}
         onChange={(e) => setKey(e.target.value)}
-        placeholder="API key"
-        aria-label="API key"
+        placeholder={t('ai-key', 'API key')}
+        aria-label={t('ai-key', 'API key')}
       />
       <button onClick={() => save(key)} disabled={!key}>
-        Save key
+        {t('ai-key-save', 'Save key')}
       </button>
       {have.includes(provider) && (
         <button className="link" onClick={() => save(null)}>
-          Remove
+          {t('remove', 'Remove')}
         </button>
       )}
       <span className="hint">
-        {have.length ? `Keys set: ${have.join(', ')}` : 'No keys set.'} {msg}
+        {have.length ? t('ai-keys-set', 'Keys set: { $list }', { list: have.join(', ') }) : t('ai-keys-none', 'No keys set.')} {msg}
       </span>
     </div>
   );
@@ -1411,34 +1458,40 @@ function AiUsage() {
   useEffect(() => {
     load();
   }, []);
-  const usd = (t) => `$${(t?.costUsd || 0).toFixed(4)}${t?.unpriced ? ` (+${t.unpriced} unpriced)` : ''}`;
-  const toks = (t) => `${t?.inputTokens || 0} in / ${t?.outputTokens || 0} out, ${t?.cachedTokens || 0} cached`;
+  const usd = (x) =>
+    `$${(x?.costUsd || 0).toFixed(4)}${x?.unpriced ? t('usage-unpriced', ' (+{ $count } unpriced)', { count: x.unpriced }) : ''}`;
+  const toks = (x) =>
+    t('usage-tokens', '{ $input } in / { $output } out, { $cached } cached', {
+      input: x?.inputTokens || 0,
+      output: x?.outputTokens || 0,
+      cached: x?.cachedTokens || 0,
+    });
   if (err) return <p className="status error">{err}</p>;
   if (!u) return null;
   const rows = [
-    [`Today (${u.day})`, u.today],
-    [`This month (${u.month})`, u.thisMonth],
+    [t('usage-today', 'Today ({ $day })', { day: u.day }), u.today],
+    [t('usage-month', 'This month ({ $month })', { month: u.month }), u.thisMonth],
     ...u.days.filter(([d]) => d !== u.day).slice(0, 7),
   ];
   return (
     <div className="ai-usage">
-      <h3>AI usage</h3>
+      <h3>{t('usage-title', 'AI usage')}</h3>
       <table>
         <thead>
           <tr>
-            <th>Period</th>
-            <th>Calls</th>
-            <th>Tokens</th>
-            <th>Cost</th>
+            <th>{t('usage-period', 'Period')}</th>
+            <th>{t('usage-calls', 'Calls')}</th>
+            <th>{t('usage-tokens-head', 'Tokens')}</th>
+            <th>{t('usage-cost', 'Cost')}</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(([name, t]) => (
+          {rows.map(([name, x]) => (
             <tr key={name}>
               <td>{name}</td>
-              <td>{t?.requests || 0}</td>
-              <td>{toks(t)}</td>
-              <td>{usd(t)}</td>
+              <td>{x?.requests || 0}</td>
+              <td>{toks(x)}</td>
+              <td>{usd(x)}</td>
             </tr>
           ))}
         </tbody>
@@ -1446,17 +1499,24 @@ function AiUsage() {
       {u.budgets.map((b) => (
         <div key={b.name} className="row">
           <label>
-            {b.name}: {b.name.endsWith('USD') ? `$${b.used.toFixed(2)} of $${b.limit.toFixed(2)}` : `${b.used} of ${b.limit}`}
+            {b.name}:{' '}
+            {b.name.endsWith('USD')
+              ? t('usage-of', '{ $used } of { $limit }', { used: `$${b.used.toFixed(2)}`, limit: `$${b.limit.toFixed(2)}` })
+              : t('usage-of', '{ $used } of { $limit }', { used: b.used, limit: b.limit })}
           </label>
           <meter min={0} max={100} low={79} high={99} optimum={0} value={Math.min(b.percent, 100)} />
           <span className={b.state === 'ok' ? 'hint' : 'status error'}>
-            {b.state === 'over' ? (u.overrideLimits ? 'over (override on)' : 'used up') : `${b.percent.toFixed(0)}%`}
+            {b.state === 'over'
+              ? u.overrideLimits
+                ? t('usage-over-override', 'over (override on)')
+                : t('usage-used-up', 'used up')
+              : `${b.percent.toFixed(0)}%`}
           </span>
         </div>
       ))}
-      {!u.budgets.length && <p className="hint">No budgets set.</p>}
+      {!u.budgets.length && <p className="hint">{t('usage-no-budgets', 'No budgets set.')}</p>}
       <button className="link" onClick={load}>
-        Refresh
+        {t('refresh', 'Refresh')}
       </button>
     </div>
   );
@@ -1504,8 +1564,8 @@ function KeyCapture({ label, value, onChange }) {
       {label}
       <input
         readOnly
-        value={listening ? 'Press keys…' : value || ''}
-        placeholder="Click, then press keys"
+        value={listening ? t('keys-listening', 'Press keys…') : value || ''}
+        placeholder={t('keys-placeholder', 'Click, then press keys')}
         onFocus={() => setListening(true)}
         onBlur={() => setListening(false)}
         onKeyDown={down}
@@ -1516,8 +1576,8 @@ function KeyCapture({ label, value, onChange }) {
 
 function ActionPick({ value, actions, onChange, separator }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Action">
-      {separator && <option value="separator">— separator —</option>}
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={t('tray-action', 'Action')}>
+      {separator && <option value="separator">{t('tray-separator', '— separator —')}</option>}
       {actions.map((a) => (
         <option key={a.id} value={a.id}>
           {a.label} ({a.id})
@@ -1547,8 +1607,8 @@ function EntryList({ title, entries, actions, onChange, keys }) {
             <>
               <input
                 value={e.label}
-                placeholder="Label (empty = default)"
-                aria-label="Menu label"
+                placeholder={t('tray-label-placeholder', 'Label (empty = default)')}
+                aria-label={t('tray-label', 'Menu label')}
                 onChange={(x) => put(i, 'label', x.target.value)}
               />
               {keys && <KeyCapture label="" value={e.shortcutHint} onChange={(v) => put(i, 'shortcutHint', v || null)} />}
@@ -1557,23 +1617,28 @@ function EntryList({ title, entries, actions, onChange, keys }) {
           <span className="row-tools">
             {e.action !== 'separator' && (
               <label className="field">
-                <input type="checkbox" checked={e.enabled} onChange={(x) => put(i, 'enabled', x.target.checked)} /> on
+                <input type="checkbox" checked={e.enabled} onChange={(x) => put(i, 'enabled', x.target.checked)} /> {t('tray-on', 'on')}
               </label>
             )}
-            <button className="link" onClick={() => move(i, -1)} aria-label="Move up" title="Move up">
+            <button className="link" onClick={() => move(i, -1)} aria-label={t('tray-up', 'Move up')} title={t('tray-up', 'Move up')}>
               ↑
             </button>
-            <button className="link" onClick={() => move(i, 1)} aria-label="Move down" title="Move down">
+            <button
+              className="link"
+              onClick={() => move(i, 1)}
+              aria-label={t('tray-down', 'Move down')}
+              title={t('tray-down', 'Move down')}
+            >
               ↓
             </button>
             <button className="link" onClick={() => onChange(entries.filter((_, j) => j !== i))}>
-              Remove
+              {t('remove', 'Remove')}
             </button>
           </span>
         </div>
       ))}
       <button className="link" onClick={add}>
-        Add an item
+        {t('tray-add-item', 'Add an item')}
       </button>
     </div>
   );
@@ -1599,15 +1664,15 @@ function TrayShortcuts({ cfg, setCfg }) {
   return (
     <>
       <EntryList
-        title="Tray menu"
+        title={t('tray-menu', 'Tray menu')}
         entries={cfg.tray.items}
         actions={actions}
         onChange={(v) => setCfg({ ...cfg, tray: { ...cfg.tray, items: v } })}
       />
       <div className="panel">
-        <h4>App menu</h4>
+        <h4>{t('tray-app-menu', 'App menu')}</h4>
         <label className="field">
-          Title
+          {t('tray-menu-title', 'Title')}
           <input value={cfg.menu.title} onChange={(e) => setCfg({ ...cfg, menu: { ...cfg.menu, title: e.target.value } })} />
         </label>
       </div>
@@ -1619,22 +1684,24 @@ function TrayShortcuts({ cfg, setCfg }) {
         onChange={(v) => setCfg({ ...cfg, menu: { ...cfg.menu, extra: v } })}
       />
       <div className="panel">
-        <h4>Global shortcuts</h4>
+        <h4>{t('tray-shortcuts', 'Global shortcuts')}</h4>
         <p className="hint">
-          {shortcuts.length ? 'They work while other apps are in front.' : 'None yet. They work while other apps are in front.'}
+          {shortcuts.length
+            ? t('tray-shortcuts-hint', 'They work while other apps are in front.')
+            : t('tray-shortcuts-none', 'None yet. They work while other apps are in front.')}
         </p>
         {shortcuts.map((s, i) => (
           <div className="row" key={i}>
             <KeyCapture label="" value={s.accelerator} onChange={(v) => putShortcut(i, 'accelerator', v)} />
             <ActionPick value={s.action} actions={actions} onChange={(v) => putShortcut(i, 'action', v)} />
             <button className="link" onClick={() => setCfg({ ...cfg, shortcuts: shortcuts.filter((_, j) => j !== i) })}>
-              Remove
+              {t('remove', 'Remove')}
             </button>
             {failed(s) && <span className="status error">{failed(s)}</span>}
           </div>
         ))}
         <button className="link" onClick={() => setCfg({ ...cfg, shortcuts: [...shortcuts, { accelerator: '', action: 'show_hide' }] })}>
-          Add a shortcut
+          {t('tray-add-shortcut', 'Add a shortcut')}
         </button>
       </div>
       {status.problems.length > 0 && (
@@ -1750,6 +1817,44 @@ function Licences() {
   );
 }
 
+// The interface language (feature i18n): applies at once in every window, and is saved at once
+// so the menus, the tray and the backend's messages follow.
+function LanguagePicker({ cfg, setCfg }) {
+  const [msg, setMsg] = useState('');
+  const value = cfg.ui?.language || 'system';
+  const pick = async (language) => {
+    setMsg('');
+    setCfg({ ...cfg, ui: { ...cfg.ui, language } });
+    await setLocale(language);
+    try {
+      // Only the language: other unsaved changes on this screen stay unsaved.
+      const saved = await api.get_config();
+      await api.set_config({ config: { ...saved, ui: { ...saved.ui, language } } });
+      await emit('locale-changed', language);
+    } catch (e) {
+      setMsg(errorText(e));
+    }
+  };
+  return (
+    <div className="grid">
+      <label className="field">
+        {t('setting-ui-language', 'Language')}
+        <select value={value} onChange={(e) => pick(e.target.value)}>
+          <option value="system">{t('setting-ui-language-system', 'Same as the system')}</option>
+          {available().map((l) => (
+            <option key={l.code} value={l.code} lang={l.code} dir={l.dir}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="hint">
+        {msg || t('setting-ui-language.help', 'Menus and messages switch at once. Missing translations show in English.')}
+      </p>
+    </div>
+  );
+}
+
 export default function Settings({ features }) {
   const [cfg, setCfg] = useState(null);
   const [msg, setMsg] = useState('');
@@ -1770,9 +1875,9 @@ export default function Settings({ features }) {
   const save = async () => {
     try {
       setCfg(await api.set_config({ config: cfg }));
-      setMsg('Saved.');
+      setMsg(t('settings-saved', 'Saved.'));
     } catch (e) {
-      setMsg(`Not saved: ${errorText(e)}`);
+      setMsg(t('settings-not-saved', 'Not saved: { $error }', { error: errorText(e) }));
     }
   };
   const reset = async () => {
@@ -1781,6 +1886,7 @@ export default function Settings({ features }) {
   };
   const needs = {
     appearance: 'appShell',
+    language: 'i18n',
     watch: 'watch',
     postgres: 'postgres',
     llm: 'ai',
@@ -1803,6 +1909,7 @@ export default function Settings({ features }) {
   };
   const sections = [
     'appearance',
+    'language',
     'search',
     'postgres',
     'ingest',
@@ -1836,17 +1943,17 @@ export default function Settings({ features }) {
   const fields = FIELDS.filter(([sec, , , , x]) => sec === s && (!x.needs || features[x.needs]));
   return (
     <section id="settings" className="settings">
-      <h2>Settings</h2>
+      <h2>{t('settings-title', 'Settings')}</h2>
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Settings sections">
+        <nav className="settings-nav" aria-label={t('settings-sections', 'Settings sections')}>
           {all.map((id) => (
             <button key={id} data-section={id} aria-current={id === s ? 'page' : undefined} onClick={() => setOpen(id)}>
-              {id === 'profiles' ? 'Profiles' : TITLES[id]}
+              {id === 'profiles' ? t('section-profiles', 'Profiles') : title(id)}
             </button>
           ))}
         </nav>
         <div className="settings-pane">
-          <h3>{s === 'profiles' ? 'Profiles' : TITLES[s]}</h3>
+          <h3>{s === 'profiles' ? t('section-profiles', 'Profiles') : title(s)}</h3>
           {s === 'profiles' && <Profiles />}
           {fields.length > 0 && (
             <div className="grid">
@@ -1854,7 +1961,8 @@ export default function Settings({ features }) {
                 <Field
                   key={key}
                   kind={kind}
-                  label={label}
+                  label={t(fieldId(sec, key), label)}
+                  msg={fieldId(sec, key)}
                   extra={extra}
                   value={key.split('.').reduce((o, k) => o?.[k], cfg[sec])}
                   onChange={(v) => set(sec, key, v)}
@@ -1862,6 +1970,7 @@ export default function Settings({ features }) {
               ))}
             </div>
           )}
+          {s === 'language' && <LanguagePicker cfg={cfg} setCfg={setCfg} />}
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
           {s === 'llm' && <AiUsage />}
@@ -1900,9 +2009,9 @@ export default function Settings({ features }) {
         </div>
       </div>
       <div className="settings-actions">
-        <button onClick={save}>Save settings</button>
+        <button onClick={save}>{t('settings-save', 'Save settings')}</button>
         <button className="link" onClick={reset}>
-          Reset to defaults
+          {t('settings-reset', 'Reset to defaults')}
         </button>
         <span className="status" role="status">
           {msg}

@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openSettings, os } from './shell.js';
+import { t } from './i18n.js';
 
 /** The custom titlebar: drag region, title, Settings button and, on Windows and Linux, window buttons. */
 export default function Titlebar({ title }) {
@@ -31,22 +32,31 @@ export default function Titlebar({ title }) {
       <span className="titlebar-title" data-tauri-drag-region>
         {title}
       </span>
-      <button title={mac ? 'Settings (⌘,)' : 'Settings (Ctrl+,)'} aria-label="Settings" onClick={openSettings}>
+      <button
+        title={t('titlebar-settings-keys', 'Settings ({ $keys })', { keys: mac ? '⌘,' : 'Ctrl+,' })}
+        aria-label={t('titlebar-settings', 'Settings')}
+        onClick={openSettings}
+      >
         ⚙
       </button>
       {!mac && (
         <>
-          <button title="Minimize" aria-label="Minimize" onClick={() => w.minimize()}>
+          <button title={t('titlebar-minimize', 'Minimize')} aria-label={t('titlebar-minimize', 'Minimize')} onClick={() => w.minimize()}>
             ─
           </button>
           <button
-            title={maximized ? 'Restore' : 'Maximize'}
-            aria-label={maximized ? 'Restore' : 'Maximize'}
+            title={maximized ? t('titlebar-restore', 'Restore') : t('titlebar-maximize', 'Maximize')}
+            aria-label={maximized ? t('titlebar-restore', 'Restore') : t('titlebar-maximize', 'Maximize')}
             onClick={() => w.toggleMaximize()}
           >
             {maximized ? '❐' : '☐'}
           </button>
-          <button className="close" title="Close" aria-label="Close" onClick={() => w.close()}>
+          <button
+            className="close"
+            title={t('titlebar-close', 'Close')}
+            aria-label={t('titlebar-close', 'Close')}
+            onClick={() => w.close()}
+          >
             ✕
           </button>
         </>

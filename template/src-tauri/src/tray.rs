@@ -117,7 +117,9 @@ pub fn apply(app: &AppHandle, cfg: &Config) {
     if let Err(e) = build_tray(app, cfg, &plan.tray, &tray.registry, paused) {
         problems.push(format!("Tray: {e}"));
     }
-    if let Err(e) = build_menu(app, &cfg.menu.title, &plan.menu, &tray.registry, paused) {
+    // The default title is shown in the user's language; a title of the user's own as it is.
+    let title = if cfg.menu.title == desktop_core::actions::MenuConfig::default().title { text("menu-actions", &cfg.menu.title) } else { cfg.menu.title.clone() };
+    if let Err(e) = build_menu(app, &title, &plan.menu, &tray.registry, paused) {
         problems.push(format!("Menu: {e}"));
     }
     #[cfg(target_os = "macos")]
@@ -128,7 +130,7 @@ pub fn apply(app: &AppHandle, cfg: &Config) {
     for p in &problems {
         log::warn!("{p}");
     }
-    let actions = tray.registry.list().into_iter().map(|(id, label)| json!({"id": id, "label": label})).collect();
+    let actions = tray.registry.list().into_iter().map(|(id, _)| json!({"id": id, "label": action_label(&tray.registry, &id)})).collect();
     let status = Status { actions, problems, shortcuts, paused };
     let _ = app.emit("tray-status", &status);
     if let Ok(mut s) = tray.status.lock() {
@@ -151,13 +153,41 @@ pub fn run_action(app: AppHandle, action: String) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// A label, with the pause item saying what it will do now.
+/// A label, with the pause item saying what it will do now. Items that keep their action's
+/// own label are shown in the user's language (feature `i18n`).
 fn label_of(registry: &Registry, action: &str, label: &str, paused: bool) -> String {
-    if paused && action == "pause_resume" && label == registry.label(action) {
-        "Resume background work".into()
-    } else {
-        label.to_string()
+    if label != registry.label(action) {
+        return label.to_string();
     }
+    if paused && action == "pause_resume" {
+        return text("action-resume", "Resume background work");
+    }
+    action_label(registry, action)
+}
+
+/// An action's label: `action-<id>` from locales/ (feature `i18n`, ids with `-` for `_`),
+/// else the one it was registered with.
+fn action_label(registry: &Registry, action: &str) -> String {
+{% if i18n %}    #[cfg(feature = "i18n")]
+    {
+        let id = format!("action-{}", action.replace('_', "-"));
+        if desktop_core::i18n::catalog().has(desktop_core::i18n::SOURCE, &id) {
+            return desktop_core::i18n::tr(&id, None);
+        }
+    }
+{% endif %}    registry.label(action)
+}
+
+/// Message `id` in the user's language (feature `i18n`), else `english`.
+{% if i18n %}#[cfg(feature = "i18n")]
+fn text(id: &str, _english: &str) -> String {
+    desktop_core::i18n::tr(id, None)
+}
+
+/// Message `id` in the user's language (feature `i18n`), else `english`.
+#[cfg(not(feature = "i18n"))]
+{% endif %}fn text(_id: &str, english: &str) -> String {
+    english.to_string()
 }
 
 /// The items of a menu, as Tauri menu items. Ids are `action#item` ([`desktop_core::actions::menu_id`]).
@@ -375,13 +405,17 @@ impl Host for AppHost {
 
     fn ingest_clipboard(&self) -> Result<(), String> {
         in_background(&self.0, "ingest_clipboard", |app| {
-            let text = clipboard_text()?;
-            if text.trim().is_empty() {
-                return Err("The clipboard has no text.".into());
+            let clip = clipboard_text()?;
+            if clip.trim().is_empty() {
+                return Err(text("action-done-clipboard-empty", "The clipboard has no text."));
             }
             let source = format!("clipboard {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
-            let chunks = call(app, "ingest_text", json!({"source": source, "text": text}))?;
-            Ok(format!("Added the clipboard text ({chunks} chunks)."))
+            let chunks = call(app, "ingest_text", json!({"source": source, "text": clip}))?;
+{% if i18n %}            #[cfg(feature = "i18n")]
+            let done = desktop_core::t!("action-done-clipboard", chunks = chunks.as_f64().unwrap_or(0.0));
+            #[cfg(not(feature = "i18n"))]
+{% endif %}            let done = format!("Added the clipboard text ({chunks} chunks).");
+            Ok(done)
         });
         Ok(())
     }
@@ -390,10 +424,18 @@ impl Host for AppHost {
         in_background(&self.0, "ingest_drop_folder", |app| {
             let folder = drop_folder(app, &crate::load_settings(app).config);
             if !folder.is_dir() {
-                return Err(format!("The drop folder {} does not exist yet.", folder.display()));
+{% if i18n %}                #[cfg(feature = "i18n")]
+                let missing = desktop_core::t!("action-done-no-drop-folder", folder = folder.display().to_string());
+                #[cfg(not(feature = "i18n"))]
+{% endif %}                let missing = format!("The drop folder {} does not exist yet.", folder.display());
+                return Err(missing);
             }
             let r = call(app, "ingest_folder", json!({"path": folder, "recursive": true}))?;
-            Ok(format!("Imported the drop folder: {} files, {} chunks.", r["files"], r["chunks"]))
+{% if i18n %}            #[cfg(feature = "i18n")]
+            let done = desktop_core::t!("action-done-imported", files = r["files"].as_f64().unwrap_or(0.0), chunks = r["chunks"].as_f64().unwrap_or(0.0));
+            #[cfg(not(feature = "i18n"))]
+{% endif %}            let done = format!("Imported the drop folder: {} files, {} chunks.", r["files"], r["chunks"]);
+            Ok(done)
         });
         Ok(())
     }
@@ -410,10 +452,10 @@ impl Host for AppHost {
             let r = if paused {
                 call(app, "cancel_ingest", Value::Null)?;
                 cfg.watch.enabled = false;
-                call(app, "configure", json!({"config": cfg})).map(|_| "Background work paused.".to_string())
+                call(app, "configure", json!({"config": cfg})).map(|_| text("action-done-paused", "Background work paused."))
             } else {
                 call(app, "configure", json!({"config": cfg}))?;
-                call(app, "resume_interrupted", Value::Null).map(|_| "Background work resumed.".to_string())
+                call(app, "resume_interrupted", Value::Null).map(|_| text("action-done-resumed", "Background work resumed."))
             };
             apply(app, &cfg_saved(app));
             r

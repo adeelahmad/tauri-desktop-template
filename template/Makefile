@@ -47,6 +47,11 @@ lint: ui ## Formatting, clippy{% if frontend == "react" %}, eslint{% endif %} an
 {%- if frontend == "react" %}
 	npm --prefix ui-react run lint
 {%- endif %}
+{%- if i18n %}
+	@# Translations: kitchen's full check (missing/extra ids, Fluent syntax, the UI's ids), or
+	@# without kitchen installed the backend's own test of the built-in locales.
+	@if command -v kitchen >/dev/null 2>&1; then kitchen i18n check; else cargo test -p desktop-core --features i18n --lib i18n::; fi
+{%- endif %}
 	pre-commit run --all-files
 
 # From Linux or macOS: cargo-xwin fetches the MSVC CRT and Windows SDK headers (C deps such

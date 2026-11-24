@@ -13,7 +13,9 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     host: host || false,
-    hmr: host ? { protocol: 'ws', host, port: 5174 } : undefined,
+    hmr: host ? { protocol: 'ws', host, port: 5174 } : undefined,{% if i18n %}
+    // The translations live at the app's root (locales/*/app.ftl), shared with the Rust side.
+    fs: { allow: ['.', '../locales'] },{% endif %}
   },
   build: {
     outDir: 'dist',

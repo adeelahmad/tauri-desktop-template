@@ -88,6 +88,7 @@ let LICENCES = [
     ["ipc_worker", ""],
     ["background_jobs", ""],
     ["http_api", ""],
+    ["i18n", ""],
 ];
 let MODELS = [
     ["bundle_embedding_model", "embedding_model", "nomic-embed-text-v1.5", "embed-nomic-embed-text-v1.5", "548", "embed", "Apache-2.0"],

@@ -466,7 +466,12 @@ impl Local {
                 // With `to`, send a short message there; otherwise only connect and log in.
                 match arg::<Option<String>>(&params, "to")? {
                     Some(to) => {
-                        let msg = mail::Message { to: vec![to], subject: "Test email".into(), text: "Email from this app works.".into(), ..Default::default() };
+{% if i18n %}                        // In the user's language (locales/*/app.ftl: mail-test-subject, mail-test-body).
+                        #[cfg(feature = "i18n")]
+                        let (subject, text) = (desktop_core::t!("mail-test-subject"), desktop_core::t!("mail-test-body"));
+                        #[cfg(not(feature = "i18n"))]
+{% endif %}                        let (subject, text) = ("Test email".to_string(), "Email from this app works.".to_string());
+                        let msg = mail::Message { to: vec![to], subject, text, ..Default::default() };
                         Ok(json!(mail::send(&cfg, password.as_deref(), &msg)?))
                     }
                     None => Ok(mail::test(&cfg, password.as_deref()).map(|()| json!(true))?),
