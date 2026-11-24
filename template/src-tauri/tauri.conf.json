@@ -18,7 +18,10 @@
       {
         "title": "{{app_name}}",
         "width": 960,
-        "height": 760
+        "height": 760{% if app_shell %},
+        "minWidth": 480,
+        "minHeight": 360,
+        "decorations": false{% endif %}
       }
     ],
     "security": {

@@ -8,11 +8,18 @@
 //! my-app --mcp                    serve MCP over stdio (feature mcp)
 //! my-app --self-test [out.json]   index and search a sample, print a JSON report
 //! ```
+//!
+//! Development builds first load `.env` and `.env.local` from the project folder (see
+//! `desktop_core::dotenv`); release builds never do.
 
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Development builds only: `.env` and `.env.local` from the project folder (variables
+    // already set win). Release builds never read or bundle them (desktop_core::dotenv).
+    #[cfg(debug_assertions)]
+    desktop_core::dotenv::load_dev(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-test") {
         // `--self-test [report.json]`: CI runs this on the installed app. Release builds have

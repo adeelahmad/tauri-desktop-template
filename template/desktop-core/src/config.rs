@@ -72,6 +72,9 @@ pub struct Config {
 {% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
+{% endif %}{% if app_shell %}    /// Theme, light/dark/system mode and fonts (feature `app-shell`).
+    #[cfg(feature = "app-shell")]
+    pub appearance: crate::appearance::AppearanceConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -290,6 +293,10 @@ impl Config {
 {% endif %}{% if tailscale %}        #[cfg(feature = "tailscale")]
         {
             self.tailscale = self.tailscale.validated();
+        }
+{% endif %}{% if app_shell %}        #[cfg(feature = "app-shell")]
+        {
+            self.appearance = self.appearance.validated();
         }
 {% endif %}        // kitchen:validate
         self

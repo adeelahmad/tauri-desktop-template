@@ -1,0 +1,216 @@
+/* App shell (feature app-shell): themes, fonts and the custom titlebar.
+ * The window sets data-theme, data-mode, data-scheme (light or dark) and data-os on <html>
+ * before the page loads, so these rules apply from the first paint.
+ * Add a theme: copy a block below and add its id to THEMES in desktop-core/src/appearance.rs.
+ * Bundled fonts: put the .woff2 files next to this file and declare them here, e.g.
+ *   @font-face { font-family: 'Inter'; src: url('fonts/Inter.woff2') format('woff2'); font-display: swap; }
+ * then type the family name (Inter) under Settings, Appearance. */
+
+:root[data-theme='kitchen'][data-scheme='light'] {
+  --bg: #ffffff;
+  --fg: #1d1d1f;
+  --surface: #f5f5f7;
+  --accent: #3b6eea;
+  --accent-fg: #ffffff;
+  --muted: #6e6e73;
+  --line: #d9d9de;
+  --danger: #c62828;
+}
+:root[data-theme='kitchen'][data-scheme='dark'] {
+  --bg: #1c1c1e;
+  --fg: #f2f2f7;
+  --surface: #2c2c2e;
+  --accent: #6f95ff;
+  --accent-fg: #0b1020;
+  --muted: #98989f;
+  --line: #3a3a3c;
+  --danger: #ff6b6b;
+}
+:root[data-theme='nord'][data-scheme='light'] {
+  --bg: #eceff4;
+  --fg: #2e3440;
+  --surface: #e5e9f0;
+  --accent: #5e81ac;
+  --accent-fg: #ffffff;
+  --muted: #4c566a;
+  --line: #d8dee9;
+  --danger: #bf616a;
+}
+:root[data-theme='nord'][data-scheme='dark'] {
+  --bg: #2e3440;
+  --fg: #eceff4;
+  --surface: #3b4252;
+  --accent: #88c0d0;
+  --accent-fg: #2e3440;
+  --muted: #a3adbf;
+  --line: #434c5e;
+  --danger: #bf616a;
+}
+:root[data-theme='solarized'][data-scheme='light'] {
+  --bg: #fdf6e3;
+  --fg: #586e75;
+  --surface: #eee8d5;
+  --accent: #268bd2;
+  --accent-fg: #fdf6e3;
+  --muted: #839496;
+  --line: #e0d8c0;
+  --danger: #dc322f;
+}
+:root[data-theme='solarized'][data-scheme='dark'] {
+  --bg: #002b36;
+  --fg: #93a1a1;
+  --surface: #073642;
+  --accent: #2aa198;
+  --accent-fg: #002b36;
+  --muted: #657b83;
+  --line: #0e4552;
+  --danger: #dc322f;
+}
+:root[data-theme='forest'][data-scheme='light'] {
+  --bg: #f6f8f4;
+  --fg: #1f2a1f;
+  --surface: #e9eee5;
+  --accent: #2f7d4a;
+  --accent-fg: #ffffff;
+  --muted: #5f6f5f;
+  --line: #d3dccd;
+  --danger: #b3261e;
+}
+:root[data-theme='forest'][data-scheme='dark'] {
+  --bg: #141a15;
+  --fg: #e3eadf;
+  --surface: #1d261e;
+  --accent: #6cc58a;
+  --accent-fg: #0f1a12;
+  --muted: #8fa08f;
+  --line: #2c3a2e;
+  --danger: #f2b8b5;
+}
+:root[data-theme='rose'][data-scheme='light'] {
+  --bg: #faf4ed;
+  --fg: #575279;
+  --surface: #fffaf3;
+  --accent: #b4637a;
+  --accent-fg: #ffffff;
+  --muted: #797593;
+  --line: #dfdad9;
+  --danger: #b4637a;
+}
+:root[data-theme='rose'][data-scheme='dark'] {
+  --bg: #191724;
+  --fg: #e0def4;
+  --surface: #1f1d2e;
+  --accent: #ebbcba;
+  --accent-fg: #191724;
+  --muted: #908caa;
+  --line: #26233a;
+  --danger: #eb6f92;
+}
+:root[data-theme='contrast'][data-scheme='light'] {
+  --bg: #ffffff;
+  --fg: #000000;
+  --surface: #ffffff;
+  --accent: #0040c0;
+  --accent-fg: #ffffff;
+  --muted: #262626;
+  --line: #000000;
+  --danger: #b00000;
+}
+:root[data-theme='contrast'][data-scheme='dark'] {
+  --bg: #000000;
+  --fg: #ffffff;
+  --surface: #000000;
+  --accent: #ffd400;
+  --accent-fg: #000000;
+  --muted: #e0e0e0;
+  --line: #ffffff;
+  --danger: #ff8080;
+}
+
+:root[data-theme] {
+  --titlebar-height: 38px;
+}
+:root[data-theme] body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: var(--font-size, 15px);
+}
+:where(:root[data-theme]) input,
+:where(:root[data-theme]) textarea,
+:where(:root[data-theme]) select {
+  background: var(--surface);
+  color: var(--fg);
+}
+:where(:root[data-theme]) button {
+  color: var(--accent-fg);
+}
+:where(:root[data-theme]) .status.error {
+  color: var(--danger);
+}
+:where(:root[data-theme]) code,
+:where(:root[data-theme]) pre,
+:where(:root[data-theme]) kbd,
+:where(:root[data-theme]) textarea {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Custom titlebar: a drag region across the top, window buttons on Windows and Linux,
+ * room for the traffic lights on macOS (titleBarStyle Overlay). */
+.has-titlebar body {
+  padding-top: calc(var(--titlebar-height) + 16px);
+}
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+  -webkit-user-select: none;
+}
+:root[data-os='macos'] .titlebar {
+  padding-left: 84px;
+}
+.titlebar-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[data-os='macos'] .titlebar-title {
+  text-align: center;
+  padding-right: 84px;
+}
+.titlebar button {
+  background: none;
+  color: var(--fg);
+  border: none;
+  border-radius: 0;
+  height: var(--titlebar-height);
+  width: 46px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.titlebar button:hover {
+  background: var(--line);
+}
+.titlebar button.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+.titlebar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

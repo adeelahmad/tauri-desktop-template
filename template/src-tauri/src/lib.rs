@@ -14,6 +14,7 @@
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
 //! - `tailscale_status` / `tailscale_apply` (feature `tailscale`).
+//! - `open_settings`, `get_appearance` (feature `app-shell`: the Settings window and themes; see `shell`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -45,7 +46,7 @@
 //!
 //! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
 //! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
-//! `update`, `single`, `python`, `claude`.
+//! `update`, `single`, `python`, `claude`, `shell` (titlebar, themes, Settings window).
 //!
 //! # Example
 //!
@@ -86,6 +87,8 @@ mod service;
 mod single;
 {% endif %}{% if updater %}#[cfg(all(desktop, feature = "updater"))]
 mod update;
+{% endif %}{% if app_shell %}#[cfg(feature = "app-shell")]
+mod shell;
 {% endif %}
 use service::Service;
 
@@ -152,6 +155,7 @@ fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
 fn features() -> Value {
     json!({
         "mobile": cfg!(mobile),
+        "appShell": cfg!(feature = "app-shell"),
         "embed": cfg!(feature = "embed"),
         "postgres": cfg!(all(desktop, feature = "postgres")),
         "bm25": cfg!(all(desktop, feature = "bm25")),
@@ -332,6 +336,9 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
         Err(e) if e.starts_with("Still starting") => config,
         Err(e) => return Err(e),
     };
+    // Every open window switches theme and fonts at once.
+    #[cfg(feature = "app-shell")]
+    shell::applied(&app, &applied.appearance);
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
@@ -738,6 +745,15 @@ pub fn run() {
     #[cfg(not(all(desktop, feature = "ipc-worker")))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
     let builder = tauri::Builder::default().manage(AppState { service }).plugin(guard::plugin());
+    // Theme and fonts before the first paint, the Settings window and its menu item.
+    #[cfg(all(desktop, feature = "app-shell"))]
+    let builder = builder
+        .plugin(shell::plugin(&settings_at(&paths::app_dirs().0.join("settings.json")).config.appearance))
+        .on_menu_event(shell::on_menu_event)
+        .on_window_event(shell::on_window_event);
+    // iOS and Android know the settings folder only once Tauri runs: the UI applies them.
+    #[cfg(all(mobile, feature = "app-shell"))]
+    let builder = builder.plugin(shell::plugin(&Default::default()));
     #[cfg(all(desktop, feature = "python-example"))]
     let builder = builder.manage(python::PythonWorker::default());
     #[cfg(all(desktop, feature = "updater"))]
@@ -753,6 +769,13 @@ pub fn run() {
 {% endif %}{% if tauri_store %}    let builder = builder.plugin(tauri_plugin_store::Builder::new().build());
 {% endif %}{% if tauri_deep_link %}    let builder = builder.plugin(tauri_plugin_deep_link::init());
 {% endif %}{% if tauri_os %}    let builder = builder.plugin(tauri_plugin_os::init());
+{% endif %}{% if tauri_http %}    // Frontend fetch, limited to the URLs in capabilities/default.json.
+    let builder = builder.plugin(tauri_plugin_http::init());
+{% endif %}{% if tauri_positioner %}    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_positioner::init());
+{% endif %}{% if tauri_shell %}    // Runs only the commands listed in capabilities/desktop.json (never arbitrary ones).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_shell::init());
 {% endif %}{% if tauri_global_shortcut %}    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 {% endif %}{% if tauri_autostart %}    #[cfg(desktop)]
@@ -796,6 +819,11 @@ pub fn run() {
                     let _ = w.set_focus();
                 }
             });
+        }
+        // macOS: "Settings…" (Cmd+,) in the app menu.
+        #[cfg(all(target_os = "macos", feature = "app-shell"))]
+        if let Err(e) = shell::add_menu_item(app.handle()) {
+            log::warn!("could not add Settings to the app menu: {e}");
         }
         Ok(())
     });
@@ -869,6 +897,10 @@ pub fn run() {
             mcp_decide,
             remove_source,
             clear,
+            #[cfg(feature = "app-shell")]
+            shell::get_appearance,
+            #[cfg(all(desktop, feature = "app-shell"))]
+            shell::open_settings,
             #[cfg(all(desktop, feature = "updater"))]
             update::check_update,
             #[cfg(all(desktop, feature = "updater"))]

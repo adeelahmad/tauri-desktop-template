@@ -11,7 +11,12 @@
     "global-shortcut:allow-is-registered",{% endif %}{% if tauri_autostart %}
     "autostart:default",{% endif %}{% if tauri_window_state %}
     "window-state:default",{% endif %}{% if tauri_process %}
-    "process:default",{% endif %}
+    "process:default",{% endif %}{% if tauri_positioner %}
+    "positioner:default",{% endif %}{% if tauri_shell %}
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "git-version", "cmd": "git", "args": ["--version"], "sidecar": false }]
+    },{% endif %}
     "core:default"
   ]
 }

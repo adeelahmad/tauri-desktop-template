@@ -11,7 +11,7 @@
 //! ```
 
 use crate::project::{self, NewApp, Project};
-use crate::{doctor, generate, Error, Options, Report, Result};
+use crate::{doctor, generate, hooks, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -29,6 +29,8 @@ Usage:
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
   kitchen generate command <name>
   kitchen generate page <Name>
+  kitchen hooks <install|uninstall|status>
+                                       git hooks in .githooks/ (fmt, clippy, prettier, eslint)
   kitchen doctor [--json]              check this machine and this app
   kitchen dev | build                  cargo tauri dev / build
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
@@ -205,6 +207,11 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
                 ))),
             }
         }
+        "hooks" => hooks::run(
+            &project()?.root,
+            args.words.get(1).map(String::as_str).unwrap_or("status"),
+            opts.dry_run,
+        ),
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
         "help" => Ok(Report::new(HELP.trim_end())),
         other => Err(Error::Usage(format!(

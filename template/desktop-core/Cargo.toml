@@ -67,6 +67,10 @@ telemetry = []
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
 {% endif -%}
+{% if app_shell -%}
+# Theme, mode and font settings for the app shell (validation only, no dependencies).
+app-shell = []
+{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile"]

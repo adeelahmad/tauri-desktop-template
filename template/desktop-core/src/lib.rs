@@ -16,9 +16,10 @@
 //!
 //! Main modules: [`engine`] (the facade), [`config`] (every setting, validated),
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
-//! [`net`], [`governor`] (CPU share and priority), [`audio`]. Feature modules: `embed`,
-//! `pdf`, `pgstore`, `watch`, `llm` (feature `ai`), `local` (feature `llama`), `mcp`,
-//! `tts`, `stt`, `mail`, `telemetry`.
+//! [`net`], [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
+//! development builds). Feature modules: `embed`, `pdf`, `pgstore`, `watch`, `llm` (feature
+//! `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `telemetry`, `appearance`
+//! (feature `app-shell`).
 //!
 //! # Example
 //!
@@ -44,6 +45,7 @@ pub mod audio;
 pub mod backup;
 pub mod chunk;
 pub mod config;
+pub mod dotenv;
 pub mod engine;
 pub mod fuse;
 pub mod governor;
@@ -82,6 +84,8 @@ pub mod plugin;
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
+{% endif %}{% if app_shell %}#[cfg(feature = "app-shell")]
+pub mod appearance;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

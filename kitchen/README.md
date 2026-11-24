@@ -30,7 +30,9 @@ kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_csv                           # Tauri command + backend method
 kitchen generate page Reports                                 # React page on the main screen
 
-kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers
+kitchen hooks install             # git config core.hooksPath .githooks (fmt + clippy; prettier + eslint for React)
+kitchen hooks status | uninstall
+kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers, git hooks
 kitchen dev | kitchen build       # cargo tauri dev / build
 kitchen mcp                       # MCP server over stdio
 ```

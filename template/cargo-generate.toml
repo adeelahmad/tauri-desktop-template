@@ -77,7 +77,12 @@ default = false
 
 [placeholders.tauri_plugins]
 type = "bool"
-prompt = "Add official Tauri plugins (dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log)? Asks for each"
+prompt = "Add official Tauri plugins (dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log, http, positioner, shell)? Asks for each"
+default = false
+
+[placeholders.app_shell]
+type = "bool"
+prompt = "App shell: custom titlebar (desktop), light/dark/system themes, UI and editor fonts, and Settings in its own window (Cmd/Ctrl+,)?"
 default = false
 
 [placeholders.stt]
@@ -252,6 +257,21 @@ type = "bool"
 prompt = "Tauri plugin Log: frontend logs written to the app's own log files?"
 default = false
 
+[conditional.'tauri_plugins'.placeholders.tauri_http]
+type = "bool"
+prompt = "Tauri plugin HTTP: fetch from the frontend, limited to the URLs listed in capabilities/default.json?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_positioner]
+type = "bool"
+prompt = "Tauri plugin Positioner: move windows to well-known places (centre, corners, near the tray) (desktop)?"
+default = false
+
+[conditional.'tauri_plugins'.placeholders.tauri_shell]
+type = "bool"
+prompt = "Tauri plugin Shell: run only the commands listed in capabilities/desktop.json (never arbitrary ones) (desktop)?"
+default = false
+
 [conditional.'!embeddings']
 ignore = ["desktop-core/src/embed.rs"]
 
@@ -285,8 +305,11 @@ ignore = ["desktop-core/src/rclone.rs"]
 [conditional.'!tailscale']
 ignore = ["desktop-core/src/tailscale.rs"]
 
-[conditional.'!tauri_plugins || !(tauri_global_shortcut || tauri_autostart || tauri_window_state || tauri_process)']
+[conditional.'!tauri_plugins || !(tauri_global_shortcut || tauri_autostart || tauri_window_state || tauri_process || tauri_positioner || tauri_shell)']
 ignore = ["src-tauri/capabilities/desktop.json"]
+
+[conditional.'!app_shell']
+ignore = ["desktop-core/src/appearance.rs", "src-tauri/src/shell.rs", "src-tauri/capabilities/shell.json", "src-tauri/capabilities/settings.json", "src-tauri/tauri.macos.conf.json", "ui-react/settings.html", "ui-react/src/settings-main.jsx", "ui-react/src/shell.js", "ui-react/src/Titlebar.jsx", "ui-react/src/SettingsWindow.jsx", "ui-react/src/shell.css", "ui/settings.html", "ui/settings.js", "ui/shell.js", "ui/shell.css"]
 
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]

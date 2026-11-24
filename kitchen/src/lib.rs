@@ -13,6 +13,7 @@
 //! kitchen generate setting invoices.due_days int 30 --label "Days until due"
 //! kitchen generate command export_csv
 //! kitchen generate page Reports
+//! kitchen hooks install                    # fmt + clippy (and prettier/eslint) before each commit
 //! kitchen doctor                           # what this machine is missing, and the fix
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
@@ -41,11 +42,13 @@
 //!
 //! Modules: [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
-//! generators), [`doctor`] (machine checks), [`mcp`] (the MCP server), [`cli`] (arguments).
+//! generators), [`doctor`] (machine checks), [`hooks`] (the app's git hooks), [`mcp`] (the
+//! MCP server), [`cli`] (arguments).
 
 pub mod cli;
 pub mod doctor;
 pub mod generate;
+pub mod hooks;
 pub mod manifest;
 pub mod mcp;
 pub mod merge;

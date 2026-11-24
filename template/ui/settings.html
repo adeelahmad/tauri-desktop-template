@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{app_name}} Settings</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="shell.css">
+</head>
+<body>
+  <header><h1>Settings</h1></header>
+
+  <section>
+    <h2>Appearance</h2>
+    <div class="row">
+      <label>Light or dark
+        <select id="mode">
+          <option value="system">Follow the system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <label>Theme
+        <select id="theme">
+          <option value="kitchen">Kitchen</option>
+          <option value="nord">Nord</option>
+          <option value="solarized">Solarized</option>
+          <option value="forest">Forest</option>
+          <option value="rose">Rosé</option>
+          <option value="contrast">High contrast</option>
+        </select>
+      </label>
+      <label>Text size (px) <input id="font-size" type="number" min="10" max="24"></label>
+    </div>
+    <div class="row">
+      <label>Interface font <input id="ui-font" list="ui-fonts" placeholder="system"></label>
+      <label>Code and editor font <input id="mono-font" list="mono-fonts" placeholder="system"></label>
+    </div>
+    <datalist id="ui-fonts"><option value="humanist"><option value="rounded"><option value="serif"></datalist>
+    <datalist id="mono-fonts"><option value="cascadia"><option value="jetbrains"><option value="fira"></datalist>
+    <p class="hint">Empty uses the system font. A preset, or the name of any installed or bundled font (see shell.css).</p>
+  </section>
+
+  <section>
+    <h2>Everything else</h2>
+    <p class="hint">Search, ingest and the other settings as JSON (missing keys use the defaults; everything optional is off).</p>
+    <textarea id="config" rows="16" spellcheck="false"></textarea>
+  </section>
+
+  <div class="row">
+    <button id="save">Save settings</button>
+    <button id="reset" class="link">Reset to defaults</button>
+  </div>
+  <p id="status" class="status"></p>
+
+  <script src="settings.js"></script>
+  <script src="shell.js"></script>
+</body>
+</html>

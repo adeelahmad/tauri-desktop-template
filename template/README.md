@@ -71,6 +71,9 @@ Everything runs on the user's machine.
 {% if tauri_plugins -%}
 | Official Tauri plugins (see the table below) | `src-tauri/src/lib.rs`, `src-tauri/capabilities/` | |
 {% endif -%}
+{% if app_shell -%}
+| App shell: custom titlebar (drag region and window buttons on Windows and Linux, traffic lights over the content on macOS), six themes in light, dark and system mode with no flash at start, interface and editor fonts, and Settings in its own window (Cmd/Ctrl+, , the gear button, or the macOS app menu). Settings → Appearance | `src-tauri/src/shell.rs`, `desktop-core/src/appearance.rs`, {% if frontend == "react" %}`ui-react/src/{shell.js,Titlebar.jsx,SettingsWindow.jsx,shell.css}`{% else %}`ui/{shell.js,shell.css,settings.html,settings.js}`{% endif %} | `app-shell` |
+{% endif -%}
 {% if telemetry -%}
 | Opt-in telemetry with no SDKs: crash reports to Sentry (always kept locally in `crashes/`), anonymous usage events to PostHog or Aptabase, OpenTelemetry traces over OTLP/HTTP. Off until the user switches it on under Settings → Privacy; keys come from build-time secrets | `desktop-core/src/telemetry.rs` | `telemetry` |
 {% endif -%}
@@ -78,6 +81,8 @@ Everything runs on the user's machine.
 | Single instance: a second launch focuses the running window (file lock + loopback knock, std only) | `src-tauri/src/single.rs` | `single-instance` |
 {% endif -%}
 | Security defaults: navigation limited to the app's own pages, strict CSP, frozen JS prototypes, no global Tauri object with React, dev tools in debug builds only (`APP_DEVTOOLS=1` opens them) | `src-tauri/src/guard.rs`, `tauri.conf.json` | always |
+| `.env` and `.env.local` in development builds only (see Develop) | `desktop-core/src/dotenv.rs`, `src-tauri/src/main.rs` | always |
+| Git hooks without Python: `kitchen hooks install` runs fmt and clippy{% if frontend == "react" %} (and prettier and eslint on `ui-react/`){% endif %} before each commit | `.githooks/pre-commit` | always |
 | JSON-lines logs per process in the app data `logs/` folder, rotated by size, home folder written as `~`; level in Settings → Logs or `APP_LOG=warn,desktop_core=debug` | `desktop-core/src/logging.rs` | always |
 {% if mcp_server -%}
 | MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; per-tool allow/ask/deny, where "ask" waits for Approve in Settings (refused when the app is closed); audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
@@ -169,6 +174,23 @@ reaches them as `window.__TAURI__.<plugin>`{% endif %}. Widen a permission set o
 {% if tauri_log -%}
 | Frontend logs into the app's log files | `tauri-plugin-log` | `@tauri-apps/plugin-log` | `log:default` |
 {% endif -%}
+{% if tauri_http -%}
+| HTTP from the frontend | `tauri-plugin-http` | `@tauri-apps/plugin-http` | `http:default` scoped to `https://api.github.com/repos/{{github_repo}}/*`; list each URL you call (it bypasses the app's network settings, so keep the list short) |
+{% endif -%}
+{% if tauri_positioner -%}
+| Move windows to the centre, corners or the tray (desktop) | `tauri-plugin-positioner` | `@tauri-apps/plugin-positioner` | `positioner:default` |
+{% endif -%}
+{% if tauri_shell -%}
+| Run listed commands (desktop) | `tauri-plugin-shell` | `@tauri-apps/plugin-shell` | `shell:allow-execute` for the commands in `capabilities/desktop.json` only (example: `git-version` = `git --version`) |
+{% endif -%}
+{% if tauri_shell %}
+**Shell plugin warning.** Never allow arbitrary commands: no `"cmd": "sh"`, `bash`, `cmd`,
+`powershell` or an interpreter, no `"args": true`, and no `shell:default`/`shell:allow-spawn`
+without a scope. Anything the web view can run, a script injected into it can run too. List
+each command by name with fixed arguments (or a `validator` regex per argument) in
+`capabilities/desktop.json`, and call it from the frontend with `Command.create('git-version')`.
+Prefer a Rust command that does the job when you can.
+{% endif -%}
 {% endif %}
 ## Develop
 
@@ -188,6 +210,20 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for commits, PRs and releases.
 work, and where each module is documented (`cargo doc --workspace --no-deps --open`).
 
 Linux needs `libwebkit2gtk-4.1-dev librsvg2-dev`.
+
+**Environment files.** Development builds (`cargo tauri dev`, `cargo run`) read `.env` and
+then `.env.local` from the project folder before anything else starts; see `.env.example`.
+Variables already set in your shell win, and `.env.local` wins over `.env`. The parser is
+tiny and has no dependency (`desktop_core::dotenv`): `KEY=value`, `export KEY=value`, `#`
+comments, `'single'` and `"double"` quotes with `\n` escapes, one line per variable.
+Release builds never read these files, and nothing bundles them; both are in `.gitignore`.
+{% if frontend == "react" %}(Vite reads only `ui-react/.env*`, so these never reach the frontend bundle.)
+{% endif %}
+**Git hooks.** `kitchen hooks install` (or `git config core.hooksPath .githooks`) turns on
+`.githooks/pre-commit`: when Rust files are staged it runs `cargo fmt --check` and
+`cargo clippy -D warnings`{% if frontend == "react" %}, and on staged `ui-react/` files it runs prettier and eslint{% endif %}.
+`kitchen doctor` warns while they are off; `git commit --no-verify` skips them once. It is
+the Rust-only alternative to `make hooks` (the pre-commit framework): git uses one or the other.
 {% if frontend == "react" -%}
 The UI is React in `ui-react/`; `cargo tauri dev` starts Vite with hot reload, and
 `cargo tauri build` builds it first. Build it once (`npm --prefix ui-react ci --include=dev && npm --prefix ui-react run build`)
@@ -326,6 +362,10 @@ is off by default; values are clamped to safe ranges.
 {% endif -%}
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
+{% endif -%}
+{% if app_shell -%}
+| `appearance.mode`, `appearance.theme` | `system`, `kitchen` | `light`, `dark`; `nord`, `solarized`, `forest`, `rose`, `contrast` (add one in `shell.css` and `THEMES`) |
+| `appearance.uiFont`, `appearance.monoFont`, `appearance.fontSize` | system, system, 15 | a preset (`humanist`, `rounded`, `serif`; `cascadia`, `jetbrains`, `fira`) or any installed or bundled family; 10–24 px |
 {% endif -%}
 | `net.offline` | false | block every request that leaves the computer (a local model server still works) |
 | `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |

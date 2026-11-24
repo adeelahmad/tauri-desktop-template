@@ -30,10 +30,14 @@ feature afterwards.
 | `macos_pkg` | A .pkg whose postinstall clears the quarantine flag, so the unsigned app opens without prompts |
 | `install_scripts` | `curl … \| sh` (macOS, no Gatekeeper prompt) and PowerShell one-liners |
 | `claude_mcp` | Bundles uv and registers a Python MCP server in Claude Desktop (config backed up first) |
+| `app_shell` | Custom titlebar (Windows and Linux buttons and drag region, macOS traffic lights over the content), six named themes in light, dark and system mode with no flash of the wrong theme, interface and editor fonts, and Settings in a second window (Cmd/Ctrl+,) with its own minimal capability. React and plain UI. Default off |
+| `tauri_plugins` | Official Tauri plugins, one answer each: dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log, http (URL allowlist), positioner, shell (explicit command list only). Default off |
 
 Always included: a file store with BM25, vector and hybrid (RRF) search, configurable
 chunking and parallel ingest workers (one settings file, everything optional off by default),
-`--self-test` for CI, CI for macOS/Windows/Linux, generic icons.
+`--self-test` for CI, CI for macOS/Windows/Linux, generic icons, `.env`/`.env.local` loading in
+development builds only (a tiny parser, no dependency, never bundled), and Rust-first git
+hooks in `.githooks/` (`kitchen hooks install`: fmt and clippy, plus prettier and eslint for React).
 Security defaults are always on: navigation limited to the app's own pages, a strict CSP,
 frozen JS prototypes, no global Tauri object with React, and dev tools only in debug builds
 (`APP_DEVTOOLS=1` opens them). Each process writes JSON-lines logs, rotated by size, to the
