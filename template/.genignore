@@ -1,0 +1,2 @@
+# Files cargo-generate never copies (gitignore syntax). Finder drops .DS_Store files on macOS.
+.DS_Store

@@ -325,6 +325,8 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             let platform = args.words.get(1).map(|w| Platform::parse(w)).transpose()?;
             let release = args.flag("release");
             let mut plan = lifecycle::package_plan(&root, platform, host, release)?;
+            let key = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_some_and(|k| !k.is_empty());
+            lifecycle::skip_updater_artifacts(&mut plan, key);
             lifecycle::prerequisites(&root, args.flag("install"), false, &mut plan)?;
             let mut r = lifecycle::execute(&plan, io_mode, "")?;
             let files = lifecycle::collect_packages(&root, release)?;

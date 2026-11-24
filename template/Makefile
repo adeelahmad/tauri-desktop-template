@@ -26,8 +26,8 @@ hooks: ## Install pre-commit (and commit-msg) hooks
 dev: ## Run the app with hot reload
 	cargo tauri dev
 
-build: ui ## Build installers for this machine
-	cargo tauri build
+build: ui ## Build installers for this machine (signed updater archives only with TAURI_SIGNING_PRIVATE_KEY set)
+	cargo tauri build $(if $(TAURI_SIGNING_PRIVATE_KEY),,--config '{"bundle":{"createUpdaterArtifacts":false}}')
 
 test: ui ## Tests: Rust{% if python_example %}, Python{% endif %}
 	cargo test --workspace
