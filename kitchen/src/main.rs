@@ -22,12 +22,12 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => fail(&e),
         },
-        // Interactive: hand the terminal to `cargo tauri`, from the app's root.
-        cmd @ ("dev" | "build") => {
+        // `cargo tauri build`, as is, from the app's root.
+        "build" => {
             let root = kitchen::manifest::Manifest::find_root(&cwd).unwrap_or(cwd);
             match std::process::Command::new("cargo")
                 .arg("tauri")
-                .arg(cmd)
+                .arg("build")
                 .args(&args.words[1..])
                 .current_dir(root)
                 .status()
@@ -37,6 +37,18 @@ fn main() -> ExitCode {
                 Err(e) => fail(&format!(
                     "cargo tauri: {e} (kitchen doctor shows how to install it)"
                 )),
+            }
+        }
+        // The lifecycle: the tools talk to this terminal; the report comes after.
+        "start" | "dev" | "test" | "package" | "publish" if !args.flag("json") => {
+            match cli::run_with(&args, &cwd, kitchen::lifecycle::Io::Inherit) {
+                Ok(report) => {
+                    if !report.summary.is_empty() || !report.lines.is_empty() {
+                        print!("{report}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(&e),
             }
         }
         // `kitchen service logs --follow` streams until ctrl-c: hand the terminal over.

@@ -14,14 +14,113 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 
 ## Contents
 
+- [Kitchen for web developers](#kitchen-for-web-developers)
+- [Port an existing app (Electron or web)](#port-an-existing-app-electron-or-web)
 - [Architecture](#architecture)
 - [Processes and folders](#processes-and-folders)
 - [How to add a feature](#how-to-add-a-feature)
 - [How settings work](#how-settings-work)
+- [Build-time app config](#build-time-app-config)
+- [Command errors](#command-errors)
+- [Tests](#tests)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
 - [Kitchen CLI](#kitchen-cli)
 - [Notes for AI agents](#notes-for-ai-agents)
+
+## Kitchen for web developers
+
+If you have built a web app, you already know how this one works. Here is how the pieces map:
+
+| On the web | Here |
+|---|---|
+| `fetch('/api/search?q=...')` | `invoke('search', { query })` from `@tauri-apps/api/core`: your API call, but in-process and typed |
+| a route / controller | a Tauri command in `src-tauri/src/lib.rs` (`kitchen generate command export_csv`) |
+| your backend service | `desktop_core`: a plain Rust library with no Tauri in it, tested with `cargo test` |
+| `.env` / `config/*.json` | `config/` (build-time, per environment and OS) and the user's `settings.json` (run time) |
+| Postgres, embeddings, email, background jobs | one `kitchen enable postgres` / `embeddings` / `email` / `background_jobs` each; nothing to install or host |
+| `npm run dev` / `npm test` / deploy | `kitchen start` / `kitchen test` / `kitchen package` + `kitchen publish` |
+| Vite, ESLint, Prettier | the same, in `ui-react/`; `kitchen eject vite` shows where |
+
+The UI is a normal Vite + React app in `ui-react/`, served with hot reload during
+development and bundled into the binary for release. There is no Node at run time: the
+backend is Rust, and the UI talks to it only through commands you register.
+
+### Five-minute quickstart
+
+```sh
+cargo install --git https://github.com/adeelahmad/tauri-desktop-template desktop-kitchen
+kitchen new notes --enable email          # a new app in ./notes
+cd notes
+kitchen doctor                            # what this machine is missing, with the fix for each
+kitchen start --install                   # installs the Tauri CLI and npm packages if needed, then runs with hot reload
+```
+
+Edit `ui-react/src/App.jsx` and the window updates in place; edit Rust and the app
+rebuilds and restarts. Then add a backend call:
+
+```sh
+kitchen generate command word_count       # src-tauri/src/word_count.rs, wired in, with a test
+```
+
+```js
+const reply = await invoke('word_count', { input: { text } });
+```
+
+```sh
+kitchen test                              # unit tests, then the real app over WebDriver
+kitchen package --release                 # .dmg / .msi + .exe / .AppImage + .deb in ./packages
+kitchen publish                           # shows the GitHub release it would make; --yes makes it
+```
+
+Nothing is hidden: `kitchen eject vite|tauri|cargo` prints where each tool's own config
+lives (`ui-react/vite.config.js`, `src-tauri/tauri.conf.json`, `Cargo.toml`,
+`.cargo/config.toml`) and exactly what Kitchen adds on top (mostly `KITCHEN_ENV` and the
+bundle list). Every step Kitchen runs is printed first, so you can run it yourself.
+
+## Port an existing app (Electron or web)
+
+**Secure by default.** A Kitchen app starts locked down, and you open only what you need:
+
+- The UI cannot reach the OS. There is no Node in the renderer and no `require`; it can
+  call only the commands you register, and plugins only through the allowlist in
+  `src-tauri/capabilities/*.json`.
+- A strict Content Security Policy (`tauri.conf.json`): scripts only from the app,
+  `object-src 'none'`, no framing, no remote navigation (`guard.rs` locks it).
+- The backend is Rust: memory safe, no `eval`, no prototype pollution, and one network
+  policy (`desktop_core::net`) for every outgoing request.
+- Secrets stay out of the UI and out of `settings.json` (owner-only files in the data folder).
+- A production build refuses to start without its required config (`requiredInProduction`).
+
+**Map the parts.**
+
+| Electron | Kitchen (Tauri 2) |
+|---|---|
+| main process (`main.js`) | `src-tauri/src/lib.rs` (`run`, the window, commands) + `desktop-core` (logic) |
+| `ipcMain.handle('search', ...)` | `#[tauri::command] fn search(...)`, registered in `generate_handler!` |
+| `preload.js` + `contextBridge.exposeInMainWorld` | not needed: the UI calls `invoke('search', ...)`; capabilities decide what is allowed |
+| `ipcRenderer.invoke('search', q)` | `invoke('search', { query: q })` |
+| `webContents.send('progress', x)` | `app.emit("progress", x)`; the UI uses `listen('progress', ...)` |
+| `nodeIntegration`, `contextIsolation`, `sandbox` | nothing to turn off: the renderer never has Node |
+| Node modules in main (`fs`, `child_process`, SQLite) | Rust crates or `desktop-core` modules; Tauri plugins (`fs`, `dialog`, `shell`) with scoped capabilities |
+| electron-builder config | `bundle` in `tauri.conf.json`; `kitchen package` |
+| electron-updater | the `updater` feature (signed updates from GitHub releases) |
+
+**Steps.**
+
+1. `kitchen new myapp --set frontend=react`.
+2. Move the frontend over as it is: copy your `src/` into `ui-react/src/` and your
+   dependencies into `ui-react/package.json`. Any Vite-compatible app works; for webpack or
+   CRA, point the `beforeDevCommand` / `beforeBuildCommand` and `devUrl` / `frontendDist`
+   in `tauri.conf.json` at your own scripts instead.
+3. Replace each `ipcRenderer.invoke` with `invoke`, and move each `ipcMain.handle` body
+   into a command (`kitchen generate command <name>`), with the logic in `desktop-core`.
+4. Delete `preload.js`. For each plugin the UI needs, add its permission to a capability
+   file, and nothing more.
+5. Move `process.env` reads to `config/` (build-time) or Settings (run time).
+6. `kitchen test`, then `kitchen package --release`.
+
+On the roadmap: `kitchen migrate`, which will do steps 2 to 4 for a typical Electron app.
 
 ## Architecture
 
@@ -193,6 +292,99 @@ The window keeps one JSON file per profile, `<config>/settings.json`:
 The README's settings table lists every key with its default. The rustdoc of each config
 struct documents every field.
 
+## Build-time app config
+
+Next to the user's settings, an app has its own configuration as the developer wrote it:
+support URLs, defaults, per-OS shortcuts, staging versus production endpoints. It lives
+in `config/` and is merged when the app is built:
+
+```text
+config/settings.json                      shared by every build
+config/environments/development.json      KITCHEN_ENV (or RUN_MODE): development | production | test
+config/environments/production.json
+config/environments/test.json
+config/platforms/mac.json                 the target OS: mac | linux | windows
+config/platforms/linux.json
+config/platforms/windows.json
+config/local.json                         this machine only (gitignored)
+APP_<SECTION>__<KEY>=value                at run time, e.g. APP_SEARCH__DEFAULT_TOP_K=5
+```
+
+Each layer overrides the one before it: objects merge key by key, and any other value
+(arrays too) replaces. `src-tauri/build.rs` does the merge with the code in
+[`config_layers`](../src-tauri/src/config_layers.rs) and compiles the result in. The
+environment is `KITCHEN_ENV`: `kitchen start` sets `development`, `kitchen test` sets
+`test`, `kitchen package --release` sets `production`. Without it, release builds are
+`production` and debug builds `development`.
+
+- **Rust:** `app_lib::app_config::get::<usize>("search.defaultTopK")`, `get_or(path, default)`,
+  `app_config::env()`, or the whole value as `app_config::CONFIG` (`serde_json::Value`).
+- **UI:** `app_info().config`; `ui-react/src/config.js` keeps it in `CONFIG` and reads a key
+  with `configGet('ui.showEnvBadge', false)`. The sample shows an "development build" badge.
+- **Environment variables** use `APP_` and `__` between levels; a key matches ignoring case and
+  `_`, and the value is read as JSON when it parses. Only sections that already exist in
+  `config/` can be overridden, so the app's other `APP_*` variables never collide.
+- **Production safety:** list required paths in `requiredInProduction`, e.g.
+  `["mail.host", "api.url"]`. A production build that lacks one exits at start with
+  `missing required config: mail.host (set it in config/ or as APP_MAIL__HOST)`.
+  Development and test only log a warning.
+
+**Build-time config versus settings.** `config/` is yours: it is fixed per build, shared by
+every user, and compiled into the binary, so never put secrets in it. `settings.json`
+([How settings work](#how-settings-work)) belongs to the user: it changes at run time in the
+Settings screen, one file per profile.
+
+## Command errors
+
+Commands reject the UI's `invoke` with one JSON shape:
+
+```json
+{ "code": "not_found", "message": "no document named notes.txt" }
+```
+
+`code` is a short, stable, snake_case word the UI can branch on: `invalid` (bad input),
+`not_found`, `unavailable` (the feature is off or not set up), `denied` (a policy said no),
+`failed` (anything else). `message` is for people. In Rust, return
+`Result<T, app_lib::error::CommandError>`; `?` turns a `String` or `desktop_core::Error`
+into code `failed`, and `CommandError::new("invalid", "...")` sets a code. In the UI,
+`errorText(e)` and `errorCode(e)` from `ui-react/src/errors.js` read it (and the plain
+strings that older commands still return).
+
+## Tests
+
+```sh
+kitchen test              # both kinds below (feature tests are skipped, with the reason, if the machine can't run them)
+kitchen test --unit       # cargo test --workspace (cargo nextest + doc tests when nextest is installed)
+kitchen test --feature    # the real app, driven through its window
+```
+
+Both set `KITCHEN_ENV=test`, so the build embeds `config/environments/test.json`. If
+`ui-react/package.json` has a `test` script, `--unit` runs it too; the template ships none,
+so Node stays a build tool for the UI.
+
+**Feature tests** live in [`e2e/`](../e2e): Rust tests that start the built app and drive
+it with [tauri-driver](https://v2.tauri.app/develop/tests/webdriver/) over WebDriver, with
+a small client in `e2e/tests/webdriver/mod.rs` (plain HTTP and JSON on `ureq`, a
+dev-dependency only). Each test gets its own tauri-driver on free ports and its own scratch
+home, so its own settings, data folder and store: tests run in parallel and never touch
+your data. The sample adds a note, searches for it, and checks the hit.
+
+Setup, once per machine:
+
+| OS | Install |
+|---|---|
+| Linux | `cargo install tauri-driver --locked` and `sudo apt install webkit2gtk-driver` (plus `xvfb` on a machine without a display; Kitchen wraps the run in `xvfb-run`) |
+| Windows | `cargo install tauri-driver --locked` and msedgedriver matching your Edge (`cargo install msedgedriver-tool && msedgedriver-tool`), on PATH |
+| macOS | nothing: there is no WebDriver for WKWebView, so `kitchen test --feature` builds the app and runs its `--self-test` instead, and says so. Run the WebDriver tests in Linux or Windows CI |
+
+`kitchen doctor` checks for tauri-driver and WebKitWebDriver (or msedgedriver). By hand,
+`kitchen test --feature` is:
+
+```sh
+KITCHEN_ENV=test cargo tauri build --debug --no-bundle
+APP_BINARY=target/debug/<app> cargo test -p e2e -- --ignored
+```
+
 ## Module index
 
 Paths are relative to this file. The rustdoc page of `desktop_core::X` is
@@ -245,6 +437,9 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`service`](../src-tauri/src/service.rs) | always | The `Service` trait and `Local`, the backend by method name |
 | [`paths`](../src-tauri/src/paths.rs) | always | App folders and profiles |
 | [`guard`](../src-tauri/src/guard.rs) | always | Navigation lock and dev tools policy for the window |
+| [`app_config`](../src-tauri/src/app_config.rs) | always | Build-time app config (`config/`), `get::<T>("a.b")`, production safety check |
+| [`config_layers`](../src-tauri/src/config_layers.rs) | always | The layer merge `build.rs` runs; `APP_A__B` overrides |
+| [`error`](../src-tauri/src/error.rs) | always | `CommandError`, the `{ code, message }` shape of command errors |
 | [`ipc`](../src-tauri/src/ipc.rs) | `ipc-worker` | The worker process and its local-socket protocol |
 | [`agent`](../src-tauri/src/agent.rs) | `background-agent` | Start the worker at login (launchd, Run key, systemd) |
 | [`mcp`](../src-tauri/src/mcp.rs) | `mcp` | `--mcp`: tools mapped to the service; client registration |
@@ -290,7 +485,12 @@ answers it was generated with.
 | `kitchen new <name> --enable email,ai --disable postgres` | Create an app from the template |
 | `kitchen enable <feature>` / `kitchen disable <feature>` | Turn a feature on or off later. Your edits are kept by a three-way merge; `--dry-run` shows what would change |
 | `kitchen generate module\|setting\|command\|page\|route ...` | Generate documented, tested code, wired in at the `// kitchen:...` markers |
-| `kitchen doctor` | Check the toolchain (Rust, cargo-generate, Tauri CLI, Node, WebKitGTK or Xcode) and the app's markers |
+| `kitchen doctor` | Check the toolchain (Rust, cargo-generate, Tauri CLI, Node, WebKitGTK or Xcode, tauri-driver and WebKitWebDriver) and the app's markers |
+| `kitchen start` (`dev`) | `cargo tauri dev` with `KITCHEN_ENV=development`: Vite HMR and Rust rebuilds. `--install` installs a missing Tauri CLI or npm packages |
+| `kitchen test [--unit\|--feature]` | Unit tests and feature tests ([Tests](#tests)), with `KITCHEN_ENV=test` |
+| `kitchen package [mac\|windows\|linux] [--release]` | `cargo tauri build` with this OS's bundles, copied into `./packages`. Other OSes are refused |
+| `kitchen publish [--tag v1.2.3] [--yes]` | A GitHub release with `./packages` through `gh`; a dry run without `--yes` |
+| `kitchen eject vite\|tauri\|cargo` | Where that tool's own config is, and what Kitchen sets on top |
 | `kitchen mcp` | Offer the same commands to AI agents as an MCP server over stdio (`claude mcp add kitchen -- kitchen mcp`) |
 
 Add `--json` to any command for machine-readable output. The CLI's own README has the

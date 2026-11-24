@@ -1,0 +1,14 @@
+{
+  "app": {
+    "name": "{{app_name}}",
+    "supportUrl": "https://github.com/{{github_repo}}/issues"
+  },
+  "search": {
+    "defaultTopK": 10
+  },
+  "requiredInProduction": [],
+  "ui": {
+    "showEnvBadge": false,
+    "shortcutModifier": "Ctrl"
+  }
+}

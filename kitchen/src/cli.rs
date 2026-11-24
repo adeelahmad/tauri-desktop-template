@@ -10,6 +10,7 @@
 //! assert!(a.flag("dry-run"));
 //! ```
 
+use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
 use crate::{doctor, generate, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
@@ -34,9 +35,17 @@ Usage:
   kitchen generate shortcut <action> <keys>                                   (tray_menu)
   kitchen generate route <name>        POST /v1/<name> on the HTTP API (needs http_api)
   kitchen doctor [--json]              check this machine and this app
+
+  kitchen start [--install]            run the app with hot reload (cargo tauri dev, KITCHEN_ENV=development)
+  kitchen test [--unit|--feature]      unit tests (cargo test / nextest) and the real app over WebDriver
+  kitchen package [mac|windows|linux] [--release]
+                                       installers for this OS (cargo tauri build), copied to ./packages
+  kitchen publish [--tag v1.2.3] [--yes]
+                                       GitHub release with ./packages via gh (dry run without --yes)
+  kitchen eject vite|tauri|cargo       where that tool's own config lives, and what Kitchen adds
   kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
                                        the app's daemon as an OS service (feature daemon)
-  kitchen dev | build                  cargo tauri dev / build
+  kitchen build                        cargo tauri build, as is
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
 Options:
@@ -44,7 +53,7 @@ Options:
   --json      print the result as JSON
   -h, --help  this text;  -V, --version  the version
 
-`kitchen g` is short for `kitchen generate`.
+`kitchen g` is short for `kitchen generate`; `kitchen dev` is `kitchen start`.
 ";
 
 /// Parsed arguments: words in order, and `--flag` / `--key value` / `--key=value` options.
@@ -58,7 +67,7 @@ pub struct Args {
 
 /// Options that take a value (all others are flags).
 const VALUED: &[&str] = &[
-    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "lines",
+    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "lines", "tag",
 ];
 
 impl Args {
@@ -123,8 +132,14 @@ impl Args {
     }
 }
 
-/// Run one command that produces a report, as if started in `cwd`.
+/// Run one command that produces a report, as if started in `cwd`. Tools that `start`,
+/// `test` and `package` run have their output captured into the report.
 pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
+    run_with(args, cwd, Io::Capture)
+}
+
+/// [`run`], choosing where the output of the tools goes ([`Io::Inherit`]: the terminal).
+pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
     let opts = Options {
         dry_run: args.flag("dry-run"),
     };
@@ -232,6 +247,94 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             }
         }
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
+        "start" | "dev" => {
+            let root = project()?.root;
+            if io_mode == Io::Capture {
+                let mut r = Report::new(
+                    "`kitchen start` keeps running (it serves the UI and rebuilds on every edit), so run it in a terminal.",
+                );
+                r.next = vec![
+                    format!("cd {} && kitchen start", root.display()),
+                    "it runs: KITCHEN_ENV=development cargo tauri dev".into(),
+                ];
+                return Ok(r);
+            }
+            let plan = lifecycle::start_plan(&root, &args.words[1..], args.flag("install"))?;
+            lifecycle::execute(&plan, io_mode, "The app stopped.")
+        }
+        "test" => test(args, &project()?.root, io_mode),
+        "package" => {
+            let root = project()?.root;
+            let host = host()?;
+            let platform = args.words.get(1).map(|w| Platform::parse(w)).transpose()?;
+            let release = args.flag("release");
+            let mut plan = lifecycle::package_plan(&root, platform, host, release)?;
+            lifecycle::prerequisites(&root, args.flag("install"), false, &mut plan)?;
+            let mut r = lifecycle::execute(&plan, io_mode, "")?;
+            let files = lifecycle::collect_packages(&root, release)?;
+            r.summary = format!(
+                "{} package(s) in {}",
+                files.len(),
+                root.join("packages").display()
+            );
+            r.lines
+                .extend(files.iter().map(|f| format!("package {}", f.display())));
+            r.next.push(
+                "kitchen publish   (shows the GitHub release it would make; --yes makes it)".into(),
+            );
+            Ok(r)
+        }
+        "publish" => {
+            let p = project()?;
+            let repo = p
+                .manifest
+                .answers
+                .get("github_repo")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let title = p
+                .manifest
+                .answers
+                .get("app_name")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| p.manifest.app.name.clone());
+            let plan =
+                lifecycle::publish_plan(&p.root, args.value("tag"), repo.as_deref(), &title)?;
+            let has_gh = std::process::Command::new("gh")
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .status()
+                .is_ok();
+            let manual = vec![
+                "install the GitHub CLI (https://cli.github.com) and run `gh auth login`, then `kitchen publish --yes`".to_string(),
+                "or by hand: push the tag, open https://github.com/<owner>/<repo>/releases/new, pick the tag and attach the files in ./packages".to_string(),
+            ];
+            if !args.flag("yes") {
+                let mut r =
+                    Report::new("Dry run: this would create the release (add --yes to do it).");
+                r.lines = plan.steps.iter().map(|s| s.display()).collect();
+                if !has_gh {
+                    r.next = manual;
+                }
+                return Ok(r);
+            }
+            if !has_gh {
+                return Err(Error::Tool(format!(
+                    "gh is not installed:
+  {}",
+                    manual.join(
+                        "
+  "
+                    )
+                )));
+            }
+            lifecycle::execute(&plan, io_mode, "Published the release.")
+        }
+        "eject" => lifecycle::eject(
+            &project()?.root,
+            args.word(1, "a tool: vite, tauri or cargo")?,
+        ),
         "service" => {
             let lines = args
                 .value("lines")
@@ -253,6 +356,63 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             "unknown command {other:?}; see `kitchen --help`"
         ))),
     }
+}
+
+fn host() -> Result<Platform> {
+    Platform::host().ok_or_else(|| {
+        Error::Usage(format!(
+            "{} is not a desktop OS Kitchen packages for",
+            std::env::consts::OS
+        ))
+    })
+}
+
+/// `kitchen test`: `--unit`, `--feature`, or both. With neither flag, feature tests that
+/// this machine cannot run are skipped with a note instead of failing.
+fn test(args: &Args, root: &Path, io_mode: Io) -> Result<Report> {
+    let (unit, feature) = (args.flag("unit"), args.flag("feature"));
+    let kinds = if unit || feature {
+        TestKinds { unit, feature }
+    } else {
+        TestKinds {
+            unit: true,
+            feature: true,
+        }
+    };
+    let host = host()?;
+    let nextest = std::process::Command::new("cargo")
+        .args(["nextest", "--version"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    let drivers = lifecycle::Drivers::detect();
+    let mut plan = match lifecycle::test_plan(root, kinds, host, nextest, drivers) {
+        Err(e) if !feature && kinds.feature => {
+            let mut p = lifecycle::test_plan(
+                root,
+                TestKinds {
+                    unit: true,
+                    feature: false,
+                },
+                host,
+                nextest,
+                drivers,
+            )?;
+            p.notes.push(format!("feature tests skipped: {e}"));
+            p
+        }
+        other => other?,
+    };
+    if kinds.feature
+        && plan
+            .steps
+            .iter()
+            .any(|s| s.args.first().is_some_and(|a| a == "tauri"))
+    {
+        lifecycle::prerequisites(root, args.flag("install"), false, &mut plan)?;
+    }
+    lifecycle::execute(&plan, io_mode, "Tests passed.")
 }
 
 /// The folder a command runs in: `--project <dir>` style callers pass it, else the

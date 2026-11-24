@@ -34,14 +34,66 @@ kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift
 kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global shortcut for an action (tray_menu)
 kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (http_api)
 
-kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers and AGENTS.md
+kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, tauri-driver, the app's markers and AGENTS.md
+
+kitchen start                     # cargo tauri dev, KITCHEN_ENV=development: Vite HMR + Rust rebuilds (`dev` works too)
+kitchen start --install           # first installs a missing Tauri CLI / npm packages
+kitchen test                      # unit tests, then the real app over WebDriver (KITCHEN_ENV=test)
+kitchen test --unit               # cargo test --workspace (nextest + doc tests if nextest is installed)
+kitchen test --feature            # e2e/: tauri-driver on Linux/Windows; --self-test on macOS
+kitchen package --release         # this OS's installers (dmg/app, nsis/msi, appimage/deb) into ./packages
+kitchen publish                   # the `gh release create` it would run; --yes runs it
+kitchen eject vite|tauri|cargo    # where that tool's own config lives, and what Kitchen adds
 kitchen service install           # the app's daemon as a user service (template feature `daemon`)
 kitchen service status            # installed? running? pid, log file
 kitchen service logs --lines 100 --follow
 kitchen service stop | start | restart | uninstall [--system]
-kitchen dev | kitchen build       # cargo tauri dev / build
+kitchen build                     # cargo tauri build, as is
 kitchen mcp                       # MCP server over stdio
 ```
+
+## The lifecycle
+
+One path from a new app to a release, like `rails new` → `rails s` → `rails test` → deploy:
+
+| Command | Runs | Environment |
+|---|---|---|
+| `kitchen start` | `cargo tauri dev` | `KITCHEN_ENV=development` |
+| `kitchen test --unit` | `cargo test --workspace`, or `cargo nextest run --workspace` + `cargo test --doc` | `KITCHEN_ENV=test` |
+| `kitchen test --feature` | `cargo tauri build --debug --no-bundle`, then `cargo test -p e2e -- --ignored` (under `xvfb-run` without a display) | `KITCHEN_ENV=test` |
+| `kitchen package [os] [--release]` | `cargo tauri build --bundles <this OS's formats> [--debug]`, then copies to `./packages` | `production` with `--release`, else `development` |
+| `kitchen publish --yes` | `gh release create v<version> packages/* --generate-notes` | |
+
+Each command prints the step before it runs it, so nothing is hidden. Packaging for another
+OS is refused with the reason: Tauri builds installers for the OS it runs on. `KITCHEN_ENV`
+picks the layer of the app's build-time config (`config/environments/<env>.json`; see the
+app's `docs/GUIDE.md`).
+
+## Kitchen for web developers
+
+| On the web | In a Kitchen app |
+|---|---|
+| `fetch('/api/...')` | `invoke('command', { ... })`: your API call |
+| routes / controllers | Tauri commands (`kitchen generate command <name>`) |
+| your backend service | `desktop_core`, a plain Rust library |
+| `.env`, `config/*.json` | `config/` per environment and OS (build time) + the user's settings (run time) |
+| Postgres, embeddings, email, jobs | one `kitchen enable <feature>` each, nothing to host |
+| `npm run dev` / `test` / deploy | `kitchen start` / `test` / `package` + `publish` |
+
+Five minutes from nothing to an installer:
+
+```sh
+cargo install --git https://github.com/adeelahmad/tauri-desktop-template desktop-kitchen
+kitchen new notes && cd notes
+kitchen doctor
+kitchen start --install           # edit ui-react/src/App.jsx: the window updates in place
+kitchen generate command word_count
+kitchen test
+kitchen package --release
+```
+
+The app's `docs/GUIDE.md` has the longer version, and a walkthrough for porting an
+Electron or web app.
 
 Add `--json` to any command for machine-readable output. `kitchen g` is short for `kitchen generate`.
 
@@ -97,8 +149,13 @@ claude mcp add kitchen -- kitchen mcp
 ```
 
 The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
-`service` and `new`. Each one takes an optional `project` folder, and the ones that change files also take
-`dry_run`. `service` only runs `status` and `logs` by itself; for `install`, `uninstall`,
+`start`, `test`, `package`, `publish`, `eject`, `service` and `new`. Each one takes an optional
+`project` folder, and the ones that change files also take `dry_run`. `start` keeps
+running, so it answers with the command to run in a terminal instead of blocking; `test`
+and `package` run and return the report (the commands, the test results, and the last
+lines of output of a step that failed); `publish` only shows the release unless `yes` is
+true.
+`service` only runs `status` and `logs` by itself; for `install`, `uninstall`,
 `start`, `stop` and `restart` it reports the command it would run unless `allow_changes` is
 true.
 

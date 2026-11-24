@@ -168,8 +168,66 @@ pub fn run(project: Option<&Path>) -> Vec<Check> {
             ),
         });
     }
+    out.extend(feature_test_checks());
     if let Some(dir) = project {
         out.extend(project_checks(dir));
+    }
+    out
+}
+
+/// Whether `program` starts at all (some drivers exit non-zero on `--version`).
+fn starts(program: &str, arg: &str) -> bool {
+    Command::new(program)
+        .arg(arg)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
+}
+
+/// `kitchen test --feature` needs tauri-driver and the OS's WebDriver (optional: warnings).
+fn feature_test_checks() -> Vec<Check> {
+    if cfg!(target_os = "macos") {
+        return vec![check(
+            "Feature tests",
+            Status::Ok,
+            "macOS has no WKWebView WebDriver; `kitchen test --feature` runs --self-test",
+            "",
+        )];
+    }
+    let mut out = vec![if starts("tauri-driver", "--help") {
+        check("tauri-driver", Status::Ok, "found", "")
+    } else {
+        check(
+            "tauri-driver",
+            Status::Warn,
+            "not found (needed by `kitchen test --feature`)",
+            "cargo install tauri-driver --locked",
+        )
+    }];
+    if cfg!(target_os = "linux") {
+        out.push(if starts("WebKitWebDriver", "--version") {
+            check("WebKitWebDriver", Status::Ok, "found", "")
+        } else {
+            check(
+                "WebKitWebDriver",
+                Status::Warn,
+                "not found (needed by `kitchen test --feature`)",
+                "sudo apt install webkit2gtk-driver   (Fedora: webkit2gtk4.1-devel; Arch: webkit2gtk-4.1)",
+            )
+        });
+    }
+    if cfg!(target_os = "windows") {
+        out.push(if starts("msedgedriver", "--version") {
+            check("msedgedriver", Status::Ok, "found", "")
+        } else {
+            check(
+                "msedgedriver",
+                Status::Warn,
+                "not found (needed by `kitchen test --feature`)",
+                "cargo install msedgedriver-tool && msedgedriver-tool   (a driver matching your Edge, on PATH)",
+            )
+        });
     }
     out
 }
