@@ -12,7 +12,7 @@
 
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
-use crate::{doctor, generate, service, Error, Options, Report, Result};
+use crate::{doctor, generate, hooks, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -34,6 +34,8 @@ Usage:
   kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
   kitchen generate shortcut <action> <keys>                                   (tray_menu)
   kitchen generate route <name>        POST /v1/<name> on the HTTP API (needs http_api)
+  kitchen hooks <install|uninstall|status>
+                                       git hooks in .githooks/ (fmt, clippy, prettier, eslint)
   kitchen doctor [--json]              check this machine and this app
 
   kitchen start [--install]            run the app with hot reload (cargo tauri dev, KITCHEN_ENV=development)
@@ -246,6 +248,11 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 ))),
             }
         }
+        "hooks" => hooks::run(
+            &project()?.root,
+            args.words.get(1).map(String::as_str).unwrap_or("status"),
+            opts.dry_run,
+        ),
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
         "start" | "dev" => {
             let root = project()?.root;

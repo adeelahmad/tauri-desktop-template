@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{app_name}}</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css">{% if app_shell %}
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="shell.css">{% endif %}
 </head>
 <body>
   <div id="update-banner" class="banner" hidden>
@@ -110,7 +112,7 @@
       <p id="mcp-status" class="status"></p>
     </section>
 
-    <section>
+    <section id="settings-section">
       <h2>Settings</h2>
       <p class="hint">Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).</p>
       <textarea id="config" rows="10" spellcheck="false"></textarea>
@@ -155,6 +157,7 @@
     <button id="clear" class="link" hidden>Clear all data</button>
   </footer>
 
-  <script src="app.js"></script>
+  <script src="app.js"></script>{% if app_shell %}
+  <script src="shell.js"></script>{% endif %}
 </body>
 </html>

@@ -15,5 +15,11 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 5174 } : undefined,
   },
-  build: { outDir: 'dist', emptyOutDir: true, target: 'es2021' },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    target: 'es2021',{% if app_shell %}
+    // Two pages: the main window and the Settings window (feature app-shell).
+    rollupOptions: { input: { main: 'index.html', settings: 'settings.html' } },{% endif %}
+  },
 });

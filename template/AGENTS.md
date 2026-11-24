@@ -134,9 +134,17 @@ This build has:
 {%- if tauri_window_state %} `tauri_window_state`{% endif %}
 {%- if tauri_os %} `tauri_os`{% endif %}
 {%- if tauri_process %} `tauri_process`{% endif %}
-{%- if tauri_log %} `tauri_log`{% endif %}.
+{%- if tauri_log %} `tauri_log`{% endif %}
+{%- if tauri_http %} `tauri_http` (only the URLs in `capabilities/default.json`){% endif %}
+{%- if tauri_positioner %} `tauri_positioner`{% endif %}
+{%- if tauri_shell %} `tauri_shell` (only the commands in `capabilities/desktop.json`; never add a shell, an interpreter or `"args": true`){% endif %}.
 {% endif -%}
-- Always on: security defaults (`src-tauri/src/guard.rs`, CSP), JSON-lines logs, `--self-test`.
+{% if app_shell -%}
+- `app_shell` (cargo feature `app-shell`): custom titlebar, themes (light/dark/system) and fonts, Settings in its own window (Cmd/Ctrl+,), `src-tauri/src/shell.rs`, `desktop-core/src/appearance.rs`, `capabilities/{shell,settings}.json`. Settings values reach CSS and a pre-load script, so validate new ones in `AppearanceConfig::validated`; add a theme in `THEMES` and `shell.css`.
+{% endif -%}
+- Always on: security defaults (`src-tauri/src/guard.rs`, CSP), JSON-lines logs, `--self-test`,
+  `.env`/`.env.local` in debug builds only (`desktop_core::dotenv`), git hooks in `.githooks/`
+  (`kitchen hooks install`).
 
 `kitchen features` lists every other feature you can turn on.
 

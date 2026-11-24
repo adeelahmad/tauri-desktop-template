@@ -34,7 +34,9 @@ kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift
 kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global shortcut for an action (tray_menu)
 kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (http_api)
 
-kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, tauri-driver, the app's markers and AGENTS.md
+kitchen hooks install             # git config core.hooksPath .githooks (fmt + clippy; prettier + eslint for React)
+kitchen hooks status | uninstall
+kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, tauri-driver, the app's markers, AGENTS.md and git hooks
 
 kitchen start                     # cargo tauri dev, KITCHEN_ENV=development: Vite HMR + Rust rebuilds (`dev` works too)
 kitchen start --install           # first installs a missing Tauri CLI / npm packages

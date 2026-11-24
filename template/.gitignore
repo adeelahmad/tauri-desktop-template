@@ -1,3 +1,7 @@
+# Development-only environment (read by debug builds, never bundled; see desktop-core/src/dotenv.rs).
+.env
+.env.local
+.env.*.local
 /target
 **/node_modules
 .DS_Store

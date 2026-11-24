@@ -10,7 +10,9 @@ import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
 import Dictate from './Dictate.jsx';
 import { provenance } from './provenance.js';
-// kitchen:imports (`kitchen generate page` adds imports above this line)
+{% if app_shell %}import Titlebar from './Titlebar.jsx';
+import { drawsTitlebar, useAppearance, useSettingsShortcut } from './shell.js';
+{% endif %}// kitchen:imports (`kitchen generate page` adds imports above this line)
 
 function describe(info, status) {
   if (!info) return '';
@@ -315,7 +317,11 @@ export default function App() {
   const [message, setMessage] = useState({ text: 'Starting…' });
   const [status, setStatus] = useState(null);
   const [armed, setArmed] = useState(false);
-
+{% if app_shell %}  // App shell (feature app-shell): live themes, Cmd/Ctrl+, and Settings in its own window.
+  useAppearance();
+  useSettingsShortcut();
+  const shell = drawsTitlebar();
+{% endif %}
   const setup = async (backend, embeddings) => {
     setBusy(true);
     const offs = [
@@ -376,7 +382,8 @@ export default function App() {
 
   return (
     <>
-      {f.updater && <UpdateBanner />}
+{% if app_shell %}      {shell && <Titlebar title={APP_NAME} />}
+{% endif %}      {f.updater && <UpdateBanner />}
       <header>
         <h1>{APP_NAME}</h1>
         <p className="sub">{DESCRIPTION}</p>
@@ -393,8 +400,9 @@ export default function App() {
           <AddDocuments onChange={refresh} mobile={f.mobile} />
           <Search features={f} />
           {f.ai && <Ask features={f} />}
-          <Settings features={f} />
-          {f.backgroundAgent && <BackgroundAgent />}
+{% if app_shell %}          {!shell && <Settings features={f} />}
+{% else %}          <Settings features={f} />
+{% endif %}          {f.backgroundAgent && <BackgroundAgent />}
           {f.pythonExample && <PythonExample />}
           {f.claudeMcp && <ClaudeDesktop />}
           {/* kitchen:pages */}

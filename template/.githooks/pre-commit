@@ -1,0 +1,37 @@
+#!/bin/sh
+# Pre-commit checks, Rust first and with no Python needed. Turn on with `kitchen hooks install`
+# (or `git config core.hooksPath .githooks`); skip once with `git commit --no-verify`.
+#
+# - Rust files staged: `cargo fmt --check` and `cargo clippy -D warnings` on the workspace.
+# - ui-react/src files staged (React frontend only): prettier and eslint on those files.
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+
+if printf '%s\n' "$staged" | grep -qE '\.rs$|(^|/)Cargo\.(toml|lock)$'; then
+  echo "pre-commit: cargo fmt --check"
+  cargo fmt --all -- --check || { echo "pre-commit: run 'cargo fmt --all' and stage the result" >&2; exit 1; }
+  echo "pre-commit: cargo clippy"
+  cargo clippy --workspace --all-targets --quiet -- -D warnings
+fi
+
+if [ -d ui-react ]; then
+  web=$(printf '%s\n' "$staged" | grep -E '^ui-react/src/.*\.(jsx?|mjs|cjs|css)$' || true)
+  if [ -n "$web" ]; then
+    if [ ! -d ui-react/node_modules ]; then
+      echo "pre-commit: ui-react/node_modules is missing; run 'npm --prefix ui-react ci --include=dev'" >&2
+      exit 1
+    fi
+    files=$(printf '%s\n' "$web" | sed 's|^ui-react/||')
+    lint=$(printf '%s\n' "$files" | grep -E '\.(jsx?|mjs|cjs)$' || true)
+    echo "pre-commit: prettier"
+    # shellcheck disable=SC2086 # one file per word: these paths come from git and have no spaces in this project
+    (cd ui-react && npx --no-install prettier --check $files)
+    if [ -n "$lint" ]; then
+      echo "pre-commit: eslint"
+      # shellcheck disable=SC2086
+      (cd ui-react && npx --no-install eslint $lint)
+    fi
+  fi
+fi

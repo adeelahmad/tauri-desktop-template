@@ -311,6 +311,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
         })
         .map(|(f, m)| format!("{f} ({m})"))
         .collect();
+    out.push(hooks_check(&root));
     out.push(if missing.is_empty() {
         check("Generator markers", Status::Ok, "all present", "")
     } else {
@@ -323,6 +324,27 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     });
     out.push(agent_files(&root));
     out
+}
+
+/// Whether the app's `.githooks` are turned on (`kitchen hooks install`).
+fn hooks_check(root: &Path) -> Check {
+    use crate::hooks::HookState;
+    match crate::hooks::current(root) {
+        HookState::On => check("Git hooks", Status::Ok, "on (.githooks)", ""),
+        HookState::Off => check(
+            "Git hooks",
+            Status::Warn,
+            "off: commits skip fmt and clippy",
+            "kitchen hooks install",
+        ),
+        HookState::Elsewhere(p) => check(
+            "Git hooks",
+            Status::Warn,
+            format!("git uses {p}, not .githooks"),
+            "kitchen hooks install",
+        ),
+        HookState::Missing => check("Git hooks", Status::Ok, "none in this app", ""),
+    }
 }
 
 /// The files that tell AI agents how to work in an app (`kitchen new` writes them).

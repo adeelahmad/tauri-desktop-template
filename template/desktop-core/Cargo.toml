@@ -83,6 +83,10 @@ telemetry = []
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
 {% endif -%}
+{% if app_shell -%}
+# Theme, mode and font settings for the app shell (validation only, no dependencies).
+app-shell = []
+{% endif -%}
 {% if ipc_worker -%}{% if daemon -%}
 # Service files, the daemon's health file and crash backoff (std only; see daemon.rs).
 daemon = []

@@ -226,6 +226,39 @@ const FIELDS = [
   ['watch', 'ingestExisting', 'Ingest files already there', 'bool', { needs: 'watch' }],
   ['watch', 'removeDeleted', 'Forget deleted files', 'bool', { needs: 'watch' }],
   ['watch', 'ignore', 'Ignore names (wildcards)', 'list', { needs: 'watch' }],
+  [
+    'appearance',
+    'mode',
+    'Light or dark',
+    'select',
+    { needs: 'appShell', options: ['system', 'light', 'dark'], labels: ['Follow the system', 'Light', 'Dark'] },
+  ],
+  [
+    'appearance',
+    'theme',
+    'Theme',
+    'select',
+    {
+      needs: 'appShell',
+      options: ['kitchen', 'nord', 'solarized', 'forest', 'rose', 'contrast'],
+      labels: ['Kitchen', 'Nord', 'Solarized', 'Forest', 'Rosé', 'High contrast'],
+    },
+  ],
+  [
+    'appearance',
+    'uiFont',
+    'Interface font (empty = system; a preset or any installed or bundled font)',
+    'text',
+    { needs: 'appShell', suggest: ['humanist', 'rounded', 'serif'] },
+  ],
+  [
+    'appearance',
+    'monoFont',
+    'Code and editor font (empty = system)',
+    'text',
+    { needs: 'appShell', suggest: ['cascadia', 'jetbrains', 'fira'] },
+  ],
+  ['appearance', 'fontSize', 'Text size (px)', 'number', { needs: 'appShell', min: 10, max: 24 }],
   ['tray', 'enabled', 'Show an icon in the tray (menu bar on macOS)', 'bool', { needs: 'trayMenu' }],
   ['tray', 'leftClickOpens', 'Left click opens the window (right click: the menu)', 'bool', { needs: 'trayMenu' }],
   ['tray', 'closeToTray', 'Closing the window keeps the app in the tray', 'bool', { needs: 'trayMenu' }],
@@ -234,6 +267,7 @@ const FIELDS = [
 ];
 
 const TITLES = {
+  appearance: 'Appearance',
   search: 'Search',
   ingest: 'Ingest',
   llm: 'AI',
@@ -306,10 +340,27 @@ function Field({ kind, label, value, extra, onChange }) {
     else if (kind === 'optional') onChange(num(v));
     else onChange(extra.nullable && !v ? null : v);
   };
+  // `suggest`: values offered in a drop-down while typing (any other text is allowed too).
+  const listId = extra.suggest && `suggest-${label.replace(/\W+/g, '-')}`;
   return (
     <label className="field">
       {label}
-      <input type={isNum ? 'number' : 'text'} min={extra.min} max={extra.max} step={extra.step} value={value ?? ''} onChange={change} />
+      <input
+        type={isNum ? 'number' : 'text'}
+        min={extra.min}
+        max={extra.max}
+        step={extra.step}
+        value={value ?? ''}
+        onChange={change}
+        list={listId}
+      />
+      {listId && (
+        <datalist id={listId}>
+          {extra.suggest.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }
@@ -1504,6 +1555,7 @@ export default function Settings({ features }) {
     setCfg(await invoke('set_config', { config: {} }));
   };
   const needs = {
+    appearance: 'appShell',
     watch: 'watch',
     llm: 'ai',
     mcp: 'mcp',
@@ -1522,6 +1574,7 @@ export default function Settings({ features }) {
     tray: 'trayMenu',
   };
   const sections = [
+    'appearance',
     'search',
     'ingest',
     'llm',
