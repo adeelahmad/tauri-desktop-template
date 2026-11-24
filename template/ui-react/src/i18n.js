@@ -19,7 +19,9 @@ import { {% if i18n %}useEffect, {% endif %}useSyncExternalStore } from 'react';
 import { api } from './ipc.js';
 import * as fluent from './locales.js';
 {% endif %}
-let current = { locale: 'en', dir: 'ltr', bundles: [] };
+// `numbers` is the Intl tag for numbers and dates (undefined without translations: the
+// browser's own); `digits` is the ui.digits setting ('latin' or 'native').
+let current = { locale: 'en', dir: 'ltr', digits: 'latin', numbers: undefined, bundles: [] };
 const listeners = new Set();
 
 // The English fallback with `{ $name }` filled in.
@@ -49,6 +51,13 @@ export function t(id, english, args) {
 export const locale = () => current.locale;
 export const direction = () => current.dir;
 
+/**
+ * A date and time (milliseconds or a Date) in the user's language, with the same digits as
+ * the backend (Latin by default; see desktop_core::i18n, "Digits").
+ * @param {number | Date} when
+ */
+export const dateTime = (when) => new Date(when).toLocaleString(current.numbers);
+
 /** The locales to choose from, each named in its own language. Empty without feature i18n. */
 export function available() {
 {% if i18n %}  return fluent.available();
@@ -60,11 +69,14 @@ export const translated = {% if i18n %}true{% else %}false{% endif %};
 
 /**
  * Switch the UI to `requested` ('system', a locale code, or 'en-XA' for the pseudo-locale)
- * and return the locale used. 'system' asks the Rust side for the OS language.
+ * and return the locale used. 'system' asks the Rust side for the OS language. `digits` is
+ * the ui.digits setting ('latin' or 'native'); left out, it stays as it is.
  * @param {string} requested
+ * @param {string} [digits]
  */
-export async function setLocale(requested) {
-{% if i18n %}  let wanted = requested || 'system';
+export async function setLocale(requested, digits) {
+{% if i18n %}  const nu = digits === 'native' ? 'native' : digits ? 'latin' : current.digits;
+  let wanted = requested || 'system';
   if (wanted === 'system') {
     wanted = await api
       .i18n_bundle({ locale: 'system' })
@@ -72,8 +84,15 @@ export async function setLocale(requested) {
       .catch(() => navigator.language || 'en');
   }
   const code = fluent.negotiate(wanted);
-  current = { locale: code, dir: fluent.direction(code), bundles: fluent.bundles(code) };
+  current = {
+    locale: code,
+    dir: fluent.direction(code),
+    digits: nu,
+    numbers: fluent.numberLocale(code, nu),
+    bundles: fluent.bundles(code, nu),
+  };
 {% else %}  void requested;
+  void digits;
 {% endif %}  const root = document.documentElement;
   root.lang = current.locale;
   root.dir = current.dir;
@@ -92,7 +111,11 @@ const subscribe = (f) => {
  */
 export function useLocale() {
 {% if i18n %}  useEffect(() => {
-    const off = listen('locale-changed', (e) => setLocale(e.payload));
+    // The payload is { language, digits } (or just the language).
+    const off = listen('locale-changed', (e) => {
+      const p = e.payload;
+      return p && typeof p === 'object' ? setLocale(p.language, p.digits) : setLocale(p);
+    });
     return () => {
       off.then((f) => f()).catch(() => {});
     };

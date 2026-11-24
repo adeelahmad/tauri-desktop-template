@@ -537,7 +537,7 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
 {% if i18n %}    // Menus, the tray and this process's messages switch language at once (the UI asks
     // for its own bundle with `i18n_bundle`).
     #[cfg(feature = "i18n")]
-    desktop_core::i18n::set_locale(&applied.ui.language);
+    desktop_core::i18n::apply(&applied.ui);
 {% endif %}
     #[cfg(all(desktop, feature = "http-api"))]
     http::apply(state.service.clone(), &applied.http_api);
@@ -550,7 +550,7 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
 {% if i18n %}/// The messages for one locale (feature `i18n`): `locale` is `system` (or left out: the saved
 /// `ui.language`) or a code; the closest built-in locale is used. The plain UI formats with
 /// its `messages`; the React UI embeds the same `locales/*/app.ftl` at build time and uses
-/// this only for the language list and direction.
+/// this for the language list, the direction and `numbers` (the `Intl` tag with the digits).
 #[cfg(feature = "i18n")]
 #[tauri::command]
 fn i18n_bundle(app: tauri::AppHandle, locale: Option<String>) -> desktop_core::i18n::Bundle {
@@ -1327,7 +1327,7 @@ pub fn run() {
         mcp_heartbeat();
 {% if i18n %}        // The saved language (or the OS one) before the first menu is built.
         #[cfg(feature = "i18n")]
-        desktop_core::i18n::set_locale(&load_settings(app.handle()).config.ui.language);
+        desktop_core::i18n::apply(&load_settings(app.handle()).config.ui);
 {% endif %}        #[cfg(all(desktop, feature = "tray-menu"))]
         tray::apply(app.handle(), &load_settings(app.handle()).config);
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).

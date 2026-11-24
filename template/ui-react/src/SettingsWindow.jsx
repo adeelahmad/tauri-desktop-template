@@ -16,7 +16,7 @@ export default function SettingsWindow() {
     api
       .app_info()
       .then(async (i) => {
-        await setLocale(i.settings.config?.ui?.language || 'system');
+        await setLocale(i.settings.config?.ui?.language || 'system', i.settings.config?.ui?.digits);
         setFeatures(i.features);
       })
       .catch((e) => setError(String(e)));

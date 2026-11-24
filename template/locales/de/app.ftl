@@ -222,12 +222,17 @@ section-service = Dienst
 section-tray = Tray & Tastenkürzel
 section-updates = Updates
 section-about = Über
+section-kv = Schlüssel-Wert-Speicher
+section-cache = Cache
 
 ## Settings fields: setting-<section>-<key>, and setting-<section>-<key>-<option> for the choices of a list.
 
 setting-ui-language = Sprache
     .help = Menüs und Meldungen wechseln sofort. Fehlende Übersetzungen erscheinen auf Englisch.
 setting-ui-language-system = Wie das System
+setting-ui-digits = Ziffern
+setting-ui-digits-latin = Lateinisch (0123456789)
+setting-ui-digits-native = Die der Sprache, z. B. arabisch-indisch (٠١٢٣٤٥٦٧٨٩)
 setting-search-mode = Suchmodus
 setting-search-top-k = Ergebnisse
 setting-search-candidates = Kandidaten pro Liste (hybrid)
@@ -437,6 +442,19 @@ setting-tray-show-in-menu-bar-only = macOS: nur Menüleiste, kein Dock-Symbol
 setting-updates-channel = Update-Kanal
 setting-updates-channel-stable = Stabil
 setting-updates-channel-beta = Beta (auch Vorabversionen)
+setting-kv-ui-namespaces = Namensräume für das Fenster, die HTTP-API und die MCP-Tools
+setting-kv-encrypted-namespaces = Verschlüsselt gespeicherte Namensräume
+setting-kv-key-source = Schlüssel liegt
+setting-kv-key-source-file = In einer Schlüsseldatei im Datenordner
+setting-kv-key-source-keychain = Im Schlüsselbund des Systems (braucht Anmeldeunterstützung)
+setting-kv-max-size-mb = Größter Speicher (MB)
+setting-kv-max-value-kb = Größter Wert (KB)
+setting-kv-sweep-minutes = Abgelaufene Schlüssel löschen alle (Minuten)
+setting-kv-backup = Den Speicher in Sicherungen aufnehmen
+setting-cache-max-mb = Größter Cache (MB)
+setting-cache-ttl-secs = Einträge behalten für (Sekunden, 0 = bis verdrängt)
+setting-cache-tti-secs = Ungenutzte Einträge verwerfen nach (Sekunden, 0 = nie)
+setting-cache-persist = Einträge über Neustarts behalten (im Schlüssel-Wert-Speicher)
 
 ## Profiles.
 
@@ -565,3 +583,216 @@ tray-shortcuts = Globale Tastenkürzel
 tray-shortcuts-hint = Sie funktionieren auch, wenn andere Apps im Vordergrund sind.
 tray-shortcuts-none = Noch keine. Sie funktionieren auch, wenn andere Apps im Vordergrund sind.
 tray-add-shortcut = Tastenkürzel hinzufügen
+
+## The plain UI's settings (ui/index.html, ui/settings.html).
+
+settings-json-hint = Such-, Import- und Ordnerüberwachungs-Einstellungen als JSON (fehlende Schlüssel nutzen die Standardwerte; alles Optionale ist aus).
+settings-json-hint-all = Suche, Import und die übrigen Einstellungen als JSON (fehlende Schlüssel nutzen die Standardwerte; alles Optionale ist aus).
+settings-everything-else = Alles andere
+settings-bad-json = Kein gültiges JSON: { $error }
+appearance-ui-font = Schrift der Oberfläche
+appearance-mono-font = Schrift für Code und Editor
+appearance-font-hint = Leer nutzt die Systemschrift. Eine Vorgabe oder der Name einer installierten oder mitgelieferten Schrift (siehe shell.css).
+update-check = Nach Updates suchen
+update-not-configured = Updates sind in diesem Build nicht eingerichtet (kein öffentlicher Updater-Schlüssel).
+update-newest = Sie haben die neueste Version ({ $version }).
+update-check-failed = Update-Prüfung fehlgeschlagen: { $error }
+dictate-transcribing = Wird transkribiert…
+dictate-listening = Hört zu…
+
+## Watch folders.
+
+watch-folders = Überwacht: { $folders }
+watch-none = Keine Überwachung.
+watch-ingested = { $files } Dateien hinzugefügt ({ $chunks } Abschnitte)
+watch-ingested-failed = { $files } Dateien hinzugefügt ({ $chunks } Abschnitte), { $failed } fehlgeschlagen
+watch-removed = { $path } vergessen
+watch-error = Problem: { $message }
+watch-started = { $count ->
+    [one] Gestartet für einen Ordner
+   *[other] Gestartet für { $count } Ordner
+}
+
+## Sign-in (OAuth).
+
+oauth-kind-google = Google
+oauth-kind-github = GitHub
+oauth-kind-microsoft = Microsoft
+oauth-kind-oidc = OpenID Connect (beliebiger Anbieter)
+oauth-browser = Schließen Sie die Anmeldung im Browser ab…
+oauth-pending = Schließen Sie die Anmeldung im Browser ab; danach öffnet sich die App wieder.
+oauth-revoked = Abgemeldet, und das Token wurde widerrufen.
+oauth-signed-out = Auf diesem Computer abgemeldet.
+oauth-signed-in = Angemeldet.
+oauth-signed-in-as = Angemeldet als { $who }.
+oauth-not-signed-in = Nicht angemeldet.
+oauth-unsaved = Speichern Sie die Einstellungen, um diesen Anbieter zu nutzen.
+oauth-keychain = Schlüsselbund: { $error }
+oauth-secret-saved = Client-Geheimnis im Schlüsselbund gespeichert.
+oauth-secret-removed = Client-Geheimnis entfernt.
+oauth-no-deep-link = Das Deep-Link-Plugin ist nicht eingebaut; die Weiterleitung an 127.0.0.1 wird genutzt.
+oauth-provider = Anbieter
+oauth-id = Name (zum Anmelden; z. B. google)
+oauth-client-id = Client-ID
+oauth-scopes = Bereiche (leer = die üblichen des Anbieters)
+oauth-issuer = Aussteller-URL, z. B. https://id.example.com
+oauth-tenant = Mandant (common, organizations, consumers oder eine Mandanten-ID)
+oauth-secret = Client-Geheimnis
+oauth-secret-kept = Client-Geheimnis gespeichert (zum Ersetzen tippen)
+oauth-secret-placeholder = Client-Geheimnis, falls der Anbieter eines braucht
+oauth-secret-save = Geheimnis speichern
+oauth-secret-remove = Geheimnis entfernen
+oauth-sign-out = Abmelden
+oauth-sign-in-with = Mit { $provider } anmelden
+oauth-remove = Anbieter entfernen
+oauth-add = Anbieter hinzufügen
+oauth-hint = Anmeldung einschalten, Einstellungen speichern, dann anmelden.
+
+## Plugins.
+
+plugins-none = Es sind keine Plugins eingebaut.
+plugins-on = (an)
+plugins-off = (aus)
+plugins-methods = Methoden: { $list }.
+json-invalid = (noch kein gültiges JSON)
+
+## Cloud sync (rclone).
+
+rclone-config-saved = Konfiguration gespeichert.
+rclone-config-removed = Konfiguration entfernt.
+rclone-synced = Synchronisiert.
+rclone-ready = rclone ist bereit.
+rclone-downloaded = rclone { $version }: heruntergeladen.
+rclone-on-first-sync = rclone { $version }: wird bei der ersten Synchronisation geladen.
+rclone-unsupported = rclone { $version }: für diesen Computer nicht verfügbar.
+rclone-remotes = Remotes: { $list }.
+rclone-remotes-none = keine
+rclone-no-config = Noch keine Konfiguration.
+rclone-last-ok = Letzte Synchronisation { $time } nach { $target }: ok.
+rclone-last-failed = Letzte Synchronisation { $time } nach { $target }: fehlgeschlagen.
+rclone-config-label = Remote-Konfiguration: Ausgabe von `rclone config show` einfügen (in einer privaten Datei gespeichert)
+rclone-config-save = Konfiguration speichern
+rclone-config-remove = Konfiguration entfernen
+rclone-download = rclone herunterladen
+rclone-sync = Jetzt synchronisieren
+
+## Tailnet (Tailscale).
+
+tailscale-done = Erledigt.
+tailscale-missing = Tailscale ist nicht installiert. Laden Sie es hier und öffnen Sie dann die Einstellungen erneut:
+tailscale-state = { $state }.
+tailscale-state-as = { $state } als { $name }.
+tailscale-state-in = { $state } in { $tailnet }.
+tailscale-state-as-in = { $state } als { $name } in { $tailnet }.
+tailscale-shared = Port { $port } ist freigegeben.
+tailscale-shared-at = Port { $port } ist unter { $url } freigegeben.
+tailscale-nothing = Nichts freigegeben.
+tailscale-apply = Freigabe anwenden
+
+## The backend as a service.
+
+service-status = { $manager }: { $installed }, { $running }. Protokoll: { $log }.
+service-installed = installiert
+service-not-installed = nicht installiert
+service-running = läuft
+service-running-pid = läuft (PID { $pid })
+service-not-running = läuft nicht
+service-done-installed = Installiert.
+service-done-removed = Entfernt.
+service-toggle = Das Backend als Dienst ausführen: kein Fenster nötig, startet bei der Anmeldung, startet nach Fehlern neu
+service-boot = Um es stattdessen beim Systemstart für den ganzen Computer zu starten, als Administrator ausführen:
+
+## Web views.
+
+webview-message = Nachricht von { $host }: { $data }
+webview-opened = Geöffnet in { $label }.
+webview-url = Zu öffnende Webseite
+webview-open = Öffnen
+webview-close = Schließen
+
+## Key-value store and cache.
+
+kv-empty = Noch keine Schlüssel.
+kv-keys = { $count ->
+    [one] ein Schlüssel
+   *[other] { $count } Schlüssel
+}
+kv-encrypted = , verschlüsselt
+kv-open-to-window = , für das Fenster freigegeben
+cache-cleared = Cache geleert.
+cache-stats = { $entries } Einträge, { $used } von { $max } · { $hits } Treffer, { $misses } Fehlschläge ({ $rate } % Trefferquote)
+cache-clear = Cache leeren
+
+## Downloads: voice, speech model, local AI model.
+
+download-progress = Lade { $progress }
+voice-ready = Stimme bereit.
+voice-download = Stimme herunterladen (25 MB)
+stt-ready = Modell bereit.
+stt-download = Gewähltes Modell herunterladen (vorher Einstellungen speichern)
+stt-download-whisper = Whisper-Modell herunterladen
+model-progress = Lade: { $progress }
+model-ready = Bereit: { $path }
+model-download = Lokales Modell herunterladen
+
+## Telemetry.
+
+telemetry-off = Es wird nichts gesendet, solange Sie es oben nicht einschalten.
+telemetry-crash-reports = Absturzberichte
+telemetry-analytics = Nutzungsstatistiken
+telemetry-traces = Traces
+telemetry-nothing = nichts
+telemetry-sending = Gesendet wird: { $what }. Anonyme ID { $id }…, { $sent } gesendet
+telemetry-pending = { $count ->
+    [one] , ein Absturzbericht auf diesem Computer aufbewahrt
+   *[other] , { $count } Absturzberichte auf diesem Computer aufbewahrt
+}
+telemetry-last-error = . Letztes Problem: { $error }
+telemetry-promise = . Gesendet werden nur Aufrufnamen, Zeiten und Zahlen, nie Ihre Dokumente oder Fragen.
+
+## MCP server.
+
+mcp-registered = Claude Desktop: { $result }. Starten Sie Claude Desktop neu, um es zu laden.
+mcp-add-claude = Zu Claude Desktop hinzufügen
+mcp-claude-code = Claude Code:
+mcp-save-first = Speichern Sie zuerst die Einstellungen mit eingeschaltetem Server.
+mcp-turn-on = Dies in den Einstellungen einschalten und speichern, dann einen Client verbinden:
+mcp-every-other = Jedes andere Tool
+mcp-tool = Tool { $tool }
+mcp-default-allow = erlauben (Standard)
+mcp-as-others = wie jedes andere Tool
+mcp-allow = erlauben
+mcp-ask = erst fragen
+mcp-deny = ablehnen
+mcp-waiting = { $count ->
+    [one] Ein MCP-Aufruf wartet auf Sie:
+   *[other] { $count } MCP-Aufrufe warten auf Sie:
+}
+mcp-none-waiting = Keine MCP-Aufrufe warten auf Freigabe.
+mcp-approve = Erlauben
+mcp-deny-call = Ablehnen
+
+## Updates (release channels).
+
+updates-going-back = Zurück zu { $version }…
+updates-rollback-failed = Zurücksetzen fehlgeschlagen: { $error }
+updates-save-hint = Speichern, um den Kanal zu wechseln; die nächste Update-Prüfung nutzt den neuen.
+updates-bucket = Gestaffelte Versionen erreichen diese Installation, sobald sie an mehr als { $bucket } % verteilt sind.
+updates-previous = Vorherige Version: { $version }
+updates-kept = { " " }(auf diesem Computer aufbewahrt)
+updates-download-again = { " " }(wird erneut aus ihrem Release geladen)
+updates-rollback = Zurück zu { $version }
+updates-none = Noch keine frühere Version zum Zurücksetzen.
+
+## About: licences.
+
+licences-title = { $count ->
+    [one] Lizenzen (ein Paket)
+   *[other] Lizenzen ({ $count } Pakete)
+}
+licences-filter = Nach Name oder Lizenz filtern
+licences-package = Paket
+licences-version = Version
+licences-licence = Lizenz
+licences-show = Lizenztexte zeigen
+licences-hide = Lizenztexte ausblenden

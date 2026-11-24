@@ -76,7 +76,7 @@
           <button id="dictate" title="Dictate (press again to stop)" aria-label="Dictate">🎤</button>
           <button id="stt-file-go" class="link" data-i18n="dictate-file">Audio file</button>
           <input id="stt-file" type="file" accept="audio/*" hidden>
-          <button id="stt-download" class="link">Download the Whisper model</button>
+          <button id="stt-download" class="link" data-i18n="stt-download-whisper">Download the Whisper model</button>
         </span>
       </div>
       <p id="stt-status" class="hint"></p>
@@ -93,36 +93,42 @@
       <ol id="sources" class="sources"></ol>
       <div class="row" id="tts" hidden>
         <button id="speak-go" class="link" data-i18n="speak">Read aloud</button>
-        <button id="voice-go" class="link">Download the voice (25 MB)</button>
+        <button id="voice-go" class="link" data-i18n="voice-download">Download the voice (25 MB)</button>
         <span id="voice-status" class="hint"></span>
       </div>
       <div class="row">
-        <select id="key-provider" aria-label="Key for provider"><option>anthropic</option><option>openai</option><option>gemini</option><option>ollama</option><option>compatible</option></select>
-        <input id="key" type="password" autocomplete="off" placeholder="API key" aria-label="API key">
-        <button id="key-save">Save key</button>
+        <select id="key-provider" aria-label="Key for provider" data-i18n-aria-label="ai-key-provider"><option>anthropic</option><option>openai</option><option>gemini</option><option>ollama</option><option>compatible</option></select>
+        <input id="key" type="password" autocomplete="off" placeholder="API key" aria-label="API key" data-i18n-placeholder="ai-key" data-i18n-aria-label="ai-key">
+        <button id="key-save" data-i18n="ai-key-save">Save key</button>
       </div>
       <p id="key-status" class="hint"></p>
       <div class="row" id="llama" hidden>
-        <button id="model-go">Download the local model</button>
+        <button id="model-go" data-i18n="model-download">Download the local model</button>
         <span id="model-status" class="hint"></span>
       </div>
     </section>
 
     <section id="mcp" hidden>
-      <h2>MCP server</h2>
-      <p class="hint">Turn on <code>"mcp": {"enabled": true}</code> in Settings and save, then connect a client.</p>
-      <button id="mcp-claude">Add to Claude Desktop</button>
-      <p class="hint">Claude Code: <code id="mcp-cmd"></code></p>
+      <h2 data-i18n="section-mcp">MCP server</h2>
+      <p class="hint"><span data-i18n="mcp-turn-on">Turn this on in Settings and save, then connect a client:</span> <code>"mcp": {"enabled": true}</code></p>
+      <button id="mcp-claude" data-i18n="mcp-add-claude">Add to Claude Desktop</button>
+      <p class="hint"><span data-i18n="mcp-claude-code">Claude Code:</span> <code id="mcp-cmd"></code></p>
       <p id="mcp-status" class="status"></p>
     </section>
 
     <section id="settings-section">
       <h2 data-i18n="settings-title">Settings</h2>
-      <p class="hint">Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).</p>
+      <p class="hint" data-i18n="settings-json-hint">Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).</p>
 {%- if i18n %}
       <div class="row">
         <label><span data-i18n="setting-ui-language">Language</span>
           <select id="language"><option value="system" data-i18n="setting-ui-language-system">Same as the system</option></select>
+        </label>
+        <label><span data-i18n="setting-ui-digits">Digits</span>
+          <select id="digits">
+            <option value="latin" data-i18n="setting-ui-digits-latin">Latin (0123456789)</option>
+            <option value="native" data-i18n="setting-ui-digits-native">The language's own, e.g. Arabic-Indic (٠١٢٣٤٥٦٧٨٩)</option>
+          </select>
         </label>
       </div>
 {%- endif %}
@@ -141,10 +147,10 @@
     </section>
 
     <section id="service" hidden>
-      <h2>Service</h2>
-      <label><input type="checkbox" id="service-on"> Run the backend as a service: no window needed, starts at login, restarts if it fails</label>
+      <h2 data-i18n="section-service">Service</h2>
+      <label><input type="checkbox" id="service-on"> <span data-i18n="service-toggle">Run the backend as a service: no window needed, starts at login, restarts if it fails</span></label>
       <p id="service-status" class="hint"></p>
-      <p class="hint">To start it at boot for the whole machine instead, run as administrator: <code id="service-hint"></code></p>
+      <p class="hint"><span data-i18n="service-boot">To start it at boot for the whole machine instead, run as administrator:</span> <code id="service-hint"></code></p>
     </section>
 
     <section id="python" hidden>
@@ -164,7 +170,7 @@
 
   <footer>
     <span id="about"></span>
-    <button id="check-update" class="link" hidden>Check for updates</button>
+    <button id="check-update" class="link" hidden data-i18n="update-check">Check for updates</button>
     <button id="clear" class="link" hidden data-i18n="clear">Clear all data</button>
   </footer>
 

@@ -226,12 +226,17 @@ section-service = Service
 section-tray = Tray & shortcuts
 section-updates = Updates
 section-about = About
+section-kv = Key-value store
+section-cache = Cache
 
 ## Settings fields: setting-<section>-<key>, and setting-<section>-<key>-<option> for the choices of a list.
 
 setting-ui-language = Language
     .help = Menus and messages switch at once. Missing translations show in English.
 setting-ui-language-system = Same as the system
+setting-ui-digits = Digits
+setting-ui-digits-latin = Latin (0123456789)
+setting-ui-digits-native = The language's own, e.g. Arabic-Indic (٠١٢٣٤٥٦٧٨٩)
 setting-search-mode = Search mode
 setting-search-top-k = Results
 setting-search-candidates = Candidates per list (hybrid)
@@ -441,6 +446,19 @@ setting-tray-show-in-menu-bar-only = macOS: menu bar only, no Dock icon
 setting-updates-channel = Update channel
 setting-updates-channel-stable = Stable
 setting-updates-channel-beta = Beta (pre-releases as well)
+setting-kv-ui-namespaces = Namespaces the window, HTTP API and MCP tools may use
+setting-kv-encrypted-namespaces = Namespaces encrypted at rest
+setting-kv-key-source = Encryption key kept in
+setting-kv-key-source-file = A key file in the data folder
+setting-kv-key-source-keychain = The OS keychain (needs sign-in support)
+setting-kv-max-size-mb = Largest store (MB)
+setting-kv-max-value-kb = Largest value (KB)
+setting-kv-sweep-minutes = Delete expired keys every (minutes)
+setting-kv-backup = Include the store in backups
+setting-cache-max-mb = Largest cache (MB)
+setting-cache-ttl-secs = Keep entries for (seconds, 0 = until evicted)
+setting-cache-tti-secs = Drop entries unused for (seconds, 0 = never)
+setting-cache-persist = Keep entries across restarts (in the key-value store)
 
 ## Profiles.
 
@@ -569,3 +587,216 @@ tray-shortcuts = Global shortcuts
 tray-shortcuts-hint = They work while other apps are in front.
 tray-shortcuts-none = None yet. They work while other apps are in front.
 tray-add-shortcut = Add a shortcut
+
+## The plain UI's settings (ui/index.html, ui/settings.html).
+
+settings-json-hint = Search, ingest and watch-folder settings as JSON (missing keys use the defaults; everything optional is off).
+settings-json-hint-all = Search, ingest and the other settings as JSON (missing keys use the defaults; everything optional is off).
+settings-everything-else = Everything else
+settings-bad-json = Not valid JSON: { $error }
+appearance-ui-font = Interface font
+appearance-mono-font = Code and editor font
+appearance-font-hint = Empty uses the system font. A preset, or the name of any installed or bundled font (see shell.css).
+update-check = Check for updates
+update-not-configured = Updates are not set up in this build (no updater public key).
+update-newest = You have the newest version ({ $version }).
+update-check-failed = Update check failed: { $error }
+dictate-transcribing = Transcribing…
+dictate-listening = Listening…
+
+## Watch folders.
+
+watch-folders = Watching: { $folders }
+watch-none = Not watching.
+watch-ingested = Added { $files } files ({ $chunks } chunks)
+watch-ingested-failed = Added { $files } files ({ $chunks } chunks), { $failed } failed
+watch-removed = Forgot { $path }
+watch-error = Problem: { $message }
+watch-started = { $count ->
+    [one] Started on one folder
+   *[other] Started on { $count } folders
+}
+
+## Sign-in (OAuth).
+
+oauth-kind-google = Google
+oauth-kind-github = GitHub
+oauth-kind-microsoft = Microsoft
+oauth-kind-oidc = OpenID Connect (any provider)
+oauth-browser = Finish signing in in your browser…
+oauth-pending = Finish signing in in your browser; the app opens again when you are done.
+oauth-revoked = Signed out and the token was revoked.
+oauth-signed-out = Signed out on this computer.
+oauth-signed-in = Signed in.
+oauth-signed-in-as = Signed in as { $who }.
+oauth-not-signed-in = Not signed in.
+oauth-unsaved = Save settings to use this provider.
+oauth-keychain = Keychain: { $error }
+oauth-secret-saved = Client secret saved in the keychain.
+oauth-secret-removed = Client secret removed.
+oauth-no-deep-link = The deep-link plugin is not built in; the 127.0.0.1 redirect is used.
+oauth-provider = Provider
+oauth-id = Name (used to sign in; e.g. google)
+oauth-client-id = Client id
+oauth-scopes = Scopes (empty = the provider's usual ones)
+oauth-issuer = Issuer URL, e.g. https://id.example.com
+oauth-tenant = Tenant (common, organizations, consumers or a tenant id)
+oauth-secret = Client secret
+oauth-secret-kept = Client secret saved (type to replace)
+oauth-secret-placeholder = Client secret, if the provider needs one
+oauth-secret-save = Save secret
+oauth-secret-remove = Remove secret
+oauth-sign-out = Sign out
+oauth-sign-in-with = Sign in with { $provider }
+oauth-remove = Remove provider
+oauth-add = Add a provider
+oauth-hint = Turn sign-in on and save settings, then sign in.
+
+## Plugins.
+
+plugins-none = No plugins are built in.
+plugins-on = (on)
+plugins-off = (off)
+plugins-methods = Methods: { $list }.
+json-invalid = (not valid JSON yet)
+
+## Cloud sync (rclone).
+
+rclone-config-saved = Config saved.
+rclone-config-removed = Config removed.
+rclone-synced = Synced.
+rclone-ready = rclone is ready.
+rclone-downloaded = rclone { $version }: downloaded.
+rclone-on-first-sync = rclone { $version }: downloads on first sync.
+rclone-unsupported = rclone { $version }: not available for this computer.
+rclone-remotes = Remotes: { $list }.
+rclone-remotes-none = none
+rclone-no-config = No config yet.
+rclone-last-ok = Last sync { $time } to { $target }: ok.
+rclone-last-failed = Last sync { $time } to { $target }: failed.
+rclone-config-label = Remote config: paste what `rclone config show` prints (kept in a private file)
+rclone-config-save = Save config
+rclone-config-remove = Remove config
+rclone-download = Download rclone
+rclone-sync = Sync now
+
+## Tailnet (Tailscale).
+
+tailscale-done = Done.
+tailscale-missing = Tailscale is not installed. Get it from here, then reopen Settings:
+tailscale-state = { $state }.
+tailscale-state-as = { $state } as { $name }.
+tailscale-state-in = { $state } in { $tailnet }.
+tailscale-state-as-in = { $state } as { $name } in { $tailnet }.
+tailscale-shared = Port { $port } is shared.
+tailscale-shared-at = Port { $port } is shared at { $url }.
+tailscale-nothing = Nothing shared.
+tailscale-apply = Apply sharing
+
+## The backend as a service.
+
+service-status = { $manager }: { $installed }, { $running }. Log: { $log }.
+service-installed = installed
+service-not-installed = not installed
+service-running = running
+service-running-pid = running (pid { $pid })
+service-not-running = not running
+service-done-installed = Installed.
+service-done-removed = Removed.
+service-toggle = Run the backend as a service: no window needed, starts at login, restarts if it fails
+service-boot = To start it at boot for the whole machine instead, run as administrator:
+
+## Web views.
+
+webview-message = Message from { $host }: { $data }
+webview-opened = Opened in { $label }.
+webview-url = Web page to open
+webview-open = Open
+webview-close = Close
+
+## Key-value store and cache.
+
+kv-empty = No keys yet.
+kv-keys = { $count ->
+    [one] one key
+   *[other] { $count } keys
+}
+kv-encrypted = , encrypted
+kv-open-to-window = , open to the window
+cache-cleared = Cache cleared.
+cache-stats = { $entries } entries, { $used } of { $max } · { $hits } hits, { $misses } misses ({ $rate }% hit rate)
+cache-clear = Clear the cache
+
+## Downloads: voice, speech model, local AI model.
+
+download-progress = Downloading { $progress }
+voice-ready = Voice ready.
+voice-download = Download the voice (25 MB)
+stt-ready = Model ready.
+stt-download = Download the chosen model (save settings first)
+stt-download-whisper = Download the Whisper model
+model-progress = Downloading: { $progress }
+model-ready = Ready: { $path }
+model-download = Download the local model
+
+## Telemetry.
+
+telemetry-off = Nothing is sent unless you switch it on above.
+telemetry-crash-reports = crash reports
+telemetry-analytics = usage statistics
+telemetry-traces = traces
+telemetry-nothing = nothing
+telemetry-sending = Sending: { $what }. Anonymous id { $id }…, { $sent } sent
+telemetry-pending = { $count ->
+    [one] , one crash report kept on this computer
+   *[other] , { $count } crash reports kept on this computer
+}
+telemetry-last-error = . Last problem: { $error }
+telemetry-promise = . Only call names, timings and counts are sent, never your documents or questions.
+
+## MCP server.
+
+mcp-registered = Claude Desktop: { $result }. Restart Claude Desktop to load it.
+mcp-add-claude = Add to Claude Desktop
+mcp-claude-code = Claude Code:
+mcp-save-first = Save settings with the server turned on first.
+mcp-turn-on = Turn this on in Settings and save, then connect a client:
+mcp-every-other = Every other tool
+mcp-tool = Tool { $tool }
+mcp-default-allow = allow (default)
+mcp-as-others = as every other tool
+mcp-allow = allow
+mcp-ask = ask me first
+mcp-deny = deny
+mcp-waiting = { $count ->
+    [one] One MCP call waiting for you:
+   *[other] { $count } MCP calls waiting for you:
+}
+mcp-none-waiting = No MCP calls waiting for approval.
+mcp-approve = Approve
+mcp-deny-call = Deny
+
+## Updates (release channels).
+
+updates-going-back = Going back to { $version }…
+updates-rollback-failed = Rollback failed: { $error }
+updates-save-hint = Save to switch channels; the next update check uses the new one.
+updates-bucket = Staged releases reach this install once they are rolled out to more than { $bucket }%.
+updates-previous = Previous version: { $version }
+updates-kept = { " " }(kept on this computer)
+updates-download-again = { " " }(downloaded again from its release)
+updates-rollback = Roll back to { $version }
+updates-none = No earlier version to roll back to yet.
+
+## About: licences.
+
+licences-title = { $count ->
+    [one] Licences (one package)
+   *[other] Licences ({ $count } packages)
+}
+licences-filter = Filter by name or licence
+licences-package = Package
+licences-version = Version
+licences-licence = Licence
+licences-show = Show the licence texts
+licences-hide = Hide the licence texts

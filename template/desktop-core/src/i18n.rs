@@ -25,12 +25,24 @@
 //!
 //! Plurals use Fluent's select expressions with the CLDR plural rules of each language
 //! (`intl_pluralrules`, built into fluent-bundle): Arabic has six forms, German two. Numbers
-//! are formatted for the locale (decimal and group separators, digits), with Fluent's
+//! are formatted for the locale (decimal and group separators), with Fluent's
 //! `NUMBER()` options (`minimumFractionDigits`, `maximumFractionDigits`, `useGrouping`,
 //! `style: "percent"`). `DATETIME($ms, dateStyle: "long", timeStyle: "short")` formats a
 //! time (milliseconds since 1970, or an RFC 3339 text) in the local time zone with
 //! [jiff](https://docs.rs/jiff), from a small table of month names and patterns per language;
 //! in the React UI the same message uses the browser's `Intl`.
+//!
+//! # Digits
+//!
+//! Every number is written with Latin digits (`0123456789`) by default, in Arabic too
+//! (`١٢٣` would be the other choice). WebViews disagree here: newer ICU data writes `ar`
+//! with Latin digits, older WebKit with Arabic-Indic ones, so the backend picks one and tells
+//! the UI. `ui.digits = "native"` ([`UiConfig::digits`], Settings → Language) switches to the
+//! language's own digits where it has them: Arabic-Indic for Arabic, Persian (Extended
+//! Arabic-Indic) for Persian; other languages have none and stay Latin. [`set_digits`] (or
+//! [`apply`]) sets it for the backend, and [`number_locale`] gives the UIs the matching
+//! `Intl` locale (`ar-u-nu-latn` or `ar-u-nu-arab`), so menus, messages, the React UI and
+//! the plain UI always agree.
 //!
 //! # Why Fluent, and not ICU4X
 //!
@@ -61,6 +73,8 @@
 //! assert_eq!(catalog.negotiate("de-AT"), "de");
 //! assert_eq!(catalog.negotiate("fr"), "en");
 //! assert_eq!(direction("ar"), "rtl");
+//! // Latin digits unless `ui.digits` is "native".
+//! assert_eq!(desktop_core::i18n::number_locale("ar", desktop_core::i18n::Digits::Latin), "ar-u-nu-latn");
 //! ```
 //!
 //! In the app, the built-in catalogue and the user's language are global:
@@ -80,6 +94,7 @@ use fluent_syntax::ast;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 use unic_langid::LanguageIdentifier;
 
@@ -100,11 +115,14 @@ pub static LOCALES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/locale
 pub struct UiConfig {
     /// `system` (the OS language, the default) or a locale code such as `de` or `ar`.
     pub language: String,
+    /// `latin` (the default: `0123456789` in every language) or `native` (the language's
+    /// own digits where it has them, e.g. Arabic-Indic `٠١٢٣` in Arabic). See [`Digits`].
+    pub digits: String,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { language: "system".into() }
+        Self { language: "system".into(), digits: Digits::Latin.as_str().into() }
     }
 }
 
@@ -115,8 +133,89 @@ impl UiConfig {
         let l = self.language.trim();
         let ok = !l.is_empty() && l.len() <= 35 && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
         self.language = if ok { l.to_string() } else { "system".into() };
+        self.digits = Digits::parse(&self.digits).as_str().into();
         self
     }
+}
+
+/// Which digits numbers are written with ([`UiConfig::digits`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Digits {
+    /// `0123456789` in every language (the default).
+    #[default]
+    Latin,
+    /// The language's own digits where it has them: Arabic-Indic (`٠١٢٣٤٥٦٧٨٩`) for Arabic,
+    /// Extended Arabic-Indic (`۰۱۲۳۴۵۶۷۸۹`) for Persian; Latin for the rest.
+    Native,
+}
+
+impl Digits {
+    /// `native` (any case) is [`Digits::Native`]; anything else is [`Digits::Latin`].
+    pub fn parse(s: &str) -> Self {
+        if s.trim().eq_ignore_ascii_case("native") {
+            Digits::Native
+        } else {
+            Digits::Latin
+        }
+    }
+
+    /// `latin` or `native`, as in settings.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Digits::Latin => "latin",
+            Digits::Native => "native",
+        }
+    }
+}
+
+static NATIVE_DIGITS: AtomicBool = AtomicBool::new(false);
+
+/// Use `digits` for every number the backend formats from now on (menus, messages, dates).
+pub fn set_digits(digits: Digits) {
+    NATIVE_DIGITS.store(digits == Digits::Native, Ordering::Relaxed);
+}
+
+/// The digits in use ([`set_digits`]; Latin until it is called).
+pub fn digits() -> Digits {
+    if NATIVE_DIGITS.load(Ordering::Relaxed) {
+        Digits::Native
+    } else {
+        Digits::Latin
+    }
+}
+
+/// Apply the language settings: [`set_locale`] and [`set_digits`]. Returns the locale chosen.
+///
+/// ```
+/// use desktop_core::i18n::{apply, digits, Digits, UiConfig};
+/// apply(&UiConfig { language: "en".into(), digits: "native".into() });
+/// assert_eq!(digits(), Digits::Native);
+/// apply(&UiConfig::default());
+/// assert_eq!(digits(), Digits::Latin);
+/// ```
+pub fn apply(ui: &UiConfig) -> String {
+    set_digits(Digits::parse(&ui.digits));
+    set_locale(&ui.language)
+}
+
+/// The locale tag a UI hands to `Intl` (`Intl.NumberFormat`, `toLocaleString`) so it writes
+/// numbers exactly as the backend does: the code with a Unicode `nu` (numbering system)
+/// extension, `ar-u-nu-latn` or `ar-u-nu-arab`.
+///
+/// ```
+/// use desktop_core::i18n::{number_locale, Digits};
+/// assert_eq!(number_locale("ar", Digits::Latin), "ar-u-nu-latn");
+/// assert_eq!(number_locale("ar", Digits::Native), "ar-u-nu-arab");
+/// assert_eq!(number_locale("fa", Digits::Native), "fa-u-nu-arabext");
+/// assert_eq!(number_locale("de", Digits::Native), "de-u-nu-latn");
+/// ```
+pub fn number_locale(code: &str, digits: Digits) -> String {
+    let nu = match number_style(code, digits).digits {
+        Some(d) if d == ARABIC_INDIC => "arab",
+        Some(_) => "arabext",
+        None => "latn",
+    };
+    format!("{code}-u-nu-{nu}")
 }
 
 /// One locale's messages, parsed: what [`Catalog`] formats with.
@@ -242,7 +341,14 @@ impl Catalog {
                 messages.entry(id).or_insert(v);
             }
         }
-        Bundle { dir: direction(&code).into(), available: self.available(), locale: code, sources, messages: Value::Object(messages) }
+        Bundle {
+            dir: direction(&code).into(),
+            numbers: number_locale(&code, digits()),
+            available: self.available(),
+            locale: code,
+            sources,
+            messages: Value::Object(messages),
+        }
     }
 
     /// The locales to offer in a language picker, each named in its own language (its
@@ -291,6 +397,9 @@ pub struct Bundle {
     pub locale: String,
     /// `ltr` or `rtl`, for `<html dir>`.
     pub dir: String,
+    /// The tag to format numbers and dates with in `Intl` ([`number_locale`]), so the UI
+    /// writes the same digits as the backend, e.g. `ar-u-nu-latn`.
+    pub numbers: String,
     /// Every locale to choose from.
     pub available: Vec<LocaleInfo>,
     /// The Fluent files, most specific first (the locale, then the source locale).
@@ -397,7 +506,7 @@ pub fn direction(code: &str) -> &'static str {
 
 // ---- Numbers -------------------------------------------------------------------------
 
-/// How a language writes numbers: separators and digits.
+/// How a language writes numbers: separators and digits ([`Digits`] picks Latin or native).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NumberStyle {
     decimal: &'static str,
@@ -409,14 +518,17 @@ struct NumberStyle {
 const ARABIC_INDIC: [char; 10] = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
 const PERSIAN: [char; 10] = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
 
-fn number_style(code: &str) -> NumberStyle {
+fn number_style(code: &str, digits: Digits) -> NumberStyle {
     let lower = code.to_ascii_lowercase().replace('_', "-");
     let lang = lower.split('-').next().unwrap_or("");
+    // Arabic in the Maghreb writes Latin digits even natively (CLDR).
     let latn = lower.contains("-latn") || ["ar-ma", "ar-dz", "ar-tn", "ar-ly"].iter().any(|p| lower.starts_with(p));
+    let native = digits == Digits::Native && !latn;
     let style = |decimal, group| NumberStyle { decimal, group, digits: None };
     match lang {
-        "ar" if !latn => NumberStyle { decimal: "٫", group: "٬", digits: Some(ARABIC_INDIC) },
-        "fa" => NumberStyle { decimal: "٫", group: "٬", digits: Some(PERSIAN) },
+        // Latin digits take the Latin separators too (CLDR `ar-u-nu-latn`: 1,234.5).
+        "ar" if native => NumberStyle { decimal: "٫", group: "٬", digits: Some(ARABIC_INDIC) },
+        "fa" if native => NumberStyle { decimal: "٫", group: "٬", digits: Some(PERSIAN) },
         "de" if lower.ends_with("-ch") || lower.ends_with("-li") => style(".", "’"),
         "de" | "es" | "it" | "nl" | "pt" | "id" | "tr" | "da" | "el" | "ro" | "hr" | "sl" | "sr" | "vi" | "ca" | "is" => style(",", "."),
         "fr" => style(",", "\u{202f}"),
@@ -428,32 +540,40 @@ fn number_style(code: &str) -> NumberStyle {
 }
 
 /// The locale a bundle formats numbers for, kept in fluent's per-locale memoizer (the
-/// formatter fluent-bundle calls is a plain `fn` and gets the locale only through it).
-struct NumberFormat(NumberStyle);
+/// formatter fluent-bundle calls is a plain `fn` and gets the locale only through it). The
+/// digits are read on every call, so [`set_digits`] applies at once.
+struct NumberFormat(String);
 
 impl intl_memoizer::Memoizable for NumberFormat {
     type Args = ();
     type Error = ();
     fn construct(lang: LanguageIdentifier, _: ()) -> Result<Self, ()> {
-        Ok(NumberFormat(number_style(&lang.to_string())))
+        Ok(NumberFormat(lang.to_string()))
     }
 }
 
 fn number_formatter(value: &FluentValue, intls: &intl_memoizer::concurrent::IntlLangMemoizer) -> Option<String> {
     let FluentValue::Number(n) = value else { return None };
-    intls.with_try_get::<NumberFormat, _, _>((), |f| render_number(n, f.0)).ok()
+    intls.with_try_get::<NumberFormat, _, _>((), |f| render_number(n, number_style(&f.0, digits()))).ok()
 }
 
-/// `n` written for locale `code`: `format_number("de", 1234.5)` is `1.234,5`.
+/// `n` written for locale `code` with the digits in use ([`digits`]):
+/// `format_number("de", 1234.5)` is `1.234,5`.
 ///
 /// ```
-/// use desktop_core::i18n::format_number;
+/// use desktop_core::i18n::{format_number, format_number_with, Digits};
 /// assert_eq!(format_number("en", 1234567.891), "1,234,567.891");
 /// assert_eq!(format_number("de", 1234.5), "1.234,5");
-/// assert_eq!(format_number("ar", 1234.5), "١٬٢٣٤٫٥");
+/// assert_eq!(format_number("ar", 1234.5), "1,234.5"); // Latin digits by default
+/// assert_eq!(format_number_with("ar", 1234.5, Digits::Native), "١٬٢٣٤٫٥");
 /// ```
 pub fn format_number(code: &str, n: f64) -> String {
-    render_number(&FluentNumber::from(n), number_style(code))
+    format_number_with(code, n, digits())
+}
+
+/// [`format_number`] with the given digits instead of the ones in use.
+pub fn format_number_with(code: &str, n: f64, digits: Digits) -> String {
+    render_number(&FluentNumber::from(n), number_style(code, digits))
 }
 
 fn render_number(n: &FluentNumber, style: NumberStyle) -> String {
@@ -556,7 +676,20 @@ const DATE_NAMES: &[DateNames] = &[
     },
     DateNames {
         lang: "es",
-        months: ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+        months: [
+            "enero",
+            "febrero",
+            "marzo",
+            "abril",
+            "mayo",
+            "junio",
+            "julio",
+            "agosto",
+            "septiembre",
+            "octubre",
+            "noviembre",
+            "diciembre",
+        ],
         short_months: ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"],
         short: "{d}/{M}/{yy}",
         medium: "{d} {MMM} {y}",
@@ -612,7 +745,7 @@ impl DateStyle {
 /// assert_eq!(format_date_in("en", ms, DateStyle::Long, false, &TimeZone::UTC), "November 24, 2026");
 /// assert_eq!(format_date_in("de", ms, DateStyle::Long, true, &TimeZone::UTC), "24. November 2026 13:05");
 /// assert_eq!(format_date_in("en", ms, DateStyle::Medium, true, &TimeZone::UTC), "Nov 24, 2026 1:05 PM");
-/// assert_eq!(format_date_in("ar", ms, DateStyle::Long, false, &TimeZone::UTC), "٢٤ نوفمبر ٢٠٢٦");
+/// assert_eq!(format_date_in("ar", ms, DateStyle::Long, false, &TimeZone::UTC), "24 نوفمبر 2026");
 /// assert_eq!(format_date_in("ja", ms, DateStyle::Medium, true, &TimeZone::UTC), "2026-11-24 13:05");
 /// ```
 pub fn format_date_in(code: &str, ms: i64, date: DateStyle, time: bool, tz: &jiff::tz::TimeZone) -> String {
@@ -656,7 +789,7 @@ pub fn format_date_in(code: &str, ms: i64, date: DateStyle, time: bool, tz: &jif
     };
     let time_text = if time { fill(names.map(|n| n.time).unwrap_or("{HH}:{mm}")) } else { String::new() };
     let text = [date_text, time_text].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
-    localize_digits(&text, number_style(code))
+    localize_digits(&text, number_style(code, digits()))
 }
 
 /// [`format_date_in`] in the OS time zone.
@@ -816,11 +949,40 @@ mod tests {
         };
         assert_eq!(f("en", "n", 1234567.5), "1,234,567.5");
         assert_eq!(f("de", "n", 1234567.5), "1.234.567,5");
-        assert_eq!(f("ar", "n", 12.5), "١٢٫٥"); // a lone placeable gets no isolation marks
+        // A lone placeable gets no isolation marks; Arabic uses Latin digits unless asked.
+        assert_eq!(f("ar", "n", 1234.5), "1,234.5");
+        assert_eq!(f("de", "n", 1234.5), "1.234,5");
         assert_eq!(f("en", "p", 0.256), "26%");
         assert_eq!(f("en", "f", 3.0), "3.00");
         assert_eq!(f("en", "n", -0.5), "-0.5");
-        assert_eq!(format_number("fr", 1234.5), "1\u{202f}234,5");
+        assert_eq!(format_number_with("fr", 1234.5, Digits::Latin), "1\u{202f}234,5");
+    }
+
+    #[test]
+    fn digits_are_latin_unless_native_is_chosen() {
+        let n = |code: &str, d: Digits| format_number_with(code, 1234.5, d);
+        assert_eq!(n("ar", Digits::Latin), "1,234.5");
+        assert_eq!(n("ar-EG", Digits::Native), "١٬٢٣٤٫٥");
+        assert_eq!(n("ar-Latn", Digits::Native), "1,234.5");
+        assert_eq!(n("fa", Digits::Native), "۱٬۲۳۴٫۵");
+        assert_eq!(n("de", Digits::Native), "1.234,5");
+        let pct = |d| {
+            render_number(
+                &FluentNumber::new(
+                    0.5,
+                    fluent_bundle::types::FluentNumberOptions { style: FluentNumberStyle::Percent, ..Default::default() },
+                ),
+                number_style("ar", d),
+            )
+        };
+        assert_eq!(pct(Digits::Latin), "50%");
+        assert_eq!(pct(Digits::Native), "٥٠٪");
+        assert_eq!(number_locale("ar", Digits::Latin), "ar-u-nu-latn");
+        assert_eq!(number_locale("fa", Digits::Native), "fa-u-nu-arabext");
+        assert_eq!(Digits::parse(" Native "), Digits::Native);
+        assert_eq!(Digits::parse("arab"), Digits::Latin);
+        let ui = UiConfig { language: "ar".into(), digits: "bogus".into() }.validated();
+        assert_eq!(ui.digits, "latin");
     }
 
     #[test]
@@ -844,8 +1006,8 @@ mod tests {
         assert_eq!(c.negotiate(""), "en");
         assert_eq!(direction("he-IL"), "rtl");
         assert_eq!(direction("en"), "ltr");
-        assert_eq!(UiConfig { language: "de\"><".into() }.validated().language, "system");
-        assert_eq!(UiConfig { language: " ar ".into() }.validated().language, "ar");
+        assert_eq!(UiConfig { language: "de\"><".into(), ..Default::default() }.validated().language, "system");
+        assert_eq!(UiConfig { language: " ar ".into(), ..Default::default() }.validated().language, "ar");
     }
 
     #[test]

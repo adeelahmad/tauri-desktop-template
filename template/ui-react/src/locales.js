@@ -48,32 +48,55 @@ export function negotiate(requested) {
   return all.find((c) => c.toLowerCase() === want) || all.find((c) => want && lang(c) === lang(want)) || SOURCE;
 }
 
+// Digits (the same rule as desktop_core::i18n::number_locale): Latin by default in every
+// language, so every WebView writes 1,234.5 whatever its ICU data says about 'ar'; with
+// ui.digits = 'native', Arabic-Indic for Arabic and Persian digits for Persian.
+const NATIVE = { ar: 'arab', fa: 'arabext' };
+const LATN_REGIONS = ['ar-ma', 'ar-dz', 'ar-tn', 'ar-ly'];
+
+/**
+ * The tag for Intl (and Fluent) that writes numbers as the backend does, e.g. 'ar-u-nu-latn'.
+ * @param {string} code
+ * @param {string} [digits] 'latin' (default) or 'native'
+ */
+export function numberLocale(code, digits) {
+  const lower = code.toLowerCase();
+  const latn = lower.includes('-latn') || LATN_REGIONS.some((p) => lower.startsWith(p));
+  const nu = (digits === 'native' && !latn && NATIVE[lower.split(/[-_]/)[0]]) || 'latn';
+  return `${code}-u-nu-${nu}`;
+}
+
 const cache = new Map();
 
-function bundle(code) {
-  if (!cache.has(code)) {
+function bundle(code, digits) {
+  const key = `${code}|${digits}`;
+  if (!cache.has(key)) {
     const pseudoLocale = code === PSEUDO;
-    const b = new FluentBundle(code, {
+    const b = new FluentBundle(numberLocale(code, digits), {
       // Isolation marks keep a file name or number in its own direction; only RTL needs them.
       useIsolating: direction(code) === 'rtl',
       transform: pseudoLocale ? pseudo : undefined,
     });
     const errors = b.addResource(new FluentResource(SOURCES[pseudoLocale ? SOURCE : code] || ''));
     errors.forEach((e) => console.warn(`locales/${code}/app.ftl:`, e));
-    cache.set(code, b);
+    cache.set(key, b);
   }
-  return cache.get(code);
+  return cache.get(key);
 }
 
-/** The bundles to format `code` with: its own, then English for what it does not have. */
-export function bundles(code) {
-  return code === SOURCE ? [bundle(SOURCE)] : [bundle(code), bundle(SOURCE)];
+/**
+ * The bundles to format `code` with: its own, then English for what it does not have.
+ * @param {string} code
+ * @param {string} [digits] 'latin' (default) or 'native'
+ */
+export function bundles(code, digits) {
+  return code === SOURCE ? [bundle(SOURCE, digits)] : [bundle(code, digits), bundle(SOURCE, digits)];
 }
 
 /** The locales to choose from: { code, name (in its own language), dir }. */
 export function available() {
   return codes().map((code) => {
-    const b = bundle(code);
+    const b = bundle(code, 'latin');
     const m = b.getMessage('language-name');
     return { code, name: m?.value ? b.formatPattern(m.value) : code, dir: direction(code) };
   });

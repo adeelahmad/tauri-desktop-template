@@ -194,12 +194,12 @@ $('clear').onclick = async () => {
 async function checkUpdate(quiet) {
   try {
     const u = await invoke('check_update');
-    if (!u.configured) { if (!quiet) say('add-status', 'Updates are not set up in this build (no updater public key).'); return; }
+    if (!u.configured) { if (!quiet) say('add-status', t('update-not-configured', 'Updates are not set up in this build (no updater public key).')); return; }
     if (u.available) {
       $('update-text').textContent = t('update-available', 'Version { $version } is available (you have { $current }).', { version: u.version, current: u.current });
       show('update-banner');
-    } else if (!quiet) say('add-status', `You have the newest version (${u.current}).`);
-  } catch (e) { if (!quiet) say('add-status', `Update check failed: ${errorText(e)}`, true); }
+    } else if (!quiet) say('add-status', t('update-newest', 'You have the newest version ({ $version }).', { version: u.current }));
+  } catch (e) { if (!quiet) say('add-status', t('update-check-failed', 'Update check failed: { $error }', { error: errorText(e) }), true); }
 }
 $('check-update').onclick = () => checkUpdate(false);
 $('update-install').onclick = async () => {
@@ -226,8 +226,14 @@ async function refreshService(set) {
   try {
     const s = set === undefined ? await invoke('service_status') : await invoke('set_service', { enabled: set });
     $('service-on').checked = s.installed;
-    const run = s.running ? `running${s.pid ? ` (pid ${s.pid})` : ''}` : 'not running';
-    say('service-status', `${s.manager}: ${s.installed ? 'installed' : 'not installed'}, ${run}. Log: ${s.log}. ${s.note || ''}`);
+    // The same text as Settings -> Service in the React UI; the pid is an id, so text (no separators).
+    const running = s.running
+      ? (s.pid ? t('service-running-pid', 'running (pid { $pid })', { pid: String(s.pid) }) : t('service-running', 'running'))
+      : t('service-not-running', 'not running');
+    const status = t('service-status', '{ $manager }: { $installed }, { $running }. Log: { $log }.', {
+      manager: s.manager, installed: s.installed ? t('service-installed', 'installed') : t('service-not-installed', 'not installed'), running, log: s.log,
+    });
+    say('service-status', `${status} ${s.note || ''}`);
   } catch (e) { say('service-status', errorText(e), true); }
 }
 $('service-on').onchange = () => refreshService($('service-on').checked);
@@ -255,8 +261,9 @@ $('claude-go').onclick = async () => {
 
 start().catch((e) => say('loading', errorText(e), true));
 
-// Language (feature `i18n`): switches at once, saves only `ui.language`, and tells the
-// Settings window.
+// Language and digits (feature `i18n`): switch at once, save only `ui.language` and
+// `ui.digits`, and tell the Settings window. The backend picks the digits (Latin unless
+// `ui.digits` is "native") and hands them over with the bundle (`numbers`).
 if (window.i18n && $('language')) {
   window.i18n.ready.then(async () => {
     for (const l of window.i18n.available()) {
@@ -264,15 +271,17 @@ if (window.i18n && $('language')) {
       o.value = l.code; o.textContent = l.name; o.lang = l.code; o.dir = l.dir;
       $('language').append(o);
     }
-    $('language').value = (await invoke('get_config')).ui?.language || 'system';
+    const ui = (await invoke('get_config')).ui || {};
+    $('language').value = ui.language || 'system';
+    $('digits').value = ui.digits || 'latin';
   });
-  $('language').onchange = async () => {
-    const language = $('language').value;
+  $('language').onchange = $('digits').onchange = async () => {
+    const ui = { language: $('language').value, digits: $('digits').value };
     try {
       const saved = await invoke('get_config');
-      await invoke('set_config', { config: { ...saved, ui: { ...saved.ui, language } } });
-      await window.i18n.load(language);
-      await window.__TAURI__.event.emit('locale-changed', language);
+      await invoke('set_config', { config: { ...saved, ui: { ...saved.ui, ...ui } } });
+      await window.i18n.load(ui.language);
+      await window.__TAURI__.event.emit('locale-changed', ui);
       refreshAbout();
       loadConfig().catch(() => {});
     } catch (e) { say('config-status', errorText(e), true); }
@@ -292,7 +301,7 @@ async function ask() {
     r.sources.forEach((h, i) => {
       const li = document.createElement('li');
       li.className = 'meta';
-      li.textContent = `[${i + 1}] ${h.source}${h.page ? `, page ${h.page}` : ''}`;
+      li.textContent = `[${i + 1}] ${h.source}${h.page ? t('search-page', ', page { $page }', { page: h.page }) : ''}`;
       li.title = provenance(h.prov);
       $('sources').append(li);
     });
@@ -300,20 +309,20 @@ async function ask() {
 }
 $('ask-go').onclick = ask;
 $('question').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
-const keysText = (have) => { $('key-status').textContent = have.length ? `Keys set: ${have.join(', ')}` : 'No keys set.'; };
+const keysText = (have) => { $('key-status').textContent = have.length ? t('ai-keys-set', 'Keys set: { $list }', { list: have.join(', ') }) : t('ai-keys-none', 'No keys set.'); };
 $('key-save').onclick = async () => {
   try { keysText(await invoke('set_ai_key', { provider: $('key-provider').value, key: $('key').value })); $('key').value = ''; }
   catch (e) { $('key-status').textContent = errorText(e); }
 };
 
 $('mcp-claude').onclick = async () => {
-  try { $('mcp-status').textContent = `Claude Desktop: ${await invoke('mcp_register_claude')}. Restart it to load the server.`; }
+  try { $('mcp-status').textContent = t('mcp-registered', 'Claude Desktop: { $result }. Restart Claude Desktop to load it.', { result: await invoke('mcp_register_claude') }); }
   catch (e) { $('mcp-status').textContent = errorText(e); }
 };
 
 $('model-go').onclick = async () => {
-  const off = await listen('model-progress', (e) => { $('model-status').textContent = `Downloading: ${e.payload}`; });
-  try { $('model-status').textContent = `Ready: ${await invoke('download_model', {})}`; }
+  const off = await listen('model-progress', (e) => { $('model-status').textContent = t('model-progress', 'Downloading: { $progress }', { progress: e.payload }); });
+  try { $('model-status').textContent = t('model-ready', 'Ready: { $path }', { path: await invoke('download_model', {}) }); }
   catch (e) { $('model-status').textContent = errorText(e); } finally { off(); }
 };
 
@@ -325,8 +334,8 @@ $('speak-go').onclick = async () => {
   catch (e) { $('voice-status').textContent = errorText(e); }
 };
 $('voice-go').onclick = async () => {
-  const off = await listen('voice-progress', (e) => { $('voice-status').textContent = `Downloading ${e.payload}`; });
-  try { await invoke('download_voice'); $('voice-status').textContent = 'Voice ready.'; }
+  const off = await listen('voice-progress', (e) => { $('voice-status').textContent = t('download-progress', 'Downloading { $progress }', { progress: e.payload }); });
+  try { await invoke('download_voice'); $('voice-status').textContent = t('voice-ready', 'Voice ready.'); }
   catch (e) { $('voice-status').textContent = errorText(e); } finally { off(); }
 };
 
@@ -348,7 +357,7 @@ async function toPcm16(blob) {
   return btoa(bin);
 }
 async function transcribe(blob) {
-  say('stt-status', 'Transcribing…');
+  say('stt-status', t('dictate-transcribing', 'Transcribing…'));
   try {
     const r = await invoke('transcribe', { audio: await toPcm16(blob) });
     $('query').value = r.text;
@@ -364,13 +373,13 @@ $('dictate').onclick = async () => {
     const r = new MediaRecorder(stream);
     r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     r.onstop = () => { stream.getTracks().forEach((t) => t.stop()); transcribe(new Blob(chunks, { type: r.mimeType })); };
-    r.start(); recorder = r; $('dictate').textContent = t('dictate-stop', '■ Stop'); say('stt-status', 'Listening…');
+    r.start(); recorder = r; $('dictate').textContent = t('dictate-stop', '■ Stop'); say('stt-status', t('dictate-listening', 'Listening…'));
   } catch (e) { say('stt-status', t('dictate-mic-error', 'Microphone: { $error }', { error: e.message || e }), true); }
 };
 $('stt-file-go').onclick = () => $('stt-file').click();
 $('stt-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) transcribe(f); };
 $('stt-download').onclick = async () => {
-  const off = await listen('stt-progress', (e) => say('stt-status', `Downloading ${e.payload}`));
-  try { await invoke('download_stt'); say('stt-status', 'Model ready.'); }
+  const off = await listen('stt-progress', (e) => say('stt-status', t('download-progress', 'Downloading { $progress }', { progress: e.payload })));
+  try { await invoke('download_stt'); say('stt-status', t('stt-ready', 'Model ready.')); }
   catch (e) { say('stt-status', errorText(e), true); } finally { off(); }
 };

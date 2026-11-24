@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { api, errorText, invoke } from './ipc.js';
 import { emit, listen } from '@tauri-apps/api/event';
-import { available, setLocale, t } from './i18n.js';
+import { available, dateTime, setLocale, t } from './i18n.js';
 
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
 
@@ -445,13 +445,24 @@ function WatchStatus() {
   const last = st.events.slice(-5).reverse();
   return (
     <div className="hint">
-      <div>{st.folders.length ? `Watching: ${st.folders.join(', ')}` : 'Not watching.'}</div>
+      <div>
+        {st.folders.length
+          ? t('watch-folders', 'Watching: { $folders }', { folders: st.folders.join(', ') })
+          : t('watch-none', 'Not watching.')}
+      </div>
       {last.map((e, i) => (
         <div key={i}>
-          {e.kind === 'ingested' && `Added ${e.files} files (${e.chunks} chunks)${e.errors.length ? `, ${e.errors.length} failed` : ''}`}
-          {e.kind === 'removed' && `Forgot ${e.path}`}
-          {e.kind === 'error' && `Problem: ${e.message}`}
-          {e.kind === 'started' && `Started on ${e.folders.length} folders`}
+          {e.kind === 'ingested' &&
+            (e.errors.length
+              ? t('watch-ingested-failed', 'Added { $files } files ({ $chunks } chunks), { $failed } failed', {
+                  files: e.files,
+                  chunks: e.chunks,
+                  failed: e.errors.length,
+                })
+              : t('watch-ingested', 'Added { $files } files ({ $chunks } chunks)', { files: e.files, chunks: e.chunks }))}
+          {e.kind === 'removed' && t('watch-removed', 'Forgot { $path }', { path: e.path })}
+          {e.kind === 'error' && t('watch-error', 'Problem: { $message }', { message: e.message })}
+          {e.kind === 'started' && t('watch-started', 'Started on { $count } folders', { count: e.folders.length })}
         </div>
       ))}
     </div>
@@ -524,6 +535,7 @@ function MailSetup({ from }) {
 const PROVIDER_KINDS = ['google', 'github', 'microsoft', 'oidc'];
 const PROVIDER_LABELS = { google: 'Google', github: 'GitHub', microsoft: 'Microsoft', oidc: 'OpenID Connect (any provider)' };
 const KIND_FIELD = { options: PROVIDER_KINDS, labels: PROVIDER_KINDS.map((k) => PROVIDER_LABELS[k]) };
+const kindLabel = (k) => t(`oauth-kind-${k}`, PROVIDER_LABELS[k]);
 
 // Sign-in providers (client ids in settings; client secrets and tokens in the OS keychain),
 // with Sign in / Sign out for each saved provider.
@@ -550,12 +562,15 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
   };
   const act = async (label, fn) => {
     setBusy(label);
-    setMsg(label === 'signin' ? 'Finish signing in in your browser...' : '');
+    setMsg(label === 'signin' ? t('oauth-browser', 'Finish signing in in your browser…') : '');
     try {
       const r = await fn();
-      if (r?.pending) setMsg('Finish signing in in your browser; the app opens again when you are done.');
-      else if (r && 'revoked' in r) setMsg(r.revoked ? 'Signed out and the token was revoked.' : 'Signed out on this computer.');
-      else setMsg('Signed in.');
+      if (r?.pending) setMsg(t('oauth-pending', 'Finish signing in in your browser; the app opens again when you are done.'));
+      else if (r && 'revoked' in r)
+        setMsg(
+          r.revoked ? t('oauth-revoked', 'Signed out and the token was revoked.') : t('oauth-signed-out', 'Signed out on this computer.'),
+        );
+      else setMsg(t('oauth-signed-in', 'Signed in.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -567,29 +582,49 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
     try {
       const r = await api.oauth_client_secret({ provider: id, secret: secrets[id] || '' });
       setSecrets({ ...secrets, [id]: '' });
-      setMsg(r.set ? 'Client secret saved in the keychain.' : 'Client secret removed.');
+      setMsg(r.set ? t('oauth-secret-saved', 'Client secret saved in the keychain.') : t('oauth-secret-removed', 'Client secret removed.'));
       refresh();
     } catch (e) {
       setMsg(errorText(e));
     }
   };
   const live = (id) => status?.providers.find((p) => p.id === id);
+  const signedIn = (who) => (who ? t('oauth-signed-in-as', 'Signed in as { $who }.', { who }) : t('oauth-signed-in', 'Signed in.'));
   return (
     <div>
       {redirect === 'deepLink' && !deepLink && (
-        <p className="hint">The deep-link plugin is not built in; the 127.0.0.1 redirect is used.</p>
+        <p className="hint">{t('oauth-no-deep-link', 'The deep-link plugin is not built in; the 127.0.0.1 redirect is used.')}</p>
       )}
       {providers.map((p, i) => {
         const st = live(p.id);
         const who = st?.user && (st.user.email || st.user.login || st.user.name || st.user.id);
         return (
           <div key={i} className="grid card">
-            <Field kind="select" label="Provider" value={p.kind} extra={KIND_FIELD} onChange={(v) => put(i, 'kind', v)} />
-            <Field kind="text" label="Name (used to sign in; e.g. google)" value={p.id} extra={NONE} onChange={(v) => put(i, 'id', v)} />
-            <Field kind="text" label="Client id" value={p.clientId} extra={NONE} onChange={(v) => put(i, 'clientId', v)} />
+            <Field
+              kind="select"
+              label={t('oauth-provider', 'Provider')}
+              msg="oauth-kind"
+              value={p.kind}
+              extra={KIND_FIELD}
+              onChange={(v) => put(i, 'kind', v)}
+            />
+            <Field
+              kind="text"
+              label={t('oauth-id', 'Name (used to sign in; e.g. google)')}
+              value={p.id}
+              extra={NONE}
+              onChange={(v) => put(i, 'id', v)}
+            />
+            <Field
+              kind="text"
+              label={t('oauth-client-id', 'Client id')}
+              value={p.clientId}
+              extra={NONE}
+              onChange={(v) => put(i, 'clientId', v)}
+            />
             <Field
               kind="list"
-              label="Scopes (empty = the provider's usual ones)"
+              label={t('oauth-scopes', "Scopes (empty = the provider's usual ones)")}
               value={p.scopes}
               extra={NONE}
               onChange={(v) => put(i, 'scopes', v)}
@@ -597,7 +632,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
             {p.kind === 'oidc' && (
               <Field
                 kind="text"
-                label="Issuer URL, e.g. https://id.example.com"
+                label={t('oauth-issuer', 'Issuer URL, e.g. https://id.example.com')}
                 value={p.issuer}
                 extra={NONE}
                 onChange={(v) => put(i, 'issuer', v)}
@@ -606,7 +641,7 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
             {p.kind === 'microsoft' && (
               <Field
                 kind="text"
-                label="Tenant (common, organizations, consumers or a tenant id)"
+                label={t('oauth-tenant', 'Tenant (common, organizations, consumers or a tenant id)')}
                 value={p.tenant}
                 extra={NONE}
                 onChange={(v) => put(i, 'tenant', v)}
@@ -616,42 +651,50 @@ function OauthSetup({ providers, onChange, deepLink, redirect }) {
               <input
                 type="password"
                 autoComplete="off"
-                placeholder={st?.clientSecret ? 'Client secret saved (type to replace)' : 'Client secret, if the provider needs one'}
+                placeholder={
+                  st?.clientSecret
+                    ? t('oauth-secret-kept', 'Client secret saved (type to replace)')
+                    : t('oauth-secret-placeholder', 'Client secret, if the provider needs one')
+                }
                 value={secrets[p.id] || ''}
                 onChange={(e) => setSecrets({ ...secrets, [p.id]: e.target.value })}
-                aria-label="Client secret"
+                aria-label={t('oauth-secret', 'Client secret')}
               />
               <button onClick={() => saveSecret(p.id)} disabled={!st}>
-                {secrets[p.id] ? 'Save secret' : 'Remove secret'}
+                {secrets[p.id] ? t('oauth-secret-save', 'Save secret') : t('oauth-secret-remove', 'Remove secret')}
               </button>
             </div>
             <div className="row">
               {st?.signedIn ? (
                 <button onClick={() => act('signout', () => api.oauth_logout({ provider: p.id }))} disabled={!!busy}>
-                  Sign out
+                  {t('oauth-sign-out', 'Sign out')}
                 </button>
               ) : (
                 <button
                   onClick={() => act('signin', () => api.oauth_login({ provider: p.id }))}
                   disabled={!!busy || !st?.ready || !status?.enabled}
                 >
-                  Sign in with {PROVIDER_LABELS[p.kind]}
+                  {t('oauth-sign-in-with', 'Sign in with { $provider }', { provider: kindLabel(p.kind) })}
                 </button>
               )}
               <button className="link" onClick={() => onChange(providers.filter((_, j) => j !== i))}>
-                Remove provider
+                {t('oauth-remove', 'Remove provider')}
               </button>
               <span className="hint">
-                {st ? (st.signedIn ? `Signed in${who ? ` as ${who}` : ''}.` : 'Not signed in.') : 'Save settings to use this provider.'}
-                {st?.error ? ` Keychain: ${st.error}` : ''}
+                {st
+                  ? st.signedIn
+                    ? signedIn(who)
+                    : t('oauth-not-signed-in', 'Not signed in.')
+                  : t('oauth-unsaved', 'Save settings to use this provider.')}
+                {st?.error ? ` ${t('oauth-keychain', 'Keychain: { $error }', { error: st.error })}` : ''}
               </span>
             </div>
           </div>
         );
       })}
       <div className="row">
-        <button onClick={add}>Add a provider</button>
-        <span className="hint">{msg || 'Turn sign-in on and save settings, then sign in.'}</span>
+        <button onClick={add}>{t('oauth-add', 'Add a provider')}</button>
+        <span className="hint">{msg || t('oauth-hint', 'Turn sign-in on and save settings, then sign in.')}</span>
       </div>
     </div>
   );
@@ -669,12 +712,12 @@ function PluginList({ settings, onChange }) {
   const put = (name, key, v) => onChange({ ...settings, [name]: { ...(settings[name] || {}), [key]: v } });
   return (
     <div className="panel">
-      {list.length === 0 && !msg && <p className="hint">No plugins are built in.</p>}
+      {list.length === 0 && !msg && <p className="hint">{t('plugins-none', 'No plugins are built in.')}</p>}
       {list.map((p) => (
         <div key={p.name}>
           <div>
-            <b>{p.name}</b> {p.version} {p.active ? '(on)' : '(off)'}: {p.description}
-            {p.methods.length > 0 && ` Methods: ${p.methods.join(', ')}.`}
+            <b>{p.name}</b> {p.version} {p.active ? t('plugins-on', '(on)') : t('plugins-off', '(off)')}: {p.description}
+            {p.methods.length > 0 && ` ${t('plugins-methods', 'Methods: { $list }.', { list: p.methods.join(', ') })}`}
           </div>
           <div className="grid">
             {Object.entries(p.schema.properties || {}).map(([key, prop]) => {
@@ -699,10 +742,10 @@ function PluginList({ settings, onChange }) {
 function JsonField({ label, value, onChange }) {
   const [text, setText] = useState(JSON.stringify(value ?? {}, null, 2));
   const [bad, setBad] = useState(false);
-  const change = (t) => {
-    setText(t);
+  const change = (s) => {
+    setText(s);
     try {
-      onChange(JSON.parse(t));
+      onChange(JSON.parse(s));
       setBad(false);
     } catch {
       setBad(true);
@@ -710,13 +753,13 @@ function JsonField({ label, value, onChange }) {
   };
   return (
     <label className="field">
-      {label} {bad && '(not valid JSON yet)'}
+      {label} {bad && t('json-invalid', '(not valid JSON yet)')}
       <textarea rows={4} value={text} onChange={(e) => change(e.target.value)} />
     </label>
   );
 }
 
-const when = (ms) => (ms ? new Date(ms).toLocaleString() : '-');
+const when = (ms) => (ms ? dateTime(ms) : '-');
 
 // Background jobs: the queue, the dead letters (retry or drop), schedules (pause or resume)
 // and recent runs, polled while the section is open.
@@ -843,7 +886,7 @@ function RcloneSetup() {
     try {
       setSt(await api.rclone_config({ text }));
       setText('');
-      setMsg(text ? 'Config saved.' : 'Config removed.');
+      setMsg(text ? t('rclone-config-saved', 'Config saved.') : t('rclone-config-removed', 'Config removed.'));
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -853,7 +896,7 @@ function RcloneSetup() {
     const unlisten = await listen('rclone-progress', (e) => setMsg(e.payload));
     try {
       await invoke(cmd);
-      setMsg(cmd === 'rclone_sync' ? 'Synced.' : 'rclone is ready.');
+      setMsg(cmd === 'rclone_sync' ? t('rclone-synced', 'Synced.') : t('rclone-ready', 'rclone is ready.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -862,29 +905,44 @@ function RcloneSetup() {
       refresh();
     }
   };
+  const summary = (s) => {
+    const version = { version: s.version };
+    const last = s.last && { time: s.last.finished, target: s.last.target };
+    return [
+      s.installed
+        ? t('rclone-downloaded', 'rclone { $version }: downloaded.', version)
+        : s.supported
+          ? t('rclone-on-first-sync', 'rclone { $version }: downloads on first sync.', version)
+          : t('rclone-unsupported', 'rclone { $version }: not available for this computer.', version),
+      s.configured
+        ? t('rclone-remotes', 'Remotes: { $list }.', { list: s.remotes.join(', ') || t('rclone-remotes-none', 'none') })
+        : t('rclone-no-config', 'No config yet.'),
+      last &&
+        (s.last.ok
+          ? t('rclone-last-ok', 'Last sync { $time } to { $target }: ok.', last)
+          : t('rclone-last-failed', 'Last sync { $time } to { $target }: failed.', last)),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  };
   return (
     <>
-      <div className="hint">
-        {st &&
-          `rclone ${st.version}: ${st.installed ? 'downloaded' : st.supported ? 'downloads on first sync' : 'not available for this computer'}. ` +
-            (st.configured ? `Remotes: ${st.remotes.join(', ') || 'none'}. ` : 'No config yet. ') +
-            (st.last ? `Last sync ${st.last.finished} to ${st.last.target}: ${st.last.ok ? 'ok' : 'failed'}.` : '')}
-      </div>
+      <div className="hint">{st && summary(st)}</div>
       <label className="field">
-        Remote config: paste what `rclone config show` prints (kept in a private file)
+        {t('rclone-config-label', 'Remote config: paste what `rclone config show` prints (kept in a private file)')}
         <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={'[gdrive]\ntype = drive\n...'} />
       </label>
       <div className="row">
-        <button onClick={saveConf}>{text ? 'Save config' : 'Remove config'}</button>
+        <button onClick={saveConf}>{text ? t('rclone-config-save', 'Save config') : t('rclone-config-remove', 'Remove config')}</button>
         {st && !st.installed && st.supported && (
           <button onClick={() => run('rclone_install')} disabled={busy}>
-            Download rclone
+            {t('rclone-download', 'Download rclone')}
           </button>
         )}
         <button onClick={() => run('rclone_sync')} disabled={busy}>
-          Sync now
+          {t('rclone-sync', 'Sync now')}
         </button>
-        <span className="hint">{msg || 'Save settings first.'}</span>
+        <span className="hint">{msg || t('save-first', 'Save settings first.')}</span>
       </div>
     </>
   );
@@ -902,7 +960,7 @@ function TailscaleStatus() {
     setBusy(true);
     try {
       setR(await api.tailscale_apply());
-      setMsg('Done.');
+      setMsg(t('tailscale-done', 'Done.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -912,28 +970,55 @@ function TailscaleStatus() {
   if (r && !r.installed)
     return (
       <div className="hint">
-        Tailscale is not installed. Get it from <code>{r.installUrl}</code>, then reopen Settings.
+        {t('tailscale-missing', 'Tailscale is not installed. Get it from here, then reopen Settings:')} <code>{r.installUrl}</code>
       </div>
     );
   const st = r?.status;
+  // Port numbers are ids, not amounts: passed as text so they get no group separators.
+  const where = st && { state: st.backendState, name: st.dnsName, tailnet: st.tailnet };
+  const state = !st
+    ? ''
+    : st.dnsName && st.tailnet
+      ? t('tailscale-state-as-in', '{ $state } as { $name } in { $tailnet }.', where)
+      : st.dnsName
+        ? t('tailscale-state-as', '{ $state } as { $name }.', where)
+        : st.tailnet
+          ? t('tailscale-state-in', '{ $state } in { $tailnet }.', where)
+          : t('tailscale-state', '{ $state }.', where);
+  const shared = !r
+    ? ''
+    : r.served
+      ? r.url
+        ? t('tailscale-shared-at', 'Port { $port } is shared at { $url }.', { port: String(r.served), url: r.url })
+        : t('tailscale-shared', 'Port { $port } is shared.', { port: String(r.served) })
+      : t('tailscale-nothing', 'Nothing shared.');
   return (
     <>
-      <div className="hint">
-        {st && `${st.backendState}${st.dnsName ? ` as ${st.dnsName}` : ''}${st.tailnet ? ` in ${st.tailnet}` : ''}. `}
-        {r?.served ? `Port ${r.served} is shared${r.url ? ` at ${r.url}` : ''}. ` : r && 'Nothing shared. '}
-        {r?.note}
-      </div>
+      <div className="hint">{[state, shared, r?.note].filter(Boolean).join(' ')}</div>
       <div className="row">
         <button onClick={apply} disabled={busy || !r}>
-          Apply sharing
+          {t('tailscale-apply', 'Apply sharing')}
         </button>
-        <span className="hint">{msg || 'Save settings first.'}</span>
+        <span className="hint">{msg || t('save-first', 'Save settings first.')}</span>
       </div>
     </>
   );
 }
 
 // The backend as a service (feature `daemon`): headless, at login, restarted on failure.
+// "systemd: installed, running (pid 42). Log: /path." (the plain UI says the same).
+const serviceStatus = (st) =>
+  t('service-status', '{ $manager }: { $installed }, { $running }. Log: { $log }.', {
+    manager: st.manager,
+    installed: st.installed ? t('service-installed', 'installed') : t('service-not-installed', 'not installed'),
+    running: st.running
+      ? st.pid
+        ? t('service-running-pid', 'running (pid { $pid })', { pid: String(st.pid) })
+        : t('service-running', 'running')
+      : t('service-not-running', 'not running'),
+    log: st.log,
+  });
+
 function ServiceSetup() {
   const [st, setSt] = useState(null);
   const [hint, setHint] = useState('');
@@ -947,7 +1032,7 @@ function ServiceSetup() {
     setBusy(true);
     try {
       setSt(await api.set_service({ enabled }));
-      setMsg(enabled ? 'Installed.' : 'Removed.');
+      setMsg(enabled ? t('service-done-installed', 'Installed.') : t('service-done-removed', 'Removed.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -958,19 +1043,16 @@ function ServiceSetup() {
     <>
       <div className="row">
         <label className="field">
-          <input type="checkbox" checked={!!st?.installed} disabled={busy || !st} onChange={(e) => toggle(e.target.checked)} /> Run the
-          backend as a service: no window needed, starts at login, restarts if it fails
+          <input type="checkbox" checked={!!st?.installed} disabled={busy || !st} onChange={(e) => toggle(e.target.checked)} />{' '}
+          {t('service-toggle', 'Run the backend as a service: no window needed, starts at login, restarts if it fails')}
         </label>
       </div>
       <div className="hint">
-        {st &&
-          `${st.manager}: ${st.installed ? 'installed' : 'not installed'}, ${
-            st.running ? `running${st.pid ? ` (pid ${st.pid})` : ''}` : 'not running'
-          }. Log: ${st.log}. `}
+        {st && `${serviceStatus(st)} `}
         {st?.note}
       </div>
       <div className="hint">
-        To start it at boot for the whole machine instead, run as administrator: <code>{hint}</code>
+        {t('service-boot', 'To start it at boot for the whole machine instead, run as administrator:')} <code>{hint}</code>
       </div>
       <p className="status" role="status">
         {msg}
@@ -983,9 +1065,11 @@ function ServiceSetup() {
 // bridge messages from trusted pages arrive as 'webview-message' events.
 function WebviewTry() {
   const [url, setUrl] = useState('https://');
-  const [msg, setMsg] = useState('Save settings first.');
+  const [msg, setMsg] = useState('');
   useEffect(() => {
-    const off = listen('webview-message', (e) => setMsg(`Message from ${e.payload.host}: ${JSON.stringify(e.payload.data)}`));
+    const off = listen('webview-message', (e) =>
+      setMsg(t('webview-message', 'Message from { $host }: { $data }', { host: e.payload.host, data: JSON.stringify(e.payload.data) })),
+    );
     return () => {
       off.then((f) => f());
     };
@@ -993,19 +1077,19 @@ function WebviewTry() {
   const open = async () => {
     try {
       const label = await api.webview_open({ url, name: 'settings' });
-      setMsg(`Opened in ${label}.`);
+      setMsg(t('webview-opened', 'Opened in { $label }.', { label }));
     } catch (e) {
       setMsg(errorText(e));
     }
   };
   return (
     <div className="row">
-      <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Web page to open" />
-      <button onClick={open}>Open</button>
+      <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label={t('webview-url', 'Web page to open')} />
+      <button onClick={open}>{t('webview-open', 'Open')}</button>
       <button className="link" onClick={() => api.webview_close({ name: 'settings' }).catch((e) => setMsg(errorText(e)))}>
-        Close
+        {t('webview-close', 'Close')}
       </button>
-      <span className="hint">{msg}</span>
+      <span className="hint">{msg || t('save-first', 'Save settings first.')}</span>
     </div>
   );
 }
@@ -1072,14 +1156,14 @@ function KvInfo() {
         <code>{r.path}</code> · {megabytes(r.bytes)}
       </div>
       {r.namespaces.length === 0 ? (
-        <div className="hint">No keys yet.</div>
+        <div className="hint">{t('kv-empty', 'No keys yet.')}</div>
       ) : (
         <ul className="hint">
           {r.namespaces.map((n) => (
             <li key={n.name}>
-              <code>{n.name}</code>: {n.keys} keys
-              {n.encrypted ? ', encrypted' : ''}
-              {r.uiNamespaces.includes(n.name) ? ', open to the window' : ''}
+              <code>{n.name}</code>: {t('kv-keys', '{ $count } keys', { count: n.keys })}
+              {n.encrypted ? t('kv-encrypted', ', encrypted') : ''}
+              {r.uiNamespaces.includes(n.name) ? t('kv-open-to-window', ', open to the window') : ''}
             </li>
           ))}
         </ul>
@@ -1098,7 +1182,7 @@ function CacheStats() {
   const clear = async () => {
     try {
       setS(await api.cache_clear());
-      setMsg('Cache cleared.');
+      setMsg(t('cache-cleared', 'Cache cleared.'));
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -1107,13 +1191,19 @@ function CacheStats() {
     <>
       {s && (
         <div className="hint">
-          {s.entries} entries, {megabytes(s.weight)} of {megabytes(s.maxWeight)} · {s.hits} hits, {s.misses} misses (
-          {Math.round(s.hitRate * 100)}% hit rate)
+          {t('cache-stats', '{ $entries } entries, { $used } of { $max } · { $hits } hits, { $misses } misses ({ $rate }% hit rate)', {
+            entries: s.entries,
+            used: megabytes(s.weight),
+            max: megabytes(s.maxWeight),
+            hits: s.hits,
+            misses: s.misses,
+            rate: Math.round(s.hitRate * 100),
+          })}
         </div>
       )}
       <div className="row">
         <button className="link" onClick={clear}>
-          Clear the cache
+          {t('cache-clear', 'Clear the cache')}
         </button>
         <span className="hint">{msg}</span>
       </div>
@@ -1126,10 +1216,12 @@ function VoiceDownload() {
   const [busy, setBusy] = useState(false);
   const go = async () => {
     setBusy(true);
-    const unlisten = await listen('voice-progress', (e) => setMsg(`Downloading ${e.payload}`));
+    const unlisten = await listen('voice-progress', (e) =>
+      setMsg(t('download-progress', 'Downloading { $progress }', { progress: e.payload })),
+    );
     try {
       await api.download_voice();
-      setMsg('Voice ready.');
+      setMsg(t('voice-ready', 'Voice ready.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -1140,7 +1232,7 @@ function VoiceDownload() {
   return (
     <div className="row">
       <button onClick={go} disabled={busy}>
-        Download the voice (25 MB)
+        {t('voice-download', 'Download the voice (25 MB)')}
       </button>
       <span className="hint">{msg}</span>
     </div>
@@ -1152,10 +1244,12 @@ function SttDownload() {
   const [busy, setBusy] = useState(false);
   const go = async () => {
     setBusy(true);
-    const unlisten = await listen('stt-progress', (e) => setMsg(`Downloading ${e.payload}`));
+    const unlisten = await listen('stt-progress', (e) =>
+      setMsg(t('download-progress', 'Downloading { $progress }', { progress: e.payload })),
+    );
     try {
       await api.download_stt();
-      setMsg('Model ready.');
+      setMsg(t('stt-ready', 'Model ready.'));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -1166,7 +1260,7 @@ function SttDownload() {
   return (
     <div className="row">
       <button onClick={go} disabled={busy}>
-        Download the chosen model (save settings first)
+        {t('stt-download', 'Download the chosen model (save settings first)')}
       </button>
       <span className="hint">{msg}</span>
     </div>
@@ -1285,7 +1379,7 @@ function Backups() {
         {list.map((b) => (
           <li key={b.path}>
             {t('backup-item', '{ $created }: { $chunks } chunks from { $sources } sources ({ $kb } KB)', {
-              created: new Date(b.created).toLocaleString(),
+              created: dateTime(b.created),
               chunks: b.chunks,
               sources: b.sources,
               kb: Math.ceil(b.bytes / 1024),
@@ -1332,14 +1426,22 @@ function TelemetryStatus() {
       .then(setS)
       .catch(() => {});
   }, []);
-  if (!s?.running) return <p className="hint">Nothing is sent unless you switch it on above.</p>;
-  const on = [s.crashReports && 'crash reports', s.analytics && 'usage statistics', s.traces && 'traces'].filter(Boolean);
+  if (!s?.running) return <p className="hint">{t('telemetry-off', 'Nothing is sent unless you switch it on above.')}</p>;
+  const on = [
+    s.crashReports && t('telemetry-crash-reports', 'crash reports'),
+    s.analytics && t('telemetry-analytics', 'usage statistics'),
+    s.traces && t('telemetry-traces', 'traces'),
+  ].filter(Boolean);
   return (
     <p className="hint">
-      Sending: {on.length ? on.join(', ') : 'nothing'}. Anonymous id {s.installId.slice(0, 8)}…, {s.sent} sent
-      {s.pendingCrashes ? `, ${s.pendingCrashes} crash reports kept on this computer` : ''}
-      {s.lastError ? `. Last problem: ${s.lastError}` : ''}. Only call names, timings and counts are sent, never your documents or
-      questions.
+      {t('telemetry-sending', 'Sending: { $what }. Anonymous id { $id }…, { $sent } sent', {
+        what: on.length ? on.join(', ') : t('telemetry-nothing', 'nothing'),
+        id: s.installId.slice(0, 8),
+        sent: s.sent,
+      })}
+      {s.pendingCrashes ? t('telemetry-pending', ', { $count } crash reports kept on this computer', { count: s.pendingCrashes }) : ''}
+      {s.lastError ? t('telemetry-last-error', '. Last problem: { $error }', { error: s.lastError }) : ''}
+      {t('telemetry-promise', '. Only call names, timings and counts are sent, never your documents or questions.')}
     </p>
   );
 }
@@ -1356,7 +1458,7 @@ function McpConnect() {
   const register = async () => {
     try {
       const r = await api.mcp_register_claude();
-      setMsg(`Claude Desktop: ${r}. Restart Claude Desktop to load it.`);
+      setMsg(t('mcp-registered', 'Claude Desktop: { $result }. Restart Claude Desktop to load it.', { result: r }));
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -1365,13 +1467,13 @@ function McpConnect() {
   return (
     <div className="hint">
       <div className="row">
-        <button onClick={register}>Add to Claude Desktop</button>
+        <button onClick={register}>{t('mcp-add-claude', 'Add to Claude Desktop')}</button>
         <span>{msg}</span>
       </div>
       <div>
-        Claude Code: <code>{setup.claude_code}</code>
+        {t('mcp-claude-code', 'Claude Code:')} <code>{setup.claude_code}</code>
       </div>
-      <div>Save settings with the server turned on first.</div>
+      <div>{t('mcp-save-first', 'Save settings with the server turned on first.')}</div>
     </div>
   );
 }
@@ -1394,14 +1496,14 @@ function McpPolicies({ policies, onChange }) {
   };
   return (
     <div className="grid">
-      {tools.map((t) => (
-        <label className="field" key={t}>
-          {t === '*' ? 'Every other tool' : `Tool ${t}`}
-          <select value={map[t] || ''} onChange={(e) => pick(t, e.target.value)}>
-            <option value="">{t === '*' ? 'allow (default)' : 'as every other tool'}</option>
-            <option value="allow">allow</option>
-            <option value="ask">ask me first</option>
-            <option value="deny">deny</option>
+      {tools.map((tool) => (
+        <label className="field" key={tool}>
+          {tool === '*' ? t('mcp-every-other', 'Every other tool') : t('mcp-tool', 'Tool { $tool }', { tool })}
+          <select value={map[tool] || ''} onChange={(e) => pick(tool, e.target.value)}>
+            <option value="">{tool === '*' ? t('mcp-default-allow', 'allow (default)') : t('mcp-as-others', 'as every other tool')}</option>
+            <option value="allow">{t('mcp-allow', 'allow')}</option>
+            <option value="ask">{t('mcp-ask', 'ask me first')}</option>
+            <option value="deny">{t('mcp-deny', 'deny')}</option>
           </select>
         </label>
       ))}
@@ -1433,16 +1535,20 @@ function McpPending() {
   };
   return (
     <div className="hint">
-      <div>{calls.length ? `${calls.length} MCP calls waiting for you:` : 'No MCP calls waiting for approval.'}</div>
+      <div>
+        {calls.length
+          ? t('mcp-waiting', '{ $count } MCP calls waiting for you:', { count: calls.length })
+          : t('mcp-none-waiting', 'No MCP calls waiting for approval.')}
+      </div>
       <ul className="pending">
         {calls.map((c) => (
           <li key={c.id}>
             <code>{c.tool}</code> {c.arguments}{' '}
             <button className="link" onClick={() => decide(c.id, true)}>
-              Approve
+              {t('mcp-approve', 'Approve')}
             </button>
             <button className="link" onClick={() => decide(c.id, false)}>
-              Deny
+              {t('mcp-deny-call', 'Deny')}
             </button>
           </li>
         ))}
@@ -1457,11 +1563,13 @@ function ModelDownload({ onDone }) {
   const [busy, setBusy] = useState(false);
   const go = async () => {
     setBusy(true);
-    const unlisten = await listen('model-progress', (e) => setMsg(`Downloading: ${e.payload}`));
+    const unlisten = await listen('model-progress', (e) =>
+      setMsg(t('model-progress', 'Downloading: { $progress }', { progress: e.payload })),
+    );
     try {
       const path = await api.download_model({});
       onDone(path);
-      setMsg(`Ready: ${path}`);
+      setMsg(t('model-ready', 'Ready: { $path }', { path }));
     } catch (e) {
       setMsg(errorText(e));
     } finally {
@@ -1472,7 +1580,7 @@ function ModelDownload({ onDone }) {
   return (
     <div className="row">
       <button onClick={go} disabled={busy}>
-        Download the local model
+        {t('model-download', 'Download the local model')}
       </button>
       <span className="hint">{msg}</span>
     </div>
@@ -1812,11 +1920,11 @@ function UpdateChannel() {
       .catch((e) => setMsg(errorText(e)));
   }, []);
   const rollback = async () => {
-    setMsg(`Going back to ${st.previous}...`);
+    setMsg(t('updates-going-back', 'Going back to { $version }…', { version: st.previous }));
     try {
       await api.rollback_update();
     } catch (e) {
-      setMsg(`Rollback failed: ${errorText(e)}`);
+      setMsg(t('updates-rollback-failed', 'Rollback failed: { $error }', { error: errorText(e) }));
     }
   };
   if (!st)
@@ -1827,22 +1935,28 @@ function UpdateChannel() {
     );
   return (
     <div className="hint">
-      <div>Save to switch channels; the next update check uses the new one.</div>
-      {st.bucket !== null && <div>Staged releases reach this install once they are rolled out to more than {st.bucket}%.</div>}
+      <div>{t('updates-save-hint', 'Save to switch channels; the next update check uses the new one.')}</div>
+      {st.bucket !== null && (
+        <div>
+          {t('updates-bucket', 'Staged releases reach this install once they are rolled out to more than { $bucket }%.', {
+            bucket: st.bucket,
+          })}
+        </div>
+      )}
       {st.previous ? (
         <div className="row">
           <span>
-            Previous version: {st.previous}
-            {st.kept ? ' (kept on this computer)' : ' (downloaded again from its release)'}
+            {t('updates-previous', 'Previous version: { $version }', { version: st.previous })}
+            {st.kept ? t('updates-kept', ' (kept on this computer)') : t('updates-download-again', ' (downloaded again from its release)')}
           </span>
           {st.rollback && (
             <button className="link" onClick={rollback}>
-              Roll back to {st.previous}
+              {t('updates-rollback', 'Roll back to { $version }', { version: st.previous })}
             </button>
           )}
         </div>
       ) : (
-        <div>No earlier version to roll back to yet.</div>
+        <div>{t('updates-none', 'No earlier version to roll back to yet.')}</div>
       )}
       <p className="status" role="status">
         {msg}
@@ -1867,17 +1981,17 @@ function Licences() {
   const shown = n.packages.filter((p) => !q || `${p.name} ${p.license}`.toLowerCase().includes(q));
   return (
     <details open>
-      <summary>Licences ({n.packages.length} packages)</summary>
+      <summary>{t('licences-title', 'Licences ({ $count } packages)', { count: n.packages.length })}</summary>
       <label className="field">
-        Filter by name or licence
+        {t('licences-filter', 'Filter by name or licence')}
         <input value={filter} onChange={(e) => setFilter(e.target.value)} />
       </label>
       <table className="licences">
         <thead>
           <tr>
-            <th>Package</th>
-            <th>Version</th>
-            <th>Licence</th>
+            <th>{t('licences-package', 'Package')}</th>
+            <th>{t('licences-version', 'Version')}</th>
+            <th>{t('licences-licence', 'Licence')}</th>
           </tr>
         </thead>
         <tbody>
@@ -1894,7 +2008,7 @@ function Licences() {
         </tbody>
       </table>
       <button className="link" onClick={() => setFull(!full)}>
-        {full ? 'Hide' : 'Show'} the licence texts
+        {full ? t('licences-hide', 'Hide the licence texts') : t('licences-show', 'Show the licence texts')}
       </button>
       {full && <pre className="notices">{n.text}</pre>}
     </details>
@@ -1906,15 +2020,17 @@ function Licences() {
 function LanguagePicker({ cfg, setCfg }) {
   const [msg, setMsg] = useState('');
   const value = cfg.ui?.language || 'system';
-  const pick = async (language) => {
+  const digits = cfg.ui?.digits || 'latin';
+  const pick = async (change) => {
+    const ui = { language: value, digits, ...change };
     setMsg('');
-    setCfg({ ...cfg, ui: { ...cfg.ui, language } });
-    await setLocale(language);
+    setCfg({ ...cfg, ui: { ...cfg.ui, ...ui } });
+    await setLocale(ui.language, ui.digits);
     try {
-      // Only the language: other unsaved changes on this screen stay unsaved.
+      // Only the language settings: other unsaved changes on this screen stay unsaved.
       const saved = await api.get_config();
-      await api.set_config({ config: { ...saved, ui: { ...saved.ui, language } } });
-      await emit('locale-changed', language);
+      await api.set_config({ config: { ...saved, ui: { ...saved.ui, ...ui } } });
+      await emit('locale-changed', ui);
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -1923,13 +2039,20 @@ function LanguagePicker({ cfg, setCfg }) {
     <div className="grid">
       <label className="field">
         {t('setting-ui-language', 'Language')}
-        <select value={value} onChange={(e) => pick(e.target.value)}>
+        <select value={value} onChange={(e) => pick({ language: e.target.value })}>
           <option value="system">{t('setting-ui-language-system', 'Same as the system')}</option>
           {available().map((l) => (
             <option key={l.code} value={l.code} lang={l.code} dir={l.dir}>
               {l.name}
             </option>
           ))}
+        </select>
+      </label>
+      <label className="field">
+        {t('setting-ui-digits', 'Digits')}
+        <select value={digits} onChange={(e) => pick({ digits: e.target.value })}>
+          <option value="latin">{t('setting-ui-digits-latin', 'Latin (0123456789)')}</option>
+          <option value="native">{t('setting-ui-digits-native', "The language's own, e.g. Arabic-Indic (٠١٢٣٤٥٦٧٨٩)")}</option>
         </select>
       </label>
       <p className="hint">
