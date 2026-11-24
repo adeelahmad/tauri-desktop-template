@@ -42,14 +42,17 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "with_deps": deps, "project": project, "dry_run": dry}, "required": ["name", "value"]}},
         {"name": "upgrade", "description": "Move the app to a newer template commit, keeping its edits.",
          "inputSchema": {"type": "object", "properties": {"rev": {"type": "string"}, "project": project, "dry_run": dry}}},
-        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut), shortcut (name = action id, shortcut) or job (name; a background job type, needs background_jobs) or route (name; POST /v1/<name> on the HTTP API, needs http_api). menu and shortcut need the tray_menu feature.",
+        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut), shortcut (name = action id, shortcut) or job (name; a background job type, needs background_jobs) or route (name; POST /v1/<name> on the HTTP API, needs http_api) or locale (name = a locale code; locales/<code>/app.ftl from English, needs i18n). menu and shortcut need the tray_menu feature.",
          "inputSchema": {"type": "object", "properties": {
-             "kind": {"type": "string", "enum": ["module", "setting", "command", "page", "menu", "shortcut", "job", "route"]},
+             "kind": {"type": "string", "enum": ["module", "setting", "command", "page", "menu", "shortcut", "job", "route", "locale"]},
              "name": {"type": "string"}, "config": {"type": "boolean"},
              "type": {"type": "string", "enum": ["bool", "int", "float", "text", "list"]},
              "default": {"type": "string"}, "label": {"type": "string"},
              "shortcut": {"type": "string", "description": "Keys like CmdOrCtrl+Shift+K"},
+             "pseudo": {"type": "boolean", "description": "locale: pseudo-translate instead of copying English"},
              "project": project, "dry_run": dry}, "required": ["kind", "name"]}},
+        {"name": "i18n_check", "description": "Check the app's translations (template feature `i18n`): every locales/<code>/app.ftl is valid Fluent and has exactly the English messages, translations use only the variables English passes, and the UI asks only for ids English has. Fails (isError) with the list of problems. To start a new locale use generate with kind locale (name = the code, e.g. fr; pseudo for a pseudo-locale).",
+         "inputSchema": {"type": "object", "properties": {"project": project}}},
         {"name": "models", "description": "Models built into the installer (src-tauri/resources/models/models.lock): action list (default; the catalog with sizes and licences), add or remove (name), fetch (download them and check every SHA-256) or verify (check the fetched files). Bundling is chosen with set models=bundle or bundle_with_fallback.",
          "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list", "add", "remove", "fetch", "verify"]}, "name": {"type": "string", "description": "add/remove: the model, e.g. whisper-base"}, "project": project, "dry_run": dry}}},
         {"name": "doctor", "description": "Check the machine and the app; each problem comes with its fix.",
@@ -109,6 +112,7 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             v
         }
         "doctor" | "start" | "audit" => vec![tool.into()],
+        "i18n_check" => vec!["i18n".into(), "check".into()],
         "test" => {
             let mut v = vec!["test".to_string()];
             for k in ["unit", "feature"] {
@@ -194,6 +198,9 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             }
             if a.get("config").and_then(Value::as_bool) == Some(true) {
                 v.push("--config".into());
+            }
+            if a.get("pseudo").and_then(Value::as_bool) == Some(true) {
+                v.push("--pseudo".into());
             }
             v
         }
@@ -350,6 +357,15 @@ mod tests {
             ["generate", "shortcut", "search", "Ctrl+K"]
         );
         assert!(argv("generate", &json!({"kind": "shortcut", "name": "search"})).is_err());
+        assert_eq!(argv("i18n_check", &json!({})).unwrap(), ["i18n", "check"]);
+        assert_eq!(
+            argv(
+                "generate",
+                &json!({"kind": "locale", "name": "en-XA", "pseudo": true})
+            )
+            .unwrap(),
+            ["generate", "locale", "en-XA", "--pseudo"]
+        );
         assert_eq!(
             argv(
                 "eval",

@@ -22,6 +22,7 @@
 //! kitchen audit                            # cargo-deny, cargo-audit, npm audit, pip-audit
 //! kitchen service install                  # run the app's daemon as a user service
 //! kitchen eval --baseline evals/baseline.json  # search evals; fails on a regression
+//! kitchen i18n check                       # every locale has English's messages (feature i18n)
 //! kitchen models fetch                     # download the models the installer bundles
 //! kitchen mcp                              # the same, as MCP tools over stdio
 //! ```
@@ -51,7 +52,7 @@
 //! Modules: [`compat`] (which features need which: the rule table), [`manifest`] (`kitchen.toml`), [`template`] (fetch and render the template),
 //! [`merge`] (three-way apply), [`project`] (the commands on an app), [`generate`] (code
 //! generators), [`lifecycle`] (start, test, package, publish, eject), [`audit`] (supply-chain checks), [`doctor`] (machine
-//! checks), [`hooks`] (the app's git hooks), [`service`] (the app's daemon as a service),
+//! checks), [`hooks`] (the app's git hooks), [`i18n`] (translation checks), [`service`] (the app's daemon as a service),
 //! [`eval`] (the app's search evals), [`models`] (models built into the installer), [`mcp`]
 //! (the MCP server), [`cli`] (arguments).
 
@@ -62,6 +63,7 @@ pub mod doctor;
 pub mod eval;
 pub mod generate;
 pub mod hooks;
+pub mod i18n;
 pub mod lifecycle;
 pub mod manifest;
 pub mod mcp;

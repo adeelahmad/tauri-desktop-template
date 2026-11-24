@@ -95,6 +95,9 @@ Everything runs on the user's machine.
 {% if tray_menu -%}
 | Tray / macOS menu-bar icon with its own menu, global shortcuts (rebind by pressing keys) and an app-defined menu next to the platform's App/Edit/Window menus; all three run actions through one registry. Settings → Tray & shortcuts | `desktop-core/src/actions.rs`, `src-tauri/src/tray.rs` | `tray-menu` |
 {% endif -%}
+{% if i18n -%}
+| Translations: Fluent messages in `locales/<code>/app.ftl` (English, German, Arabic) for the UI, native menus and tray, the test email and backend error messages; plurals and numbers per language, the OS language by default, a language switcher that applies at once, right-to-left layouts. Settings → Language; `kitchen generate locale <code>`, `kitchen i18n check` | `desktop-core/src/i18n.rs`, `locales/`, {% if frontend == "react" %}`ui-react/src/{i18n.js,locales.js}`{% else %}`ui/i18n.js`{% endif %} | `i18n` |
+{% endif -%}
 {% if tauri_plugins -%}
 | Official Tauri plugins (see the table below) | `src-tauri/src/lib.rs`, `src-tauri/capabilities/` | |
 {% endif -%}
@@ -465,6 +468,9 @@ is off by default; values are clamped to safe ranges.
 {% endif -%}
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
+{% endif -%}
+{% if i18n -%}
+| `ui.language` | `system` | a locale code from `locales/` (`en`, `de`, `ar`); `system` follows the OS language, falling back to English |
 {% endif -%}
 {% if app_shell -%}
 | `appearance.mode`, `appearance.theme` | `system`, `kitchen` | `light`, `dark`; `nord`, `solarized`, `forest`, `rose`, `contrast` (add one in `shell.css` and `THEMES`) |

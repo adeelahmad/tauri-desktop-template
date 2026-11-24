@@ -4,6 +4,7 @@
 // `onText`. (No double curly braces in this folder: the template engine would eat them.)
 import { useRef, useState } from 'react';
 import { api, errorText } from './ipc.js';
+import { t } from './i18n.js';
 
 const RATE = 16000;
 
@@ -42,7 +43,7 @@ export default function Dictate({ onText }) {
     try {
       const r = await api.transcribe({ audio: await toPcm16(blob) });
       if (r.text) onText(r.text);
-      else setError('No speech heard.');
+      else setError(t('dictate-nothing', 'No speech heard.'));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -66,23 +67,28 @@ export default function Dictate({ onText }) {
       r.start();
       setState('recording');
     } catch (e) {
-      setError(`Microphone: ${e.message || e}`);
+      setError(t('dictate-mic-error', 'Microphone: { $error }', { error: e.message || String(e) }));
     }
   };
 
-  const label = { idle: '🎤', recording: '■ Stop', working: '…' }[state];
+  const label = { idle: '🎤', recording: t('dictate-stop', '■ Stop'), working: '…' }[state];
   return (
     <>
       <button
         onClick={toggle}
         disabled={state === 'working'}
-        title={state === 'recording' ? 'Stop and transcribe' : 'Dictate'}
-        aria-label="Dictate"
+        title={state === 'recording' ? t('dictate-stop-title', 'Stop and transcribe') : t('dictate', 'Dictate')}
+        aria-label={t('dictate', 'Dictate')}
       >
         {label}
       </button>
-      <button className="link" onClick={() => file.current?.click()} disabled={state !== 'idle'} title="Transcribe an audio file">
-        Audio file
+      <button
+        className="link"
+        onClick={() => file.current?.click()}
+        disabled={state !== 'idle'}
+        title={t('dictate-file-title', 'Transcribe an audio file')}
+      >
+        {t('dictate-file', 'Audio file')}
       </button>
       <input
         ref={file}

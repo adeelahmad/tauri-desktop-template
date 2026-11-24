@@ -163,14 +163,13 @@
 .titlebar {
   position: fixed;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   z-index: 100;
   height: var(--titlebar-height);
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-left: 12px;
+  padding-inline-start: 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   user-select: none;

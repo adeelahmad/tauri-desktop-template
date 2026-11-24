@@ -35,6 +35,8 @@ kitchen generate job send_digest                              # background job t
 kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E   # app action in the app menu (tray_menu)
 kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global shortcut for an action (tray_menu)
 kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (http_api)
+kitchen generate locale fr                                    # locales/fr/app.ftl from English, every message marked untranslated (i18n)
+kitchen generate locale en-XA --pseudo                        # a pseudo-locale: accented, longer text (i18n)
 
 kitchen hooks install             # git config core.hooksPath .githooks (fmt + clippy; prettier + eslint for React)
 kitchen hooks status | uninstall
@@ -54,6 +56,7 @@ kitchen service status            # installed? running? pid, log file
 kitchen service logs --lines 100 --follow
 kitchen service stop | start | restart | uninstall [--system]
 kitchen eval --baseline evals/baseline.json   # the app's search evals (feature evals); fails on a regression
+kitchen i18n check                # translations (feature i18n): missing/extra messages, Fluent syntax, the UI's ids
 kitchen set models=bundle_with_fallback   # ship the ML models inside the installer (or: kitchen enable bundled_models)
 kitchen models list               # models the installer can bundle: size, licence, which are in models.lock
 kitchen models add whisper-small  # add one to src-tauri/resources/models/models.lock (remove <name> drops it)
@@ -141,6 +144,19 @@ its accelerator) and adds a backend arm at `// kitchen:action-methods` in
 Users can rebind or clear it in Settings → Tray & shortcuts. They use the variables
 `{{name}}`, `{{Name}}`, `{{camelName}}` and `{{Title}}`.
 
+### Translations
+
+`kitchen generate locale <code>` and `kitchen i18n check` need the `i18n` feature (`kitchen
+enable i18n`). The app's messages are Fluent files, `locales/<code>/app.ftl`, with English
+(`locales/en/app.ftl`) as the source. `generate locale` copies English into a new locale and
+puts `# untranslated` above every message (`--pseudo` pseudo-translates it instead, to find
+hard-coded strings and layouts that cut text off); the backend and the UI pick the new file
+up on the next build. `i18n check` fails when a file is not valid Fluent, when a locale lacks a
+message English has or has one English does not, when a translation uses a `{ $variable }`
+English never passes, or when the UI (`t('id', …)`, `data-i18n="id"`) asks for an id English
+lacks. It counts the untranslated messages without failing. `kitchen test` runs it first, and
+the app's `make lint` runs it too.
+
 ### Background jobs
 
 `kitchen generate job <name>` needs the `background_jobs` feature (`kitchen enable
@@ -158,8 +174,8 @@ jitter, then wait in the dead letters until retried.
 claude mcp add kitchen -- kitchen mcp
 ```
 
-The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
-`start`, `test`, `package`, `publish`, `eject`, `service`, `eval` and `new`. Each one takes an optional
+The `generate` tool takes the kinds `module`, `setting`, `command`, `page`, `job`, `menu`, `shortcut`, `route` and `locale` (with `pseudo`). The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
+`start`, `test`, `package`, `publish`, `eject`, `service`, `eval`, `models`, `i18n_check` and `new`. Each one takes an optional
 `project` folder, and the ones that change files also take `dry_run`; `enable`, `disable`,
 `set` and `new` take `with_deps`, and `features` takes `check`. `start` keeps
 running, so it answers with the command to run in a terminal instead of blocking; `test`

@@ -5,15 +5,20 @@ import { useEffect, useState } from 'react';
 import { api } from './ipc.js';
 import Settings from './Settings.jsx';
 import { useAppearance } from './shell.js';
+import { setLocale, useLocale } from './i18n.js';
 
 export default function SettingsWindow() {
   const [features, setFeatures] = useState(null);
   const [error, setError] = useState('');
   useAppearance();
+  useLocale();
   useEffect(() => {
     api
       .app_info()
-      .then((i) => setFeatures(i.features))
+      .then(async (i) => {
+        await setLocale(i.settings.config?.ui?.language || 'system');
+        setFeatures(i.features);
+      })
       .catch((e) => setError(String(e)));
   }, []);
   if (error)

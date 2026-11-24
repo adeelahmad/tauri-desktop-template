@@ -7,6 +7,7 @@ import { listen } from '@tauri-apps/api/event';
 import Speak from './Speak.jsx';
 import Dictate from './Dictate.jsx';
 import { provenance } from './provenance.js';
+import { t } from './i18n.js';
 
 export default function Ask({ features }) {
   const [question, setQuestion] = useState('');
@@ -37,27 +38,27 @@ export default function Ask({ features }) {
     reply &&
     [
       `${reply.provider || ''} ${reply.model}`.trim(),
-      `${reply.input_tokens} in / ${reply.output_tokens} out tokens`,
-      reply.cached_tokens ? `${reply.cached_tokens} cached` : '',
+      t('ask-tokens', '{ $input } in / { $output } out tokens', { input: reply.input_tokens, output: reply.output_tokens }),
+      reply.cached_tokens ? t('ask-cached-tokens', '{ $count } cached', { count: reply.cached_tokens }) : '',
       reply.cost_usd != null ? `$${reply.cost_usd.toFixed(4)}` : '',
-      reply.attempts?.length ? `after ${reply.attempts.length} failed ${reply.attempts.length === 1 ? 'try' : 'tries'}` : '',
-      result.cached ? 'from the answer cache' : '',
+      reply.attempts?.length ? t('ask-failed-tries', 'after { $count } failed tries', { count: reply.attempts.length }) : '',
+      result.cached ? t('ask-from-cache', 'from the answer cache') : '',
     ]
       .filter(Boolean)
       .join(' · ');
   return (
     <section>
-      <h2>Ask</h2>
+      <h2>{t('ask-title', 'Ask')}</h2>
       <div className="row">
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && run()}
-          placeholder="Ask about your documents"
-          aria-label="Question"
+          placeholder={t('ask-placeholder', 'Ask about your documents')}
+          aria-label={t('ask-question', 'Question')}
         />
         <button onClick={run} disabled={busy}>
-          {busy ? 'Thinking…' : 'Ask'}
+          {busy ? t('ask-thinking', 'Thinking…') : t('ask-go', 'Ask')}
         </button>
         {features?.stt && <Dictate onText={setQuestion} />}
       </div>
@@ -82,7 +83,7 @@ export default function Ask({ features }) {
               <li key={i}>
                 <span className="meta" title={provenance(h.prov)}>
                   [{i + 1}] {h.source}
-                  {h.page ? `, page ${h.page}` : ''}
+                  {h.page ? t('search-page', ', page { $page }', { page: h.page }) : ''}
                 </span>
               </li>
             ))}

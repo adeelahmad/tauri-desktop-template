@@ -88,6 +88,7 @@ let LICENCES = [
     ["ipc_worker", ""],
     ["background_jobs", ""],
     ["http_api", ""],
+    ["i18n", ""],
     ["kv", ""],
     ["cache", ""],
 ];

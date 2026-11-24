@@ -27,6 +27,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Untrusted input](#untrusted-input)
 - [Typed IPC](#typed-ipc)
 - [Accessibility](#accessibility)
+- [Translations](#translations)
 - [Tests](#tests)
 - [Search evals](#search-evals)
 - [Postgres upgrades](#postgres-upgrades)
@@ -598,6 +599,74 @@ What the UI does for this, and what new screens should keep doing:
 on status lines and visible focus rings (see the React UI's `npm run a11y` for the checks).
 {% endif %}
 
+## Translations
+
+{% if i18n %}This app has the `i18n` feature.{% else %}This needs the `i18n` feature (`kitchen enable i18n`); this app does not have it yet.{% endif %}
+Every message the app shows comes from one set of [Fluent](https://projectfluent.org/fluent/guide/)
+files, `locales/<code>/app.ftl`, shared by the backend and the UI. English is the source;
+German (`de`) and Arabic (`ar`, right to left) ship as examples.
+
+```ftl
+action-done-imported = Imported the drop folder: { $files ->
+    [one] one file
+   *[other] { $files } files
+}.
+setting-ui-language = Language
+    .help = Menus and messages switch at once.
+```
+
+- **Backend** (`desktop_core::i18n`): `t!("action-done-paused")`, or with arguments
+  `t!("error-store", detail = e.to_string())`. It translates the native menus and tray
+  (`src-tauri/src/tray.rs`), the test email, and the `message` of command errors; the
+  error `code` never changes, so the UI and scripts can still match on it. The `.ftl` files
+  are compiled in by `desktop-core/build.rs`.
+- **UI**: {% if frontend == "react" %}`t('add-text-done', 'Added { $count } chunks.', { count })` from
+  `ui-react/src/i18n.js`, with the files embedded by Vite (`ui-react/src/locales.js`,
+  `@fluent/bundle`). A component that shows text calls `useLocale()` so it redraws when the
+  language changes.{% else %}`t('add-text-done', 'Added { $count } chunks.', { count })` from
+  `ui/i18n.js`, and `data-i18n="id"` (or `data-i18n-placeholder`, `-title`, `-aria-label`) on
+  static HTML. The messages come from the backend (`i18n_bundle`) already parsed.{% endif %}
+  The English text sits next to the id, so the UI reads well with the feature off and a
+  missing translation shows English.
+- **Language**: `ui.language` is `system` by default (the OS language through `sys-locale`,
+  matched to the closest locale, then English). Settings → Language switches it at once in
+  every window and the tray. Arabic, Hebrew, Persian and Urdu set `<html dir="rtl">`; the
+  CSS uses logical properties (`margin-inline-start`, `padding-inline-start`, `inset-inline`,
+  `text-align: start`), so layouts mirror by themselves. Keep using them.
+- **Plurals, numbers, dates**: plural forms follow each language's CLDR rules (Arabic has
+  six); `NUMBER($n, minimumFractionDigits: 1)` and plain numbers use the locale's digits and
+  separators; `DATETIME($ms, dateStyle: "long")` formats dates from a small table of month
+  names and orders (en, de, fr, es, ar; others fall back to ISO dates).
+
+Why Fluent and not ICU4X: Fluent is a message format (variables, plurals, attributes,
+fallback between locales) with one Rust crate (`fluent-bundle`) and one JS package
+(`@fluent/bundle`) that read the same files. ICU4X formats numbers, dates and plurals with
+the full CLDR data, but has no message format and adds megabytes of data to the binary;
+Fluent plus a small date table covers what a desktop app's messages need. If you need full
+CLDR date formats, put `icu` behind the same `format_date` function.
+
+### A new language
+
+```sh
+kitchen generate locale fr          # locales/fr/app.ftl: English, every message marked "# untranslated"
+# translate it, starting with `language-name = Français`, and delete each "# untranslated" line
+kitchen i18n check                  # missing or extra messages, Fluent syntax, the UI's ids
+```
+
+Rebuild, and the language appears in Settings. `kitchen generate locale en-XA --pseudo`
+makes an accented, longer pseudo-locale for finding hard-coded text and layouts that cut
+text off{% if frontend == "react" %}; `npm run dev` with `?locale=ar` shows right to left in the browser, and `?pseudo=1` the built-in pseudo-locale{% endif %}.
+
+### A new message
+
+Add it to `locales/en/app.ftl` and every other locale (English text is fine until someone
+translates it), then use it. `kitchen i18n check` (also in `kitchen test` and `make lint`)
+fails when a locale is missing a message English has, has one English does not, uses a
+variable the English message never passes, or when the UI asks for an id English lacks.
+Settings fields are translated by id: `setting-<section>-<key>` for the label (a camelCase
+or dotted key becomes kebab-case), `setting-<section>-<key>-<option>` for a choice and
+`section-<id>` for a section title.
+
 ## Tests
 
 ```sh
@@ -857,6 +926,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`bindings`](../desktop-core/src/bindings.rs) | `ts` (tests only) | Typed IPC: TypeScript types for the Tauri commands ([Typed IPC](#typed-ipc)) |
 | [`governor`](../desktop-core/src/governor.rs) | always | CPU share and background priority for ingest |
 | [`audio`](../desktop-core/src/audio.rs) | always | WAV, PCM, resampling, base64 |
+| [`i18n`](../desktop-core/src/i18n.rs) | `i18n` | Translations: Fluent catalogue, `t!`, plurals, numbers and dates per locale, the OS language, right-to-left ([Translations](#translations)) |
 | [`untrusted`](../desktop-core/src/untrusted.rs) | always | Size caps for outside input, capped reads, panic guard ([Untrusted input](#untrusted-input)) |
 | [`embed`](../desktop-core/src/embed.rs) | `embed` | Local ONNX embeddings (fastembed) |
 | [`pdf`](../desktop-core/src/pdf.rs) | `pdf` | PDF text, with OCR for pages without text; parsed in `<app> --parse` |
@@ -981,6 +1051,7 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `ipc_worker` | interprocess: 0BSD OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
+| `i18n` | fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `kv` | redb: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `cache` | moka: (MIT OR Apache-2.0) AND Apache-2.0 | none (MIT / Apache-2.0) |
 <!-- /kitchen:feature-dependencies -->

@@ -271,6 +271,8 @@ struct Features {
     release_channels: bool,
     /// Search and RAG evals, `--eval` (`evals`).
     evals: bool,
+    /// Translations and the language setting (`i18n`).
+    i18n: bool,
     /// The built-in key-value store (`kv`).
     kv: bool,
     /// The built-in in-memory cache (`cache`).
@@ -312,6 +314,7 @@ fn features() -> Features {
         supply_chain: cfg!(feature = "supply-chain"),
         release_channels: cfg!(all(desktop, feature = "release-channels")),
         evals: cfg!(feature = "evals"),
+        i18n: cfg!(feature = "i18n"),
         kv: cfg!(feature = "kv"),
         cache: cfg!(feature = "cache"),
     }
@@ -531,6 +534,11 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
+{% if i18n %}    // Menus, the tray and this process's messages switch language at once (the UI asks
+    // for its own bundle with `i18n_bundle`).
+    #[cfg(feature = "i18n")]
+    desktop_core::i18n::set_locale(&applied.ui.language);
+{% endif %}
     #[cfg(all(desktop, feature = "http-api"))]
     http::apply(state.service.clone(), &applied.http_api);
     // The tray, the menus and the shortcuts change at once.
@@ -539,7 +547,18 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     Ok(applied)
 }
 
-/// Back up the index now.
+{% if i18n %}/// The messages for one locale (feature `i18n`): `locale` is `system` (or left out: the saved
+/// `ui.language`) or a code; the closest built-in locale is used. The plain UI formats with
+/// its `messages`; the React UI embeds the same `locales/*/app.ftl` at build time and uses
+/// this only for the language list and direction.
+#[cfg(feature = "i18n")]
+#[tauri::command]
+fn i18n_bundle(app: tauri::AppHandle, locale: Option<String>) -> desktop_core::i18n::Bundle {
+    let wanted = locale.unwrap_or_else(|| load_settings(&app).config.ui.language);
+    desktop_core::i18n::bundle(&wanted)
+}
+
+{% endif %}/// Back up the index now.
 #[tauri::command(async)]
 fn backup_now(state: tauri::State<AppState>) -> Result<Value, CommandError> {
     call(&state, "backup", Value::Null)
@@ -1306,7 +1325,10 @@ pub fn run() {
         }
         #[cfg(feature = "mcp")]
         mcp_heartbeat();
-        #[cfg(all(desktop, feature = "tray-menu"))]
+{% if i18n %}        // The saved language (or the OS one) before the first menu is built.
+        #[cfg(feature = "i18n")]
+        desktop_core::i18n::set_locale(&load_settings(app.handle()).config.ui.language);
+{% endif %}        #[cfg(all(desktop, feature = "tray-menu"))]
         tray::apply(app.handle(), &load_settings(app.handle()).config);
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
@@ -1479,6 +1501,8 @@ pub fn run() {
             webview::webview_close,
             #[cfg(all(desktop, feature = "webview"))]
             webview::webview_post,
+{% endif %}{% if i18n %}            #[cfg(feature = "i18n")]
+            i18n_bundle,
 {% endif %}            // kitchen:handlers
         ]{% if webview %}){% endif %})
         .build(tauri::generate_context!())
@@ -1580,7 +1604,9 @@ mod tests {
         b.add::<update::UpdateInfo>("update::UpdateInfo");
 {% if release_channels %}        #[cfg(all(desktop, feature = "release-channels"))]
         b.add::<update::ChannelStatus>("update::ChannelStatus");
-{% endif %}{% endif %}{% if kv %}        #[cfg(feature = "kv")]
+{% endif %}{% endif %}{% if i18n %}        #[cfg(feature = "i18n")]
+        b.add::<desktop_core::i18n::Bundle>("desktop_core::i18n::Bundle");
+{% endif %}{% if kv %}        #[cfg(feature = "kv")]
         b.add::<desktop_core::kv::KvEntry>("desktop_core::kv::KvEntry").add::<desktop_core::kv::KvInfo>("desktop_core::kv::KvInfo");
 {% endif %}{% if cache %}        #[cfg(feature = "cache")]
         b.add::<desktop_core::cache::CacheStats>("desktop_core::cache::CacheStats");
@@ -1618,7 +1644,7 @@ mod tests {
             "feature" => features!(
                 "embed", "postgres", "bm25", "watch", "ai", "llama", "mcp", "tts", "stt", "mail", "oauth", "telemetry", "plugins", "jobs-queue", "rclone", "tailscale",
                 "http-api", "webview", "single-instance", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "daemon", "python-example", "claude-mcp",
-                "tray-menu", "app-shell", "supply-chain", "release-channels", "ts", "kv", "cache",
+                "tray-menu", "app-shell", "supply-chain", "release-channels", "ts", "i18n", "kv", "cache",
             ),
             _ => None,
         }

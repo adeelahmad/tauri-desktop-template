@@ -36,6 +36,7 @@ feature afterwards.
 | `install_scripts` | `curl … \| sh` (macOS, no Gatekeeper prompt) and PowerShell one-liners |
 | `claude_mcp` | Bundles uv and registers a Python MCP server in Claude Desktop (config backed up first) |
 | `app_shell` | Custom titlebar (Windows and Linux buttons and drag region, macOS traffic lights over the content), six named themes in light, dark and system mode with no flash of the wrong theme, interface and editor fonts, and Settings in a second window (Cmd/Ctrl+,) with its own minimal capability. React and plain UI. Default off |
+| `i18n` | Translations with Fluent (`locales/<code>/app.ftl`; English, German and Arabic to start): the UI, native menus and tray, the test email and backend error messages (the error code stays the same). Plurals and numbers per language, dates from a small table, the OS language by default (`ui.language`), a language switcher in Settings that applies at once, right-to-left layouts with logical CSS. `kitchen generate locale <code> [--pseudo]` and `kitchen i18n check`. Default off |
 | `tauri_plugins` | Official Tauri plugins, one answer each: dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log, http (URL allowlist), positioner, shell (explicit command list only). Default off |
 
 Always included: a file store with BM25, vector and hybrid (RRF) search, configurable
@@ -106,6 +107,7 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `ipc_worker` | interprocess: 0BSD OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
+| `i18n` | fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `kv` | redb: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `cache` | moka: (MIT OR Apache-2.0) AND Apache-2.0 | none (MIT / Apache-2.0) |
 <!-- /kitchen:feature-dependencies -->
