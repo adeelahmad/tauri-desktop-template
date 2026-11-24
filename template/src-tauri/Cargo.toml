@@ -18,7 +18,8 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 # What you chose when generating; `cargo build --no-default-features --features ...` picks others.
-default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if plugins %}"plugins", {% endif %}{% if background_jobs %}"jobs-queue", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if webview %}"webview", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% if daemon %}"daemon", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}{% if tray_menu %}"tray-menu", {% endif %}]
+default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if plugins %}"plugins", {% endif %}{% if background_jobs %}"jobs-queue", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if http_api %}"http-api", {% endif %}{% if webview %}"webview", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% if daemon %}"daemon", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}{% if tray_menu %}"tray-menu", {% endif %}]
+
 {% if embeddings -%}
 embed = ["desktop-core/embed"]
 {% endif -%}
@@ -60,6 +61,10 @@ rclone = ["desktop-core/rclone"]
 {% endif -%}
 {% if tailscale -%}
 tailscale = ["desktop-core/tailscale"]
+{% endif -%}
+{% if http_api -%}
+# The local REST API (desktop only): desktop_core::http_api, served from this process.
+http-api = ["desktop-core/http-api"]
 {% endif -%}
 {% if webview -%}
 # Remote pages in the app's own windows, behind an allowlist, with no IPC (desktop only).

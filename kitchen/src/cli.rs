@@ -32,6 +32,7 @@ Usage:
   kitchen generate job <name>          a background job type (needs background_jobs)
   kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
   kitchen generate shortcut <action> <keys>                                   (tray_menu)
+  kitchen generate route <name>        POST /v1/<name> on the HTTP API (needs http_api)
   kitchen doctor [--json]              check this machine and this app
   kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
                                        the app's daemon as an OS service (feature daemon)
@@ -195,7 +196,7 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             let root = project()?.root;
             let kind = args.word(
                 1,
-                "what to generate (module, setting, command, page, menu, shortcut, job)",
+                "what to generate (module, setting, command, page, menu, shortcut, job, route)",
             )?;
             let name = args.word(2, "a name")?;
             match kind {
@@ -224,8 +225,9 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
                     &opts,
                 ),
                 "job" => generate::job(&root, name, &opts),
+                "route" => generate::route(&root, name, &opts),
                 other => Err(Error::Usage(format!(
-                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut or job"
+                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut, job or route"
                 ))),
             }
         }

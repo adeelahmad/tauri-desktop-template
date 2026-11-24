@@ -41,9 +41,9 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "project": project, "dry_run": dry}, "required": ["name", "value"]}},
         {"name": "upgrade", "description": "Move the app to a newer template commit, keeping its edits.",
          "inputSchema": {"type": "object", "properties": {"rev": {"type": "string"}, "project": project, "dry_run": dry}}},
-        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut), shortcut (name = action id, shortcut) or job (name; a background job type, needs background_jobs). menu and shortcut need the tray_menu feature.",
+        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut), shortcut (name = action id, shortcut) or job (name; a background job type, needs background_jobs) or route (name; POST /v1/<name> on the HTTP API, needs http_api). menu and shortcut need the tray_menu feature.",
          "inputSchema": {"type": "object", "properties": {
-             "kind": {"type": "string", "enum": ["module", "setting", "command", "page", "menu", "shortcut", "job"]},
+             "kind": {"type": "string", "enum": ["module", "setting", "command", "page", "menu", "shortcut", "job", "route"]},
              "name": {"type": "string"}, "config": {"type": "boolean"},
              "type": {"type": "string", "enum": ["bool", "int", "float", "text", "list"]},
              "default": {"type": "string"}, "label": {"type": "string"},
