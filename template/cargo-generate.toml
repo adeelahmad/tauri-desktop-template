@@ -172,7 +172,7 @@ ignore = ["desktop-core/src/pgstore.rs", "desktop-core/pg-ext.sha256", ".github/
 ignore = ["desktop-core/src/mcp.rs", "src-tauri/src/mcp.rs"]
 
 [conditional.'!ai']
-ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs"]
+ignore = ["desktop-core/src/llm.rs", "desktop-core/src/local.rs", "desktop-core/src/cache.rs"]
 
 [conditional.'ai && !local_llm']
 ignore = ["desktop-core/src/local.rs"]

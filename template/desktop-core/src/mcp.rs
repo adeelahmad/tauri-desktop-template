@@ -5,14 +5,41 @@
 //! this module does the protocol, the policy and the audit log:
 //! - only read-only tools are offered unless `McpConfig::allow_write` is on;
 //! - `McpConfig::tools`, when not empty, is the allowlist of tool names;
+//! - `McpConfig::policies` sets each tool (or `*`, every other tool) to `allow`, `ask` or
+//!   `deny`. An `ask` call waits until someone approves it in the app (`Approvals`, a small
+//!   file queue in the data folder that the window polls); when the app is not running, or
+//!   nobody answers within `approval_timeout_secs`, the call is refused with a clear error;
 //! - every call is appended to the audit log (time, tool, ok, duration; never the arguments
 //!   unless `audit_arguments` is on, since they can hold private text).
+//!
+//! ```
+//! use desktop_core::mcp::{McpConfig, Tool, ToolPolicy};
+//! let mut cfg = McpConfig::default();
+//! cfg.policies.insert("ask".into(), ToolPolicy::Ask);
+//! let tool = |name: &str| Tool { name: name.into(), description: String::new(), input_schema: serde_json::json!({}), read_only: true };
+//! assert_eq!(cfg.policy(&tool("ask")), ToolPolicy::Ask);
+//! assert_eq!(cfg.policy(&tool("search")), ToolPolicy::Allow, "no entry: allowed, as before");
+//! ```
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// What happens when a client calls a tool.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolPolicy {
+    /// Run it.
+    #[default]
+    Allow,
+    /// Run it only after someone approves the call in the app.
+    Ask,
+    /// Hide it and refuse calls.
+    Deny,
+}
 
 /// The protocol revision this server speaks (it also accepts older clients).
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -32,23 +59,210 @@ pub struct McpConfig {
     pub audit_arguments: bool,
     /// Largest reply text, in characters (longer replies are cut).
     pub max_result_chars: usize,
+    /// Per-tool policy by tool name; `*` covers tools without their own entry. Empty: every
+    /// tool the gates above let through is allowed (the default).
+    pub policies: BTreeMap<String, ToolPolicy>,
+    /// How long an `ask` call waits for an answer in the app before it is refused.
+    pub approval_timeout_secs: u64,
 }
 
 impl Default for McpConfig {
     fn default() -> Self {
-        Self { enabled: false, allow_write: false, tools: Vec::new(), audit_log: true, audit_arguments: false, max_result_chars: 100_000 }
+        Self {
+            enabled: false,
+            allow_write: false,
+            tools: Vec::new(),
+            audit_log: true,
+            audit_arguments: false,
+            max_result_chars: 100_000,
+            policies: BTreeMap::new(),
+            approval_timeout_secs: 60,
+        }
     }
 }
 
 impl McpConfig {
+    /// The same config with every value in a safe range (called from `Config::validated`).
     pub fn validated(mut self) -> Self {
         self.max_result_chars = self.max_result_chars.clamp(1_000, 10_000_000);
         self.tools.retain(|t| !t.trim().is_empty());
+        self.policies = self.policies.into_iter().map(|(k, v)| (k.trim().to_string(), v)).filter(|(k, _)| !k.is_empty()).collect();
+        self.approval_timeout_secs = self.approval_timeout_secs.clamp(5, 600);
         self
     }
 
-    fn allows(&self, tool: &Tool) -> bool {
-        (tool.read_only || self.allow_write) && (self.tools.is_empty() || self.tools.iter().any(|t| t == &tool.name))
+    /// The policy for `tool`. The older gates come first: a write tool without
+    /// `allow_write`, or a tool missing from a non-empty `tools` list, is `Deny` whatever
+    /// `policies` says. Then the tool's own entry, then `*`, then `Allow`.
+    pub fn policy(&self, tool: &Tool) -> ToolPolicy {
+        let gated = (tool.read_only || self.allow_write) && (self.tools.is_empty() || self.tools.iter().any(|t| t == &tool.name));
+        if !gated {
+            return ToolPolicy::Deny;
+        }
+        self.policies.get(&tool.name).or_else(|| self.policies.get("*")).copied().unwrap_or_default()
+    }
+}
+
+/// How an `ask` call ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Approval {
+    Approved,
+    Denied,
+    /// Nobody answered in time.
+    TimedOut,
+    /// The app is not running, so nobody can answer.
+    NoApp,
+    /// The queue could not be used (the message says why).
+    Failed(String),
+}
+
+/// Decides `ask` calls. `Approvals` is the real one; tests use their own.
+pub trait Approver {
+    fn approve(&self, tool: &str, args: &Value, timeout: Duration) -> Approval;
+}
+
+/// A call waiting for approval, as the app shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PendingCall {
+    pub id: String,
+    pub tool: String,
+    /// The arguments as JSON text, cut to 2000 characters.
+    pub arguments: String,
+    /// Unix seconds when the call arrived, and when it is refused unless answered.
+    pub asked: u64,
+    pub deadline: u64,
+}
+
+/// The approval queue: one small file per waiting call in `<data>/mcp-approvals`, so the
+/// MCP process (started by the client) and the app (or its worker) share it with no socket.
+/// The app writes `app-alive` every few seconds while it runs (`heartbeat`); without a
+/// fresh one, `ask` calls are refused at once instead of waiting.
+///
+/// ```
+/// use desktop_core::mcp::{Approval, Approvals, Approver};
+/// use std::time::Duration;
+/// let dir = tempfile::tempdir().unwrap();
+/// let q = Approvals::new(dir.path());
+/// // The app is not running: refused at once.
+/// assert_eq!(q.approve("ask", &serde_json::json!({}), Duration::from_secs(5)), Approval::NoApp);
+/// q.heartbeat().unwrap();
+/// assert!(q.app_running());
+/// assert!(q.pending().is_empty());
+/// ```
+#[derive(Debug, Clone)]
+pub struct Approvals {
+    dir: PathBuf,
+}
+
+/// The app counts as running while its heartbeat is younger than this.
+pub const HEARTBEAT_MAX_AGE: Duration = Duration::from_secs(15);
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Write `bytes` to `path` through a temporary file, owner-only on Unix.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    let mut o = std::fs::OpenOptions::new();
+    o.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(&tmp)?.write_all(bytes)?;
+    std::fs::rename(tmp, path)
+}
+
+impl Approvals {
+    /// The queue under `data_dir` (the folder is made on first use).
+    pub fn new(data_dir: &Path) -> Self {
+        Self { dir: data_dir.join("mcp-approvals") }
+    }
+
+    /// Mark the app as running (call every few seconds from the app).
+    pub fn heartbeat(&self) -> std::io::Result<()> {
+        std::fs::create_dir_all(&self.dir)?;
+        write_private(&self.dir.join("app-alive"), now_secs().to_string().as_bytes())
+    }
+
+    /// Mark the app as stopped (on quit), so calls are refused at once.
+    pub fn stopped(&self) {
+        let _ = std::fs::remove_file(self.dir.join("app-alive"));
+    }
+
+    /// Whether the app wrote a heartbeat in the last `HEARTBEAT_MAX_AGE`.
+    pub fn app_running(&self) -> bool {
+        let beat = std::fs::read_to_string(self.dir.join("app-alive")).ok().and_then(|t| t.trim().parse::<u64>().ok());
+        beat.is_some_and(|t| now_secs().saturating_sub(t) <= HEARTBEAT_MAX_AGE.as_secs())
+    }
+
+    /// Calls waiting for an answer, oldest first (expired ones are left out and removed).
+    pub fn pending(&self) -> Vec<PendingCall> {
+        let Ok(entries) = std::fs::read_dir(&self.dir) else { return Vec::new() };
+        let now = now_secs();
+        let mut out: Vec<PendingCall> = entries
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".call"))
+            .filter_map(|e| {
+                let call: PendingCall = serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok()?;
+                if call.deadline < now {
+                    let _ = std::fs::remove_file(e.path());
+                    return None;
+                }
+                Some(call)
+            })
+            .collect();
+        out.sort_by(|a, b| (a.asked, &a.id).cmp(&(b.asked, &b.id)));
+        out
+    }
+
+    /// Answer a waiting call. Fails when the id is unknown or the call already ended.
+    pub fn decide(&self, id: &str, allow: bool) -> Result<(), String> {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("not a call id".into());
+        }
+        if !self.dir.join(format!("{id}.call")).is_file() {
+            return Err("that call is no longer waiting".into());
+        }
+        write_private(&self.dir.join(format!("{id}.answer")), if allow { b"allow" } else { b"deny" }).map_err(|e| e.to_string())
+    }
+
+    fn new_id() -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        format!("{nanos:x}{:x}{:x}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl Approver for Approvals {
+    fn approve(&self, tool: &str, args: &Value, timeout: Duration) -> Approval {
+        if !self.app_running() {
+            return Approval::NoApp;
+        }
+        let id = Self::new_id();
+        let asked = now_secs();
+        let call = PendingCall { id: id.clone(), tool: tool.into(), arguments: args.to_string().chars().take(2000).collect(), asked, deadline: asked + timeout.as_secs() };
+        let (call_file, answer_file) = (self.dir.join(format!("{id}.call")), self.dir.join(format!("{id}.answer")));
+        let written = std::fs::create_dir_all(&self.dir).and_then(|()| write_private(&call_file, &serde_json::to_vec(&call).unwrap_or_default()));
+        if let Err(e) = written {
+            return Approval::Failed(format!("approval queue: {e}"));
+        }
+        let started = Instant::now();
+        let result = loop {
+            if let Ok(a) = std::fs::read_to_string(&answer_file) {
+                break if a.trim() == "allow" { Approval::Approved } else { Approval::Denied };
+            }
+            if started.elapsed() >= timeout {
+                break Approval::TimedOut;
+            }
+            if !self.app_running() {
+                break Approval::NoApp;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        };
+        let _ = std::fs::remove_file(&call_file);
+        let _ = std::fs::remove_file(&answer_file);
+        result
     }
 }
 
@@ -87,6 +301,8 @@ pub struct Server<'a> {
     pub config: McpConfig,
     pub audit_file: Option<PathBuf>,
     pub handler: &'a dyn Handler,
+    /// Decides `ask` calls; with none, every `ask` call is refused.
+    pub approver: Option<&'a dyn Approver>,
 }
 
 impl Server<'_> {
@@ -152,18 +368,34 @@ impl Server<'_> {
     }
 
     fn allowed(&self) -> Vec<Tool> {
-        self.handler.tools().into_iter().filter(|t| self.config.allows(t)).collect()
+        self.handler.tools().into_iter().filter(|t| self.config.policy(t) != ToolPolicy::Deny).collect()
     }
 
     fn call_tool(&self, id: Value, params: &Value) -> Value {
         let Some(name) = params.get("name").and_then(Value::as_str) else {
             return error(id, -32602, "tools/call needs a name");
         };
-        if !self.allowed().iter().any(|t| t.name == name) {
+        let Some(tool) = self.allowed().into_iter().find(|t| t.name == name) else {
             return error(id, -32602, &format!("unknown or disabled tool: {name}"));
-        }
+        };
         let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
         let started = Instant::now();
+        if self.config.policy(&tool) == ToolPolicy::Ask {
+            let timeout = Duration::from_secs(self.config.approval_timeout_secs);
+            let refused = match self.approver.map(|a| a.approve(name, &args, timeout)) {
+                Some(Approval::Approved) => None,
+                Some(Approval::Denied) => Some(format!("The user declined this {name} call.")),
+                Some(Approval::TimedOut) => Some(format!("Nobody approved this {name} call within {} seconds, so it was refused.", timeout.as_secs())),
+                Some(Approval::NoApp) | None => {
+                    Some(format!("The {name} tool needs approval in the app, and the app is not running. Open it and try again."))
+                }
+                Some(Approval::Failed(e)) => Some(format!("The {name} call could not be put up for approval ({e}), so it was refused.")),
+            };
+            if let Some(text) = refused {
+                self.audit(name, &args, false, started.elapsed().as_millis());
+                return ok(id, json!({"content": [{"type": "text", "text": text}], "isError": true}));
+            }
+        }
         let result = self.handler.call(name, args.clone());
         self.audit(name, &args, result.is_ok(), started.elapsed().as_millis());
         match result {
@@ -240,7 +472,88 @@ mod tests {
     }
 
     fn server(config: McpConfig, audit: Option<PathBuf>) -> Server<'static> {
-        Server { name: "demo".into(), version: "1".into(), instructions: None, config, audit_file: audit, handler: &Demo }
+        Server { name: "demo".into(), version: "1".into(), instructions: None, config, audit_file: audit, handler: &Demo, approver: None }
+    }
+
+    fn tool(name: &str, read_only: bool) -> Tool {
+        Tool { name: name.into(), description: String::new(), input_schema: json!({}), read_only }
+    }
+
+    #[test]
+    fn policy_resolution() {
+        let mut c = McpConfig::default();
+        assert_eq!(c.policy(&tool("echo", true)), ToolPolicy::Allow, "empty map: allowed");
+        assert_eq!(c.policy(&tool("wipe", false)), ToolPolicy::Deny, "write tools stay behind allowWrite");
+        c.policies.insert("wipe".into(), ToolPolicy::Allow);
+        assert_eq!(c.policy(&tool("wipe", false)), ToolPolicy::Deny, "a policy cannot lift the write gate");
+        c.allow_write = true;
+        c.policies.insert("*".into(), ToolPolicy::Ask);
+        c.policies.insert("echo".into(), ToolPolicy::Deny);
+        assert_eq!(c.policy(&tool("wipe", false)), ToolPolicy::Allow, "own entry beats *");
+        assert_eq!(c.policy(&tool("echo", true)), ToolPolicy::Deny);
+        assert_eq!(c.policy(&tool("other", true)), ToolPolicy::Ask, "* covers the rest");
+        c.tools = vec!["wipe".into()];
+        assert_eq!(c.policy(&tool("other", true)), ToolPolicy::Deny, "the allowlist still applies");
+        let parsed: McpConfig = serde_json::from_str(r#"{"policies": {" ask ": "ask", "": "deny"}, "approvalTimeoutSecs": 1}"#).unwrap();
+        let parsed = parsed.validated();
+        assert_eq!(parsed.policies.len(), 1);
+        assert_eq!(parsed.policies["ask"], ToolPolicy::Ask);
+        assert_eq!(parsed.approval_timeout_secs, 5);
+    }
+
+    struct Fixed(Approval);
+    impl Approver for Fixed {
+        fn approve(&self, _: &str, _: &Value, _: Duration) -> Approval {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn ask_waits_for_the_approver() {
+        let mut c = McpConfig::default();
+        c.policies.insert("echo".into(), ToolPolicy::Ask);
+        let call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"a":1}}}"#;
+        let r = run(&server(c.clone(), None), call);
+        assert_eq!(r[0]["result"]["isError"], true, "no approver: refused");
+        assert!(r[0]["result"]["content"][0]["text"].as_str().unwrap().contains("not running"));
+        for (answer, refused) in [(Approval::Approved, false), (Approval::Denied, true), (Approval::TimedOut, true), (Approval::NoApp, true)] {
+            let a = Fixed(answer);
+            let s = Server { approver: Some(&a), ..server(c.clone(), None) };
+            let r = run(&s, call);
+            assert_eq!(r[0]["result"]["isError"], refused, "{:?}", a.0);
+        }
+        c.policies.insert("echo".into(), ToolPolicy::Deny);
+        let r = run(&server(c, None), r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+        assert!(r[0]["result"]["tools"].as_array().unwrap().is_empty(), "denied tools are hidden");
+    }
+
+    #[test]
+    fn approval_queue_round_trip() {
+        let d = tempfile::tempdir().unwrap();
+        let q = Approvals::new(d.path());
+        assert_eq!(q.approve("x", &json!({}), Duration::from_secs(5)), Approval::NoApp);
+        q.heartbeat().unwrap();
+        let waiter = {
+            let q = q.clone();
+            std::thread::spawn(move || q.approve("ask", &json!({"question": "q"}), Duration::from_secs(20)))
+        };
+        let call = loop {
+            if let Some(c) = q.pending().pop() {
+                break c;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(call.tool, "ask");
+        assert!(call.arguments.contains("question"));
+        assert!(q.decide("../etc", true).is_err());
+        q.decide(&call.id, true).unwrap();
+        assert_eq!(waiter.join().unwrap(), Approval::Approved);
+        assert!(q.pending().is_empty());
+        assert!(q.decide(&call.id, false).is_err(), "already answered");
+        // A short wait with no answer times out; a stopped app refuses at once.
+        assert_eq!(q.approve("ask", &json!({}), Duration::from_millis(300)), Approval::TimedOut);
+        q.stopped();
+        assert!(!q.app_running());
     }
 
     #[test]

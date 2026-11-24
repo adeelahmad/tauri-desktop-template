@@ -68,7 +68,7 @@ Everything runs on the user's machine.
 | Security defaults: navigation limited to the app's own pages, strict CSP, frozen JS prototypes, no global Tauri object with React, dev tools in debug builds only (`APP_DEVTOOLS=1` opens them) | `src-tauri/src/guard.rs`, `tauri.conf.json` | always |
 | JSON-lines logs per process in the app data `logs/` folder, rotated by size, home folder written as `~`; level in Settings → Logs or `APP_LOG=warn,desktop_core=debug` | `desktop-core/src/logging.rs` | always |
 {% if mcp_server -%}
-| MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
+| MCP server in Rust (`app --mcp`, stdio): search, status, ask; write tools only when allowed; per-tool allow/ask/deny, where "ask" waits for Approve in Settings (refused when the app is closed); audit log. Settings → MCP server → Add to Claude Desktop | `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs` | `mcp` |
 {% endif -%}
 {% if pdf -%}
 | PDF text (docling.rs) with tesseract OCR fallback | `desktop-core/src/pdf.rs` | `pdf` |
@@ -190,6 +190,15 @@ is off by default; values are clamped to safe ranges.
 | `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |
 | `watch.enabled` | false | auto-ingest from the drop folder (`Documents/<app> Inbox`) and `watch.paths` |
 | `backup.intervalHours`, `backup.keep`, `backup.folder`, `backup.encrypt` | 0, 5, app data, off | scheduled backups; a synced folder keeps a copy off the computer |
+| `resources.memoryBudgetMb` | 0 (none) | caps ingest workers and embedding batches by free memory inside the budget; files that would not fit are skipped with a reason |
+| `resources.gpuBudget`, `resources.gpuLayers` | off, 0 | cap the local model's GPU layers (0 = CPU only) |
+| `resources.onnxProvider` | `cpu` | preferred ONNX Runtime provider (`auto`, `coreml`, `directml`, `cuda`); falls back to the CPU when not built in |
+{% if ai -%}
+| `llm.cache.enabled`, `llm.cache.ttlHours`, `llm.cache.maxEntries`, `llm.cache.similarity` | off, 24, 500, 0.95 | answer cache (`answer-cache.jsonl`): same question, or a near-identical one by cosine with embeddings; emptied on ingest, remove and clear |
+{% endif -%}
+{% if mcp_server -%}
+| `mcp.policies`, `mcp.approvalTimeoutSecs` | empty (allow), 60 | `{"ask": "ask", "*": "allow"}`: per-tool `allow`, `ask` or `deny`; `allowWrite` and `tools` still apply first |
+{% endif -%}
 {% if email -%}
 | `mail.enabled`, `mail.host`, `mail.port`, `mail.security` | off, empty, 587, `starttls` | SMTP server; `tls` for port 465; `none` only to this computer |
 | `mail.username`, `mail.from`, `mail.maxMb`, `mail.timeoutSecs` | empty, empty, 25, 30 | login (empty = none), sender, largest message, timeout |

@@ -26,6 +26,8 @@ pub mod pgstore;
 {% endif %}{% if watch_folders %}#[cfg(feature = "watch")]
 pub mod watch;
 {% endif %}{% if ai %}#[cfg(feature = "ai")]
+pub mod cache;
+#[cfg(feature = "ai")]
 pub mod llm;
 {% endif %}{% if mcp_server %}#[cfg(feature = "mcp")]
 pub mod mcp;

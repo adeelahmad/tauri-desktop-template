@@ -46,12 +46,17 @@ const FIELDS = [
   ['llm', 'promptCache', 'Prompt caching (Anthropic)', 'bool', { needs: 'ai' }],
   ['llm', 'systemPrompt', 'System prompt (empty = built in)', 'text', { needs: 'ai', nullable: true }],
   ['llm', 'httpHosts', 'Hosts allowed over plain HTTP', 'list', { needs: 'ai' }],
+  ['llm', 'cache.enabled', 'Reuse answers to repeated questions (cleared when documents change)', 'bool', { needs: 'ai' }],
+  ['llm', 'cache.ttlHours', 'Keep cached answers for (hours)', 'number', { needs: 'ai', min: 1 }],
+  ['llm', 'cache.maxEntries', 'Most cached answers', 'number', { needs: 'ai', min: 1 }],
+  ['llm', 'cache.similarity', 'Similar question match (cosine, 1 = exact only)', 'number', { needs: 'ai', step: 0.01, min: 0.5, max: 1 }],
   ['mcp', 'enabled', 'Let MCP clients (Claude Desktop, Claude Code, ...) search these documents', 'bool', { needs: 'mcp' }],
   ['mcp', 'allowWrite', 'Also allow tools that change data (add, remove)', 'bool', { needs: 'mcp' }],
   ['mcp', 'tools', 'Only these tools (empty = all allowed)', 'list', { needs: 'mcp' }],
   ['mcp', 'auditLog', 'Keep an audit log of tool calls', 'bool', { needs: 'mcp' }],
   ['mcp', 'auditArguments', 'Log the call arguments too', 'bool', { needs: 'mcp' }],
   ['mcp', 'maxResultChars', 'Longest reply (characters)', 'number', { needs: 'mcp', min: 1000 }],
+  ['mcp', 'approvalTimeoutSecs', 'Wait for approval of "ask" tools (seconds)', 'number', { needs: 'mcp', min: 5, max: 600 }],
   ['tts', 'enabled', 'Read answers aloud (tiny-voca, on this computer)', 'bool', { needs: 'tts' }],
   ['tts', 'voice', 'Voice', 'select', { needs: 'tts', options: [0, 1], labels: ['F2 (female)', 'M2 (male)'], numeric: true }],
   ['tts', 'speed', 'Speed', 'number', { needs: 'tts', step: 0.1, min: 0.25, max: 4 }],
@@ -78,6 +83,20 @@ const FIELDS = [
   ['resources', 'cpuPercent', 'CPU share for indexing (%)', 'number', { min: 10, max: 100 }],
   ['resources', 'backgroundPriority', 'Index at background priority (keeps the computer responsive)', 'bool', {}],
   ['resources', 'resumeInterrupted', 'Finish an interrupted import at the next start', 'bool', {}],
+  ['resources', 'memoryBudgetMb', 'Memory budget for indexing (MB, 0 = none)', 'number', { min: 0 }],
+  ['resources', 'gpuBudget', 'Limit the GPU for the local model', 'bool', { needs: 'llama' }],
+  ['resources', 'gpuLayers', 'GPU layers while limited (0 = CPU only)', 'number', { needs: 'llama', min: 0 }],
+  [
+    'resources',
+    'onnxProvider',
+    'ONNX accelerator (falls back to the CPU)',
+    'select',
+    {
+      needs: 'embed',
+      options: ['cpu', 'auto', 'coreml', 'directml', 'cuda'],
+      labels: ['CPU', 'Best available', 'Core ML (macOS)', 'DirectML (Windows)', 'CUDA (NVIDIA)'],
+    },
+  ],
   ['backup', 'intervalHours', 'Back up every (hours; 0 = only when asked)', 'number', { min: 0 }],
   ['backup', 'keep', 'Backups to keep (0 = all)', 'number', { min: 0 }],
   ['backup', 'encrypt', 'Encrypt backups (keep the recovery key below somewhere safe)', 'bool', {}],
@@ -524,6 +543,80 @@ function McpConnect() {
   );
 }
 
+// Allow, ask or deny per MCP tool. "Ask" waits for an answer in the panel below.
+function McpPolicies({ policies, onChange }) {
+  const [tools, setTools] = useState([]);
+  useEffect(() => {
+    invoke('mcp_setup')
+      .then((s) => setTools(['*', ...s.tools]))
+      .catch(() => {});
+  }, []);
+  const map = policies || {};
+  const pick = (tool, v) => {
+    const next = { ...map };
+    if (v === '') delete next[tool];
+    else next[tool] = v;
+    onChange(next);
+  };
+  return (
+    <div className="grid">
+      {tools.map((t) => (
+        <label className="field" key={t}>
+          {t === '*' ? 'Every other tool' : `Tool ${t}`}
+          <select value={map[t] || ''} onChange={(e) => pick(t, e.target.value)}>
+            <option value="">{t === '*' ? 'allow (default)' : 'as every other tool'}</option>
+            <option value="allow">allow</option>
+            <option value="ask">ask me first</option>
+            <option value="deny">deny</option>
+          </select>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// MCP calls waiting for approval (tools set to "ask"), polled while Settings is open.
+function McpPending() {
+  const [calls, setCalls] = useState([]);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    const tick = () =>
+      invoke('mcp_pending')
+        .then(setCalls)
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 2000);
+    return () => clearInterval(t);
+  }, []);
+  const decide = async (id, allow) => {
+    try {
+      setCalls(await invoke('mcp_decide', { id, allow }));
+      setMsg('');
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  return (
+    <div className="hint">
+      <div>{calls.length ? `${calls.length} MCP calls waiting for you:` : 'No MCP calls waiting for approval.'}</div>
+      <ul className="pending">
+        {calls.map((c) => (
+          <li key={c.id}>
+            <code>{c.tool}</code> {c.arguments}{' '}
+            <button className="link" onClick={() => decide(c.id, true)}>
+              Approve
+            </button>
+            <button className="link" onClick={() => decide(c.id, false)}>
+              Deny
+            </button>
+          </li>
+        ))}
+      </ul>
+      {msg}
+    </div>
+  );
+}
+
 function ModelDownload({ onDone }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -668,6 +761,8 @@ export default function Settings({ features }) {
           {s === 'watch' && <WatchStatus />}
           {s === 'llm' && <AiKeys />}
           {s === 'llm' && features.llama && <ModelDownload onDone={(p) => set('llm', 'local.modelPath', p)} />}
+          {s === 'mcp' && <McpPolicies policies={cfg.mcp.policies} onChange={(v) => set('mcp', 'policies', v)} />}
+          {s === 'mcp' && cfg.mcp.enabled && <McpPending />}
           {s === 'mcp' && <McpConnect />}
           {s === 'tts' && <VoiceDownload />}
           {s === 'stt' && <SttDownload />}
