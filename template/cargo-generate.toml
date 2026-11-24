@@ -63,6 +63,8 @@ default = false
 [placeholders.oauth]
 type = "bool"
 prompt = "Sign-in with OAuth 2 / OpenID Connect (Google, GitHub, Microsoft, any OIDC provider; PKCE in the system browser, tokens in the OS keychain)?"
+default = false
+
 [placeholders.background_jobs]
 type = "bool"
 prompt = "Background jobs: a persistent queue with retries (exponential backoff), dead letters, cron and interval schedules, cancel and timeouts?"
@@ -306,6 +308,7 @@ ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlem
 
 [conditional.'!oauth']
 ignore = ["desktop-core/src/oauth.rs"]
+
 [conditional.'!background_jobs']
 ignore = ["desktop-core/src/queue.rs", "desktop-core/src/job_types"]
 

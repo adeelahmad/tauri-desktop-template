@@ -50,6 +50,7 @@ mail = ["dep:rustls", "dep:webpki-roots"]
 {% if oauth -%}
 # OAuth 2 / OpenID Connect sign-in (PKCE, loopback or deep-link redirect) with tokens in the OS keychain.
 oauth = ["dep:keyring"]
+{% endif -%}
 {% if background_jobs -%}
 # A persistent background job queue with retries and schedules (croner + chrono for cron).
 jobs-queue = ["dep:croner", "dep:chrono"]
@@ -120,6 +121,7 @@ webpki-roots = { version = "1", optional = true }
 # (pure-Rust D-Bus and RustCrypto: no libdbus, no OpenSSL). HTTP, PKCE and JWT checks use
 # the ureq, sha2 and ring already in the tree.
 keyring = { version = "3.6", optional = true, default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
+{% endif -%}
 {% if http_api -%}
 # Tokio is already in every app through Tauri; axum adds hyper and tower (HTTP/1 only, no tracing).
 axum = { version = "0.8", optional = true, default-features = false, features = ["http1", "json", "query", "tokio"] }
