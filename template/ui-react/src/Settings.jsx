@@ -140,6 +140,12 @@ const FIELDS = [
   ['mail', 'from', 'Sender, e.g. Me <me@example.com>', 'text', { needs: 'mail' }],
   ['mail', 'maxMb', 'Largest message (MB)', 'number', { needs: 'mail', min: 1, max: 100 }],
   ['mail', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'mail', min: 5, max: 300 }],
+  ['jobs', 'enabled', 'Run background jobs and schedules', 'bool', { needs: 'jobs' }],
+  ['jobs', 'workers', 'Jobs at once', 'number', { needs: 'jobs', min: 1, max: 32 }],
+  ['jobs', 'maxAttempts', 'Attempts before a job is dead', 'number', { needs: 'jobs', min: 1, max: 100 }],
+  ['jobs', 'backoffBaseSecs', 'First retry after about (seconds, doubling)', 'number', { needs: 'jobs', min: 1 }],
+  ['jobs', 'backoffMaxSecs', 'Longest wait between retries (seconds)', 'number', { needs: 'jobs', min: 1 }],
+  ['jobs', 'historyDays', 'Keep the run history for (days)', 'number', { needs: 'jobs', min: 1, max: 365 }],
   ['plugins', 'enabled', 'Run plugins', 'bool', { needs: 'plugins' }],
   ['plugins', 'disabled', 'Leave out these plugins (names)', 'list', { needs: 'plugins' }],
   ['rclone', 'enabled', 'Sync to the cloud with rclone', 'bool', { needs: 'rclone' }],
@@ -201,6 +207,7 @@ const TITLES = {
   backup: 'Backups',
   mail: 'Email',
   plugins: 'Plugins',
+  jobs: 'Jobs',
   rclone: 'Cloud sync',
   tailscale: 'Tailnet',
   watch: 'Watch folders',
@@ -404,6 +411,109 @@ function JsonField({ label, value, onChange }) {
       {label} {bad && '(not valid JSON yet)'}
       <textarea rows={4} value={text} onChange={(e) => change(e.target.value)} />
     </label>
+  );
+}
+
+const when = (ms) => (ms ? new Date(ms).toLocaleString() : '-');
+
+// Background jobs: the queue, the dead letters (retry or drop), schedules (pause or resume)
+// and recent runs, polled while the section is open.
+function JobsPanel() {
+  const [st, setSt] = useState(null);
+  const [schedules, setSchedules] = useState([]);
+  const [kind, setKind] = useState('');
+  const [payload, setPayload] = useState('{}');
+  const [msg, setMsg] = useState('');
+  const refresh = () => {
+    invoke('jobs_list').then(setSt, (e) => setMsg(String(e)));
+    invoke('jobs_schedules').then(setSchedules, () => {});
+  };
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 3000);
+    return () => clearInterval(t);
+  }, []);
+  const act = (cmd, args) => async () => {
+    try {
+      await invoke(cmd, args);
+      setMsg('');
+    } catch (e) {
+      setMsg(String(e));
+    }
+    refresh();
+  };
+  const enqueue = async () => {
+    try {
+      const job = await invoke('jobs_enqueue', { kind: kind || st.types[0], payload: JSON.parse(payload || '{}') });
+      setMsg(`Queued ${job.kind}.`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+    refresh();
+  };
+  if (!st) return <p className="hint">{msg}</p>;
+  return (
+    <div className="hint">
+      {!st.enabled && <div>Jobs are kept but not run until you turn them on above and save.</div>}
+      <div className="row">
+        <select value={kind || st.types[0]} onChange={(e) => setKind(e.target.value)} aria-label="Job type">
+          {st.types.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
+        <input value={payload} onChange={(e) => setPayload(e.target.value)} aria-label="Payload (JSON)" placeholder="Payload (JSON)" />
+        <button onClick={enqueue}>Run now</button>
+      </div>
+      <div>{st.jobs.length ? 'Queue:' : 'The queue is empty.'}</div>
+      <ul className="pending">
+        {st.jobs.map((j) => (
+          <li key={j.id}>
+            <code>{j.kind}</code> {j.state}, attempt {j.attempts} of {j.maxAttempts},{' '}
+            {j.state === 'running' ? 'now' : `at ${when(j.runAt)}`}
+            {j.lastError ? ` (${j.lastError})` : ''}{' '}
+            <button className="link" onClick={act('jobs_cancel', { id: j.id })}>
+              Cancel
+            </button>
+          </li>
+        ))}
+      </ul>
+      {st.dead.length > 0 && <div>Dead letters (out of attempts):</div>}
+      <ul className="pending">
+        {st.dead.map((j) => (
+          <li key={j.id}>
+            <code>{j.kind}</code> after {j.attempts} attempts: {j.lastError}{' '}
+            <button className="link" onClick={act('jobs_retry', { id: j.id })}>
+              Retry
+            </button>
+            <button className="link" onClick={act('jobs_cancel', { id: j.id })}>
+              Drop
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div>{schedules.length ? 'Schedules:' : 'No schedules.'}</div>
+      <ul className="pending">
+        {schedules.map((s) => (
+          <li key={s.id}>
+            <b>{s.id}</b>: <code>{s.kind}</code> {s.cron ? `cron ${s.cron}` : `every ${s.everySecs} s`},{' '}
+            {s.paused ? 'paused' : `next ${when(s.nextRun)}`}{' '}
+            <button className="link" onClick={act('jobs_set_schedule', { schedule: { id: s.id, paused: !s.paused } })}>
+              {s.paused ? 'Resume' : 'Pause'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div>Recent runs:</div>
+      <ul className="pending">
+        {st.history.slice(0, 10).map((r, i) => (
+          <li key={i}>
+            {when(r.finished)} <code>{r.kind}</code> attempt {r.attempt}: {r.outcome}
+            {r.message ? ` (${r.message})` : ''}
+          </li>
+        ))}
+      </ul>
+      {msg}
+    </div>
   );
 }
 
@@ -1104,6 +1214,7 @@ export default function Settings({ features }) {
     stt: 'stt',
     mail: 'mail',
     plugins: 'plugins',
+    jobs: 'jobs',
     rclone: 'rclone',
     tailscale: 'tailscale',
     telemetry: 'telemetry',
@@ -1118,6 +1229,7 @@ export default function Settings({ features }) {
     'stt',
     'resources',
     'backup',
+    'jobs',
     'rclone',
     'mail',
     'tailscale',
@@ -1168,6 +1280,7 @@ export default function Settings({ features }) {
               onChange={(v) => setCfg({ ...cfg, plugins: { ...cfg.plugins, settings: v } })}
             />
           )}
+          {s === 'jobs' && <JobsPanel />}
           {s === 'rclone' && <RcloneSetup />}
           {s === 'tailscale' && <TailscaleStatus />}
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}

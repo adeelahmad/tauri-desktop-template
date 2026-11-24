@@ -14,6 +14,8 @@
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
 //! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
+//! - `jobs_list`, `jobs_enqueue`, `jobs_cancel`, `jobs_retry`, `jobs_schedules` and
+//!   `jobs_set_schedule` (feature `jobs-queue`),
 //! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
@@ -165,6 +167,7 @@ fn features() -> Value {
         "stt": cfg!(feature = "stt"),
         "mail": cfg!(feature = "mail"),
         "plugins": cfg!(feature = "plugins"),
+        "jobs": cfg!(feature = "jobs-queue"),
         "rclone": cfg!(feature = "rclone"),
         "tailscale": cfg!(feature = "tailscale"),
         "telemetry": cfg!(feature = "telemetry"),
@@ -478,7 +481,79 @@ fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, String> {
     call(&state, "tailscale_apply", Value::Null)
 }
 
-/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
+{% if background_jobs %}/// The job queue: waiting and running jobs, dead letters, recent runs and the job types.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_list(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "jobs_list", Value::Null)
+}
+
+/// Add a job: `kind`, its `payload`, and optionally `options` {delaySecs, runAt, maxAttempts, timeoutSecs}.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_enqueue(state: tauri::State<AppState>, kind: String, payload: Option<Value>, options: Option<Value>) -> Result<Value, String> {
+    let mut params = options.filter(Value::is_object).unwrap_or_else(|| json!({}));
+    params["kind"] = json!(kind);
+    params["payload"] = payload.unwrap_or_else(|| json!({}));
+    call(&state, "jobs_enqueue", params)
+}
+
+/// Cancel a job (a running one is told to stop).
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_cancel(state: tauri::State<AppState>, id: String) -> Result<Value, String> {
+    call(&state, "jobs_cancel", json!({ "id": id }))
+}
+
+/// Run a dead or waiting job again now.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_retry(state: tauri::State<AppState>, id: String) -> Result<Value, String> {
+    call(&state, "jobs_retry", json!({ "id": id }))
+}
+
+/// The schedules (cron or interval), paused or not, with their next run.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_schedules(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "jobs_schedules", Value::Null)
+}
+
+/// Add, change, pause, resume or remove a schedule: `{id, kind?, payload?, cron? | everySecs?, paused?, remove?}`.
+#[cfg(feature = "jobs-queue")]
+#[tauri::command(async)]
+fn jobs_set_schedule(state: tauri::State<AppState>, schedule: Value) -> Result<Value, String> {
+    call(&state, "jobs_set_schedule", schedule)
+}
+
+/// The worker that the background agent starts at login has no window to set it up: when
+/// background jobs are on, it opens the engine from the saved settings itself, so schedules
+/// keep running while the window is closed.
+#[cfg(all(desktop, feature = "background-agent", feature = "jobs-queue"))]
+pub(crate) fn jobs_autostart(local: &Arc<service::Local>) {
+    let (config_dir, data_dir) = paths::app_dirs();
+    let s = settings_at(&config_dir.join("settings.json"));
+    if !s.setup_done || !s.config.jobs.enabled {
+        return;
+    }
+    let opts = EngineOptions {
+        data_dir,
+        backend: store_for(s.backend),
+        embeddings: s.embeddings && cfg!(feature = "embed"),
+        config: s.config,
+        app_name: Some(r#"{{app_name}}"#.into()),
+    };
+    let local = local.clone();
+    let started = std::thread::Builder::new().name("jobs-autostart".into()).spawn(move || match local.setup_unless_open(&opts) {
+        Ok(()) => log::info!("worker: background jobs running"),
+        Err(e) => log::warn!("worker: could not start background jobs: {e}"),
+    });
+    if let Err(e) = started {
+        log::warn!("worker: could not start background jobs: {e}");
+    }
+}
+
+{% endif %}/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
 #[cfg(feature = "tts")]
 #[tauri::command(async)]
 fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
@@ -877,6 +952,18 @@ pub fn run() {
             tailscale_status,
             #[cfg(feature = "tailscale")]
             tailscale_apply,
+            #[cfg(feature = "jobs-queue")]
+            jobs_list,
+            #[cfg(feature = "jobs-queue")]
+            jobs_enqueue,
+            #[cfg(feature = "jobs-queue")]
+            jobs_cancel,
+            #[cfg(feature = "jobs-queue")]
+            jobs_retry,
+            #[cfg(feature = "jobs-queue")]
+            jobs_schedules,
+            #[cfg(feature = "jobs-queue")]
+            jobs_set_schedule,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]

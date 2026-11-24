@@ -76,6 +76,10 @@ pub mod stt;
 pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
+{% endif %}{% if background_jobs %}#[cfg(feature = "jobs-queue")]
+pub mod job_types;
+#[cfg(feature = "jobs-queue")]
+pub mod queue;
 {% endif %}{% if plugins %}#[cfg(feature = "plugins")]
 pub mod plugin;
 {% endif %}{% if rclone %}#[cfg(feature = "rclone")]

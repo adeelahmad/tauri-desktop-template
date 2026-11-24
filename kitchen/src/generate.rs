@@ -7,6 +7,7 @@
 //! | `setting <module>.<key> <type> [default]` | a field in that module's config | the module and the Settings page |
 //! | `command <name>` | `src-tauri/src/<name>.rs` (a Tauri command + backend method) | `src-tauri/src/lib.rs`, `service.rs` |
 //! | `page <Name>` | `ui-react/src/<Name>.jsx` | `ui-react/src/App.jsx` |
+//! | `job <name>` | `desktop-core/src/job_types/<name>.rs` (a background job type, `background_jobs`) | `desktop-core/src/job_types/mod.rs` |
 //! | `menu <id> [--label <text>] [--shortcut <keys>]` | an app action in the app menu | `src-tauri/src/tray.rs`, `service.rs` (needs `tray_menu`) |
 //! | `shortcut <action> <keys>` | a default global shortcut | `src-tauri/src/tray.rs` (needs `tray_menu`) |
 //!
@@ -101,6 +102,7 @@ const BUILT_IN: &[(&str, &str)] = &[
     ),
     ("command.rs", include_str!("../templates/command.rs")),
     ("page.jsx", include_str!("../templates/page.jsx")),
+    ("job.rs", include_str!("../templates/job.rs")),
 ];
 
 /// Fill a file template: `{{name}}` style variables, from the app's override if it has one.
@@ -376,6 +378,42 @@ pub fn command(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     Ok(r)
 }
 
+/// `kitchen generate job <name>`: a background job type (feature `background_jobs`) with a
+/// typed payload, docs and a test, registered in `desktop-core/src/job_types/mod.rs`.
+pub fn job(root: &Path, name: &str, opts: &Options) -> Result<Report> {
+    check_name(name)?;
+    let dir = root.join("desktop-core/src/job_types");
+    if !dir.join("mod.rs").is_file() {
+        return Err(Error::Usage(
+            "jobs need background jobs: `kitchen enable background_jobs`".into(),
+        ));
+    }
+    let p = to_pascal(name);
+    let vars = [
+        ("name", name.to_string()),
+        ("Name", p.clone()),
+        ("Title", to_title(name)),
+    ];
+    let mut e = Edits::default();
+    e.create(dir.join(format!("{name}.rs")), body(root, "job.rs", &vars)?)?;
+    e.insert(
+        dir.join("mod.rs"),
+        "// kitchen:job-mods",
+        &format!("pub mod {name};\n"),
+    )?;
+    e.insert(
+        dir.join("mod.rs"),
+        "// kitchen:jobs",
+        &format!("    r.register({name}::{p});\n"),
+    )?;
+    let mut r = e.finish(root, format!("Generated job {name}"), opts)?;
+    r.next = vec![
+        format!("Edit desktop-core/src/job_types/{name}.rs; cargo test -p desktop-core --features jobs-queue {name}"),
+        format!("Run it: invoke('jobs_enqueue', {{ kind: '{name}', payload: {{ text: 'hi' }} }}), or schedule it in Settings → Jobs"),
+    ];
+    Ok(r)
+}
+
 /// `kitchen generate page <Name>`: a React component shown on the main screen.
 pub fn page(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     let pascal =
@@ -549,6 +587,7 @@ mod tests {
             "src-tauri/src/service.rs",
             "match m {\n            // kitchen:methods (...)\n            other => Err(()),\n}\n",
         );
+        w("desktop-core/src/job_types/mod.rs", "pub mod a;\n// kitchen:job-mods (...)\npub fn registry() -> R {\n    r.register(a::A);\n    // kitchen:jobs (...)\n    r\n}\n");
         w("ui-react/src/App.jsx", "import x from 'x';\n// kitchen:imports (...)\n<main>\n          {/* kitchen:pages */}\n</main>\n");
         w("ui-react/src/Settings.jsx", "const FIELDS = [\n  // kitchen:settings (...)\n];\nconst TITLES = {\n  // kitchen:titles\n};\nconst s = [\n    // kitchen:sections\n];\n");
         t
@@ -608,6 +647,28 @@ mod tests {
             .contains("import Reports from './Reports.jsx';\n// kitchen:imports"));
         assert!(read(&t, "ui-react/src/App.jsx")
             .contains("<Reports />\n          {/* kitchen:pages */}"));
+    }
+
+    #[test]
+    fn job() {
+        let t = app();
+        let o = Options::default();
+        super::job(t.path(), "send_digest", &o).unwrap();
+        let m = read(&t, "desktop-core/src/job_types/mod.rs");
+        assert!(m.contains("pub mod send_digest;\n// kitchen:job-mods"));
+        assert!(m.contains("    r.register(send_digest::SendDigest);\n    // kitchen:jobs"));
+        let f = read(&t, "desktop-core/src/job_types/send_digest.rs");
+        assert!(
+            f.contains("impl Job for SendDigest")
+                && f.contains("const NAME: &'static str = \"send_digest\";")
+        );
+        assert!(!f.contains("{{"), "every variable filled");
+        assert!(super::job(t.path(), "send_digest", &o).is_err(), "exists");
+        std::fs::remove_dir_all(t.path().join("desktop-core/src/job_types")).unwrap();
+        assert!(
+            super::job(t.path(), "other", &o).is_err(),
+            "needs background_jobs"
+        );
     }
 
     #[test]

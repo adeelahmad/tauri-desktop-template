@@ -232,6 +232,9 @@ fn project_checks(dir: &Path) -> Vec<Check> {
         ("src-tauri/src/lib.rs", "kitchen:mods"),
         ("src-tauri/src/lib.rs", "kitchen:handlers"),
         ("src-tauri/src/service.rs", "kitchen:methods"),
+        // Only in apps with background jobs.
+        ("desktop-core/src/job_types/mod.rs", "kitchen:job-mods"),
+        ("desktop-core/src/job_types/mod.rs", "kitchen:jobs"),
     ];
     if tray_menu {
         markers.extend([
@@ -241,6 +244,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     }
     let missing: Vec<String> = markers
         .iter()
+        .filter(|(f, _)| !f.contains("job_types") || root.join(f).is_file())
         .filter(|(f, m)| {
             std::fs::read_to_string(root.join(f))
                 .map(|s| !s.contains(m))
