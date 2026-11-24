@@ -214,7 +214,17 @@ mod tests {
         )
         .unwrap();
         let p = Project::find(dir.path()).unwrap();
-        let r = run(&p, "install", true, None, &Options { dry_run: true }).unwrap();
+        let r = run(
+            &p,
+            "install",
+            true,
+            None,
+            &Options {
+                dry_run: true,
+                ..Options::default()
+            },
+        )
+        .unwrap();
         assert!(
             r.summary.contains("--service install --system"),
             "{}",

@@ -30,15 +30,16 @@ fn tools() -> Value {
         json!({"type": "string", "description": "App folder (default: the server's folder)"});
     let dry = json!({"type": "boolean", "description": "Only show what would change"});
     let list = json!({"type": "array", "items": {"type": "string"}});
+    let deps = json!({"type": "boolean", "description": "Also switch the features this change needs (enable: what they need; disable: what needs them). Without it a change that needs others is refused; a dry run lists them"});
     json!([
-        {"name": "features", "description": "List the template's features and which are on in the app.",
-         "inputSchema": {"type": "object", "properties": {"project": project}}},
-        {"name": "enable", "description": "Turn features on (with what they need). The app's own edits are kept (three-way merge).",
-         "inputSchema": {"type": "object", "properties": {"features": list, "project": project, "dry_run": dry}, "required": ["features"]}},
-        {"name": "disable", "description": "Turn features off (with what needs them).",
-         "inputSchema": {"type": "object", "properties": {"features": list, "project": project, "dry_run": dry}, "required": ["features"]}},
-        {"name": "set", "description": "Change a text answer, e.g. name=frontend value=vanilla.",
-         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "project": project, "dry_run": dry}, "required": ["name", "value"]}},
+        {"name": "features", "description": "List the template's features and which are on in the app. With check: whether the answers in kitchen.toml work together (feature dependencies, desktop-only features in a mobile build, licence notices).",
+         "inputSchema": {"type": "object", "properties": {"check": {"type": "boolean", "description": "Check kitchen.toml against the feature dependency rules instead of listing"}, "project": project}}},
+        {"name": "enable", "description": "Turn features on. A feature that needs another one that is off is refused unless with_deps is true. The app's own edits are kept (three-way merge).",
+         "inputSchema": {"type": "object", "properties": {"features": list, "with_deps": deps, "project": project, "dry_run": dry}, "required": ["features"]}},
+        {"name": "disable", "description": "Turn features off. If other features that are on need one of them, it is refused unless with_deps is true (then those are turned off too).",
+         "inputSchema": {"type": "object", "properties": {"features": list, "with_deps": deps, "project": project, "dry_run": dry}, "required": ["features"]}},
+        {"name": "set", "description": "Change an answer, e.g. name=frontend value=vanilla (yes/no answers take true or false and follow the same dependency rules as enable and disable).",
+         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "with_deps": deps, "project": project, "dry_run": dry}, "required": ["name", "value"]}},
         {"name": "upgrade", "description": "Move the app to a newer template commit, keeping its edits.",
          "inputSchema": {"type": "object", "properties": {"rev": {"type": "string"}, "project": project, "dry_run": dry}}},
         {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut), shortcut (name = action id, shortcut) or job (name; a background job type, needs background_jobs) or route (name; POST /v1/<name> on the HTTP API, needs http_api). menu and shortcut need the tray_menu feature.",
@@ -69,7 +70,7 @@ fn tools() -> Value {
              "allow_changes": {"type": "boolean", "description": "Really install, start, stop ... (default: only say what would run)"},
              "project": project}}},
         {"name": "new", "description": "Create a new app from the template in folder `dir` (default: the server's folder).",
-         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
+         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "dir": {"type": "string"}, "enable": list, "disable": list, "with_deps": deps, "source": {"type": "string"}, "rev": {"type": "string"}}, "required": ["name"]}}
     ])
 }
 
@@ -88,7 +89,14 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
             .unwrap_or_default()
     };
     let mut w: Vec<String> = match tool {
-        "features" | "doctor" | "start" => vec![tool.into()],
+        "features" => {
+            let mut v = vec!["features".to_string()];
+            if a.get("check").and_then(Value::as_bool) == Some(true) {
+                v.push("--check".into());
+            }
+            v
+        }
+        "doctor" | "start" => vec![tool.into()],
         "test" => {
             let mut v = vec!["test".to_string()];
             for k in ["unit", "feature"] {
@@ -191,6 +199,9 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
     };
     if a.get("dry_run").and_then(Value::as_bool) == Some(true) {
         w.push("--dry-run".into());
+    }
+    if a.get("with_deps").and_then(Value::as_bool) == Some(true) {
+        w.push("--with-deps".into());
     }
     Ok(w)
 }
@@ -308,6 +319,18 @@ mod tests {
             ["new", "x", "--no-git", "--enable", "a,b"]
         );
         assert!(argv("enable", &json!({})).is_err());
+        assert_eq!(
+            argv(
+                "enable",
+                &json!({"features": ["daemon"], "with_deps": true, "dry_run": true})
+            )
+            .unwrap(),
+            ["enable", "daemon", "--dry-run", "--with-deps"]
+        );
+        assert_eq!(
+            argv("features", &json!({"check": true})).unwrap(),
+            ["features", "--check"]
+        );
         assert_eq!(
             argv("test", &json!({"feature": true})).unwrap(),
             ["test", "--feature"]
