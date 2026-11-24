@@ -47,6 +47,10 @@ stt = ["dep:ort"]
 # SMTP email (TLS, STARTTLS, attachments) on the rustls already in the tree.
 mail = ["dep:rustls", "dep:webpki-roots"]
 {% endif -%}
+{% if background_jobs -%}
+# A persistent background job queue with retries and schedules (croner + chrono for cron).
+jobs-queue = ["dep:croner", "dep:chrono"]
+{% endif -%}
 {% if plugins -%}
 # Static, compiled-in plugins (desktop_core::plugin): ingest hooks, search sources, methods.
 plugins = []
@@ -59,6 +63,14 @@ rclone = ["dep:zip"]
 # Tailscale status and `tailscale serve` through the user's own tailscale CLI (no new crates).
 tailscale = []
 {% endif -%}
+{% if http_api -%}
+# A local REST API (Axum on the tokio Tauri already uses), bearer token, 127.0.0.1 by default.
+http-api = ["dep:axum", "dep:tokio"]
+{% endif -%}
+{% if webview -%}
+# Policy for embedded web views: allowlist, isolation, bridge (no new crates; sha2 is in the tree).
+webview = []
+{% endif -%}
 {% if telemetry -%}
 # Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
 telemetry = []
@@ -70,6 +82,14 @@ mcp = []
 {% if app_shell -%}
 # Theme, mode and font settings for the app shell (validation only, no dependencies).
 app-shell = []
+{% endif -%}
+{% if ipc_worker -%}{% if daemon -%}
+# Service files, the daemon's health file and crash backoff (std only; see daemon.rs).
+daemon = []
+{% endif -%}{% endif -%}
+{% if tray_menu -%}
+# The action registry for the tray, global shortcuts and the app menu (no extra crates).
+tray-menu = []
 {% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
@@ -86,10 +106,20 @@ sha2 = "0.10"
 # Already in every build through rustls; seals encrypted backups (ChaCha20-Poly1305).
 ring = "0.17"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+{% if background_jobs -%}
+# Cron parsing and next-run times (croner), in local time (chrono's clock: no time zone database).
+croner = { version = "5", optional = true, default-features = false, features = ["std", "chrono"] }
+chrono = { version = "0.4.42", optional = true, default-features = false, features = ["std", "clock"] }
+{% endif -%}
 {% if email -%}
 # The same rustls and Mozilla roots ureq already uses (no new crates in the build).
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = { version = "1", optional = true }
+{% endif -%}
+{% if http_api -%}
+# Tokio is already in every app through Tauri; axum adds hyper and tower (HTTP/1 only, no tracing).
+axum = { version = "0.8", optional = true, default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio = { version = "1", optional = true, default-features = false, features = ["rt", "net", "time", "sync"] }
 {% endif -%}
 {% if embeddings -%}
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }

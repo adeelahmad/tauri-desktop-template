@@ -69,9 +69,32 @@ pub fn base_dirs() -> (PathBuf, PathBuf) {
         let d = env_dir("APPDATA").unwrap_or_else(|| home().join("AppData").join("Roaming"));
         (d.clone(), d)
     } else {
-        (env_dir("XDG_CONFIG_HOME").unwrap_or_else(|| home().join(".config")), env_dir("XDG_DATA_HOME").unwrap_or_else(|| home().join(".local").join("share")))
+        (
+            env_dir("XDG_CONFIG_HOME").unwrap_or_else(|| home().join(".config")),
+            env_dir("XDG_DATA_HOME").unwrap_or_else(|| home().join(".local").join("share")),
+        )
     };
     (config.join(IDENTIFIER), data.join(IDENTIFIER))
+}
+
+/// (config folder, data folder) of this profile for the user whose home is `home`: a
+/// system service installed with `sudo` runs as that user (macOS and Linux).
+#[cfg(all(desktop, feature = "daemon"))]
+pub fn app_dirs_in(home: &std::path::Path) -> (PathBuf, PathBuf) {
+    let (config, data) = if cfg!(target_os = "macos") {
+        let d = home.join("Library").join("Application Support");
+        (d.clone(), d)
+    } else if cfg!(windows) {
+        let d = home.join("AppData").join("Roaming");
+        (d.clone(), d)
+    } else {
+        (home.join(".config"), home.join(".local").join("share"))
+    };
+    let (config, data) = (config.join(IDENTIFIER), data.join(IDENTIFIER));
+    match profile() {
+        DEFAULT => (config, data),
+        id => (config.join("profiles").join(id), data.join("profiles").join(id)),
+    }
 }
 
 /// The id of the profile that uses the app folders themselves.
@@ -137,10 +160,7 @@ pub fn profile() -> &'static str {
     static ID: OnceLock<String> = OnceLock::new();
     ID.get_or_init(|| {
         let saved = profiles();
-        std::env::var("APP_PROFILE")
-            .ok()
-            .filter(|id| saved.profiles.iter().any(|p| &p.id == id))
-            .unwrap_or(saved.active)
+        std::env::var("APP_PROFILE").ok().filter(|id| saved.profiles.iter().any(|p| &p.id == id)).unwrap_or(saved.active)
     })
 }
 

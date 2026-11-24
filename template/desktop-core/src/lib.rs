@@ -18,8 +18,8 @@
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`], [`dotenv`] (`.env` files in
 //! development builds). Feature modules: `embed`, `pdf`, `pgstore`, `watch`, `llm` (feature
-//! `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `telemetry`, `appearance`
-//! (feature `app-shell`).
+//! `ai`), `local` (feature `llama`), `mcp`, `tts`, `stt`, `mail`, `telemetry`, `webview`,
+//! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`).
 //!
 //! # Example
 //!
@@ -78,6 +78,10 @@ pub mod stt;
 pub mod mail;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
+{% endif %}{% if background_jobs %}#[cfg(feature = "jobs-queue")]
+pub mod job_types;
+#[cfg(feature = "jobs-queue")]
+pub mod queue;
 {% endif %}{% if plugins %}#[cfg(feature = "plugins")]
 pub mod plugin;
 {% endif %}{% if rclone %}#[cfg(feature = "rclone")]
@@ -86,6 +90,14 @@ pub mod rclone;
 pub mod tailscale;
 {% endif %}{% if app_shell %}#[cfg(feature = "app-shell")]
 pub mod appearance;
+{% endif %}{% if ipc_worker %}{% if daemon %}#[cfg(feature = "daemon")]
+pub mod daemon;
+{% endif %}{% endif %}{% if http_api %}#[cfg(feature = "http-api")]
+pub mod http_api;
+{% endif %}{% if webview %}#[cfg(feature = "webview")]
+pub mod webview;
+{% endif %}{% if tray_menu %}#[cfg(feature = "tray-menu")]
+pub mod actions;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

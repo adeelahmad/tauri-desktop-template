@@ -11,7 +11,7 @@
 //! ```
 
 use crate::project::{self, NewApp, Project};
-use crate::{doctor, generate, hooks, Error, Options, Report, Result};
+use crate::{doctor, generate, hooks, service, Error, Options, Report, Result};
 use std::path::{Path, PathBuf};
 
 /// The help text.
@@ -29,9 +29,15 @@ Usage:
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
   kitchen generate command <name>
   kitchen generate page <Name>
+  kitchen generate job <name>          a background job type (needs background_jobs)
+  kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
+  kitchen generate shortcut <action> <keys>                                   (tray_menu)
+  kitchen generate route <name>        POST /v1/<name> on the HTTP API (needs http_api)
   kitchen hooks <install|uninstall|status>
                                        git hooks in .githooks/ (fmt, clippy, prettier, eslint)
   kitchen doctor [--json]              check this machine and this app
+  kitchen service <install|uninstall|start|stop|restart|status|logs> [--system] [--lines N] [--follow]
+                                       the app's daemon as an OS service (feature daemon)
   kitchen dev | build                  cargo tauri dev / build
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
 
@@ -53,7 +59,9 @@ pub struct Args {
 }
 
 /// Options that take a value (all others are flags).
-const VALUED: &[&str] = &["enable", "disable", "set", "dir", "source", "rev", "label"];
+const VALUED: &[&str] = &[
+    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "lines",
+];
 
 impl Args {
     /// Parse `argv` (without the program name).
@@ -188,7 +196,10 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
         "upgrade" => project()?.upgrade(args.value("rev"), &opts),
         "generate" | "g" => {
             let root = project()?.root;
-            let kind = args.word(1, "what to generate (module, setting, command, page)")?;
+            let kind = args.word(
+                1,
+                "what to generate (module, setting, command, page, menu, shortcut, job, route)",
+            )?;
             let name = args.word(2, "a name")?;
             match kind {
                 "module" | "mod" => generate::module(&root, name, args.flag("config"), &opts),
@@ -202,8 +213,23 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
                 ),
                 "command" | "cmd" => generate::command(&root, name, &opts),
                 "page" => generate::page(&root, name, &opts),
+                "menu" => generate::menu(
+                    &root,
+                    name,
+                    args.value("label"),
+                    args.value("shortcut"),
+                    &opts,
+                ),
+                "shortcut" => generate::shortcut(
+                    &root,
+                    name,
+                    args.word(3, "the keys, e.g. CmdOrCtrl+Shift+K")?,
+                    &opts,
+                ),
+                "job" => generate::job(&root, name, &opts),
+                "route" => generate::route(&root, name, &opts),
                 other => Err(Error::Usage(format!(
-                    "cannot generate {other:?}: module, setting, command or page"
+                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut, job or route"
                 ))),
             }
         }
@@ -213,6 +239,22 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
             opts.dry_run,
         ),
         "doctor" => Ok(doctor::report(&doctor::run(Some(cwd)))),
+        "service" => {
+            let lines = args
+                .value("lines")
+                .map(|n| {
+                    n.parse()
+                        .map_err(|_| Error::Usage(format!("--lines {n}: give a number")))
+                })
+                .transpose()?;
+            service::run(
+                &project()?,
+                args.words.get(1).map(String::as_str).unwrap_or("status"),
+                args.flag("system"),
+                lines,
+                &opts,
+            )
+        }
         "help" => Ok(Report::new(HELP.trim_end())),
         other => Err(Error::Usage(format!(
             "unknown command {other:?}; see `kitchen --help`"

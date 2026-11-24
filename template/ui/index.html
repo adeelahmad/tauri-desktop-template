@@ -129,6 +129,13 @@
       <p id="agent-status" class="hint"></p>
     </section>
 
+    <section id="service" hidden>
+      <h2>Service</h2>
+      <label><input type="checkbox" id="service-on"> Run the backend as a service: no window needed, starts at login, restarts if it fails</label>
+      <p id="service-status" class="hint"></p>
+      <p class="hint">To start it at boot for the whole machine instead, run as administrator: <code id="service-hint"></code></p>
+    </section>
+
     <section id="python" hidden>
       <h2>Python example</h2>
       <p class="hint">Sends the text box above to <code>python/worker.py</code>, a separate Python process.</p>

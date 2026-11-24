@@ -197,6 +197,7 @@ function Search({ features }) {
       <h2>Search</h2>
       <div className="row">
         <input
+          id="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && run()}
@@ -360,6 +361,23 @@ export default function App() {
   };
   const f = info?.features || {};
 
+  // Tray, menu and shortcut actions (feature tray-menu): move the focus, show results.
+  const [notice, setNotice] = useState(null);
+  useEffect(() => {
+    if (!f.trayMenu) return;
+    const offs = [
+      listen('app-action', (e) => {
+        const id = e.payload.action === 'search' ? 'search' : e.payload.action === 'settings' ? 'settings' : null;
+        const el = id && document.getElementById(id);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth' });
+        if (id === 'search') el.focus();
+      }),
+      listen('action-done', (e) => e.payload.message && setNotice({ text: e.payload.message, error: !e.payload.ok })),
+    ];
+    return () => offs.forEach((p) => p.then((off) => off()));
+  }, [f.trayMenu]);
+
   return (
     <>
 {% if app_shell %}      {shell && <Titlebar title={APP_NAME} />}
@@ -374,6 +392,7 @@ export default function App() {
         </section>
       )}
       {phase === 'wizard' && <Wizard info={info} onSetup={setup} busy={busy} message={message} />}
+      {notice && <Status text={notice.text} error={notice.error} />}
       {phase === 'ready' && (
         <main>
           <AddDocuments onChange={refresh} mobile={f.mobile} />

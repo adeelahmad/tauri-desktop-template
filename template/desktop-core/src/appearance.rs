@@ -183,6 +183,9 @@ impl AppearanceConfig {
     /// mode. The UI (`ui/shell.js`, `ui-react/src/shell.js`) calls `window.__appearance.apply` for later
     /// changes.
     ///
+    /// It does nothing on remote pages (embedded web views): only the app's own pages
+    /// (`tauri://`, `tauri.localhost`, and the dev server on `localhost`) get the theme.
+    ///
     /// A window can get two of these: the app-wide one built at start, and a fresher one
     /// for a window opened later. The higher `priority` wins, whatever order they run in.
     ///
@@ -204,6 +207,9 @@ impl AppearanceConfig {
 /// The script behind [`AppearanceConfig::init_script`], with `__PRIORITY__`, `__OS__` and
 /// `__DATA__` filled in.
 const INIT_SCRIPT: &str = r#"(function () {
+  // The app's own pages only: remote pages in embedded web views are left alone.
+  var h = location.hostname;
+  if (!(location.protocol === 'tauri:' || h === 'tauri.localhost' || h === 'localhost' || h === '127.0.0.1')) return;
   var p = __PRIORITY__;
   var s = window.__appearance;
   if (s && s.priority > p) return;
@@ -312,6 +318,13 @@ mod tests {
         assert_eq!(c.appearance, AppearanceConfig::default());
         let c: crate::Config = serde_json::from_str(r#"{"appearance": {"theme": "forest"}}"#).unwrap();
         assert_eq!(c.validated().appearance.theme, "forest");
+    }
+
+    #[test]
+    fn the_init_script_skips_remote_pages() {
+        let js = AppearanceConfig::default().init_script("linux", 0);
+        assert!(js.contains("location.protocol === 'tauri:'"));
+        assert!(js.find("return;") < js.find("window.__appearance = "));
     }
 
     #[test]

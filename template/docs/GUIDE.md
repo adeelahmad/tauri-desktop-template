@@ -95,6 +95,7 @@ kitchen generate module invoices --config                            # desktop-c
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_invoices                             # Tauri command + service method
 kitchen generate page Invoices                                       # React page (ui-react)
+kitchen generate route export_invoices                               # POST /v1/export_invoices on the HTTP API (feature http-api)
 ```
 
 Each generator writes a documented, tested file and wires it in at the `// kitchen:...`
@@ -226,7 +227,9 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`plugin`](../desktop-core/src/plugin.rs) | `plugins` | Compiled-in plugins: ingest hooks, extra methods and settings |
 | [`rclone`](../desktop-core/src/rclone.rs) | `rclone` | Sync backups (or the data folder) to a cloud with rclone |
 | [`tailscale`](../desktop-core/src/tailscale.rs) | `tailscale` | Tailscale status and `tailscale serve` for one local port |
+| [`http_api`](../desktop-core/src/http_api/mod.rs) | `http-api` | Local REST API (Axum): bearer token, one error shape, validated bodies, pagination |
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
+| [`webview`](../desktop-core/src/webview.rs) | `webview` | Embedded web view policy: allowlist, isolation, message bridge |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 
 A module only exists in your app if its feature was chosen when the app was generated
@@ -248,6 +251,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`single`](../src-tauri/src/single.rs) | `single-instance` | One window at a time |
 | [`python`](../src-tauri/src/python.rs) | `python-example` | A Python child process behind a command |
 | [`claude`](../src-tauri/src/claude.rs) | `claude-mcp` | Register a Python MCP server in Claude Desktop through bundled uv |
+| [`webview`](../src-tauri/src/webview.rs) | `webview` | Remote pages in app windows: allowlist hook, isolation, no IPC, bridge |
 
 ## Docs and checks
 
@@ -284,7 +288,7 @@ answers it was generated with.
 |---|---|
 | `kitchen new <name> --enable email,ai --disable postgres` | Create an app from the template |
 | `kitchen enable <feature>` / `kitchen disable <feature>` | Turn a feature on or off later. Your edits are kept by a three-way merge; `--dry-run` shows what would change |
-| `kitchen generate module\|setting\|command\|page ...` | Generate documented, tested code, wired in at the `// kitchen:...` markers |
+| `kitchen generate module\|setting\|command\|page\|route ...` | Generate documented, tested code, wired in at the `// kitchen:...` markers |
 | `kitchen doctor` | Check the toolchain (Rust, cargo-generate, Tauri CLI, Node, WebKitGTK or Xcode) and the app's markers |
 | `kitchen mcp` | Offer the same commands to AI agents as an MCP server over stdio (`claude mcp add kitchen -- kitchen mcp`) |
 
@@ -294,6 +298,9 @@ templates.
 
 ## Notes for AI agents
 
+- [AGENTS.md](../AGENTS.md) is the short version of this guide for this build, and
+  `.claude/skills/` has recipes for turning features on, generating code, porting an
+  Electron or web app, and releasing.
 - Start with this guide, then the `//!` doc of the module you are changing. Run
   `cargo doc --document-private-items` to read the app's internal modules.
 - New work follows the [wiring checklist](#by-hand-the-wiring-checklist), or uses
