@@ -313,6 +313,8 @@ pub struct Drivers {
     pub display: bool,
     /// `xvfb-run` is needed and present.
     pub xvfb: bool,
+    /// Node is installed: the UI's accessibility check (`npm run a11y`) can run.
+    pub node: bool,
 }
 
 impl Drivers {
@@ -331,6 +333,7 @@ impl Drivers {
             },
             display: !linux || has_display || xvfb,
             xvfb,
+            node: runs("node", &["--version"]),
         }
     }
 }
@@ -391,6 +394,24 @@ pub fn test_plan(
                     .with_env("KITCHEN_ENV", "test"),
             );
         }
+        // axe-core on every screen and Settings section, plus the pseudo-locale layout
+        // check (ui-react/scripts/a11y.mjs); it skips itself when Playwright is missing.
+        if has_npm_script(root, "a11y") {
+            if drivers.node {
+                plan.steps.push(
+                    Step::new(
+                        "accessibility (axe-core)",
+                        root,
+                        "npm",
+                        &["--prefix", "ui-react", "run", "a11y"],
+                    )
+                    .with_env("KITCHEN_ENV", "test"),
+                );
+            } else {
+                plan.notes
+                    .push("accessibility check skipped: Node is not installed".into());
+            }
+        }
     }
     if kinds.feature {
         feature_steps(root, host, drivers, &mut plan)?;
@@ -399,10 +420,32 @@ pub fn test_plan(
 }
 
 fn has_npm_test(root: &Path) -> bool {
+    has_npm_script(root, "test")
+}
+
+fn has_npm_script(root: &Path, name: &str) -> bool {
     std::fs::read_to_string(root.join("ui-react/package.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .is_some_and(|v| v["scripts"]["test"].is_string())
+        .is_some_and(|v| v["scripts"][name].is_string())
+}
+
+/// `kitchen generate command` (or by hand): rewrite the UI's typed IPC bindings from the
+/// Rust commands, `cargo test -p <app> --lib export_bindings` with `KITCHEN_BINDINGS=write`
+/// (see the app's docs/GUIDE.md, "Typed IPC").
+pub fn bindings_plan(root: &Path) -> Result<Plan> {
+    let name = binary_name(root)?;
+    let mut plan = Plan::default();
+    plan.steps.push(
+        Step::new(
+            "typed IPC bindings",
+            root,
+            "cargo",
+            &["test", "-p", &name, "--lib", "export_bindings"],
+        )
+        .with_env("KITCHEN_BINDINGS", "write"),
+    );
+    Ok(plan)
 }
 
 fn feature_steps(root: &Path, host: Platform, drivers: Drivers, plan: &mut Plan) -> Result<()> {
@@ -784,6 +827,7 @@ mod tests {
         native: true,
         display: true,
         xvfb: false,
+        node: true,
     };
 
     fn app() -> crate::TempDir {
@@ -850,6 +894,27 @@ mod tests {
         .unwrap();
         let p = test_plan(d.path(), kinds, Platform::Linux, false, ALL).unwrap();
         assert_eq!(p.steps[1].command_line(), "npm --prefix ui-react test");
+        std::fs::write(
+            d.path().join("ui-react/package.json"),
+            r#"{"scripts": {"a11y": "node scripts/a11y.mjs"}}"#,
+        )
+        .unwrap();
+        let p = test_plan(d.path(), kinds, Platform::Linux, false, ALL).unwrap();
+        assert_eq!(p.steps[1].command_line(), "npm --prefix ui-react run a11y");
+        let no_node = Drivers { node: false, ..ALL };
+        let p = test_plan(d.path(), kinds, Platform::Linux, false, no_node).unwrap();
+        assert_eq!(p.steps.len(), 1);
+        assert!(p.notes[0].contains("Node is not installed"));
+    }
+
+    #[test]
+    fn bindings_run_the_export_test() {
+        let d = app();
+        let p = bindings_plan(d.path()).unwrap();
+        assert_eq!(
+            p.steps[0].display(),
+            "KITCHEN_BINDINGS=write cargo test -p notes --lib export_bindings"
+        );
     }
 
     #[test]

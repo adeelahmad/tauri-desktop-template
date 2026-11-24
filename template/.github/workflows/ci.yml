@@ -27,6 +27,12 @@ jobs:
       - name: ESLint and Prettier
         if: hashFiles('ui-react/package.json') != ''
         run: npm --prefix ui-react ci --include=dev && npm --prefix ui-react run lint
+      - name: Accessibility (axe-core on every screen and Settings section; pseudo-locale layout)
+        if: hashFiles('ui-react/package.json') != ''
+        run: |
+          npm --prefix ui-react install --no-save playwright
+          (cd ui-react && npx playwright install --with-deps chromium)
+          A11Y_REQUIRED=1 npm --prefix ui-react run a11y
       - name: pre-commit hooks (whitespace, TOML/YAML/JSON, rustfmt, clippy, ruff, shellcheck, actionlint, typos)
         uses: pre-commit/action@v3.0.1
         env:
@@ -71,6 +77,8 @@ jobs:
         if: hashFiles('ui-react/package.json') != ''
         shell: bash
         run: npm --prefix ui-react ci --include=dev && npm --prefix ui-react run build
+      # With CI set, the app's `export_bindings` test fails when the typed IPC bindings
+      # (ui-react/src/bindings or ui/bindings) are stale: see docs/GUIDE.md, "Typed IPC".
       - name: Build the app (default features) and run its tests
         shell: bash
         run: |

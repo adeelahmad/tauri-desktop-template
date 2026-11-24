@@ -1,6 +1,7 @@
 // The Settings window (feature app-shell): src-tauri/src/shell.rs opens it with Cmd/Ctrl+,,
 // the titlebar's gear button or the app menu. Its capability allows events only.
-const { invoke } = window.__TAURI__.core;
+/** @type {import('./bindings/commands').Invoke} (typed IPC, see app.js) */
+const invoke = window.__TAURI__.core.invoke;
 const $ = (id) => document.getElementById(id);
 const say = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
 const FIELDS = { mode: 'mode', theme: 'theme', uiFont: 'ui-font', monoFont: 'mono-font', fontSize: 'font-size' };

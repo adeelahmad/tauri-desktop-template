@@ -139,6 +139,7 @@ pub type Result<T, E = OauthError> = std::result::Result<T, E>;
 /// Sign-in settings (`oauth` in settings). Client secrets are not here: they are kept in
 /// the keychain ([`Oauth::set_client_secret`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct OauthConfig {
     /// Allow signing in at all (off by default).
@@ -176,6 +177,7 @@ impl OauthConfig {
 
 /// Where the provider sends the browser back to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum RedirectMode {
     /// `http://127.0.0.1:<random port>/callback`, served by [`Loopback`] (works everywhere).
@@ -187,6 +189,7 @@ pub enum RedirectMode {
 
 /// Which provider preset to use.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderKind {
     /// Google accounts (OpenID Connect).
@@ -213,6 +216,7 @@ impl ProviderKind {
 
 /// One provider the user can sign in with.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct ProviderConfig {
     /// The name used by the commands and the keychain (default: the kind, e.g. `google`).
@@ -314,6 +318,7 @@ impl ProviderConfig {
 
 /// Where a provider's sign-in, token, userinfo, revocation and key endpoints are.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Endpoints {
     /// The sign-in page the browser opens.
@@ -640,6 +645,7 @@ pub fn open_browser(url: &str) -> Result<()> {
 
 /// Who signed in.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct User {
     /// The provider's stable id for the user (`sub`, or GitHub's numeric id).
@@ -656,6 +662,7 @@ pub struct User {
 
 /// The tokens of one sign-in, as kept in the keychain. `Debug` hides the tokens.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Tokens {
     /// Sent with API calls (`Authorization: Bearer`).
@@ -702,6 +709,7 @@ impl Tokens {
 
 /// A token endpoint's reply.
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct TokenReply {
     access_token: Option<String>,
     refresh_token: Option<String>,
@@ -1113,6 +1121,7 @@ pub fn scope_for(data_dir: &Path) -> String {
 
 /// One provider's sign-in, as the Settings screen shows it.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderStatus {
     /// The provider's id.

@@ -38,6 +38,7 @@ use std::time::Duration;
 
 /// What the watcher did, for the UI (`watch-event`).
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum WatchEvent {
     /// Watching began on these folders.

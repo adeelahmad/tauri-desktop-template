@@ -102,6 +102,7 @@ pub const DEFAULT: &str = "default";
 
 /// One profile: a folder id and the name the user sees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Profile {
     /// Folder name (see [`valid_id`]).
     pub id: String,
@@ -111,6 +112,7 @@ pub struct Profile {
 
 /// The contents of `profiles.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Profiles {
     /// The profile the next start opens.
     pub active: String,

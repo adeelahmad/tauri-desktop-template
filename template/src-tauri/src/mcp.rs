@@ -160,6 +160,7 @@ pub fn claude_desktop_config() -> PathBuf {
 
 /// How to connect a client to this app, for Settings.
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Setup {
     /// The entry for any client's `mcpServers`.
     pub entry: Value,

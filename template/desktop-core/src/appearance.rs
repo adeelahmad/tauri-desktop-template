@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 /// A named colour theme: its id (saved in settings, used as `data-theme` in CSS) and the
 /// label the Settings screen shows. Each has a light and a dark variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Theme {
     /// The id, e.g. `nord`.
     pub id: &'static str,
@@ -95,6 +96,7 @@ pub enum Mode {
 /// `mode` and `theme` are plain strings (checked by [`validated`](Self::validated)) so a
 /// value written by a newer or older app never makes the whole settings file unreadable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppearanceConfig {
     /// `system`, `light` or `dark`.

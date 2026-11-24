@@ -43,6 +43,7 @@ use std::sync::Mutex;
 
 /// What one model costs, in US dollars per million tokens.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Price {
     /// Prompt tokens.
@@ -60,6 +61,7 @@ pub struct Price {
 
 /// A higher price for long prompts (USD per million tokens).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct LongPrompt {
     /// Prompts with more input tokens than this use these prices.
@@ -137,6 +139,7 @@ pub fn price_for<'a>(prices: &'a BTreeMap<String, Price>, model: &str) -> Option
 
 /// The tokens of one reply, as the provider counted them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Usage {
     /// Every prompt token, cached ones included.
@@ -161,6 +164,7 @@ impl Usage {
 
 /// Totals for one day or month.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Totals {
     /// Answered calls.
@@ -200,6 +204,7 @@ pub const KEEP_MONTHS: usize = 36;
 
 /// Totals per UTC day (`YYYY-MM-DD`) and month (`YYYY-MM`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 pub struct Ledger {
     /// Per day, oldest first.
@@ -306,6 +311,7 @@ pub enum State {
 
 /// One budget and how much of it is used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetUse {
     /// `daily tokens`, `monthly tokens`, `daily USD` or `monthly USD`.
@@ -373,6 +379,7 @@ impl Limits {
 
 /// What `ai_usage` shows: today, this month, recent history and the budgets.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     /// Today (`YYYY-MM-DD`, UTC).

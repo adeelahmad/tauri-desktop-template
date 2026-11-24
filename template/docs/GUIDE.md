@@ -24,6 +24,8 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [How settings work](#how-settings-work)
 - [Build-time app config](#build-time-app-config)
 - [Command errors](#command-errors)
+- [Typed IPC](#typed-ipc)
+- [Accessibility](#accessibility)
 - [Tests](#tests)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
@@ -134,7 +136,8 @@ documents, profiles can be added), and `listen()` / `emit()` work. Each call is 
 console as `[dev-mock]`. A command it does not know rejects with
 `dev-mock: no mock for "<command>"`; add a line to `commands` in that file when you add a
 Tauri command. URL options: `?mode=dark`, `?theme=nord`, `?os=macos|windows|linux` and
-`?wizard=1` (start at the setup wizard).
+`?wizard=1` (start at the setup wizard), and `?pseudo=1` (the pseudo-locale: every text
+accented and 30% longer, see [Accessibility](#accessibility)).
 
 It is loaded only when `import.meta.env.DEV` is set and `window.__TAURI_INTERNALS__` is
 missing, so `cargo tauri dev` and release builds never contain it. For screenshots or
@@ -416,6 +419,112 @@ into code `failed`, and `CommandError::new("invalid", "...")` sets a code. In th
 `errorText(e)` and `errorCode(e)` from `ui-react/src/errors.js` read it (and the plain
 strings that older commands still return).
 
+## Typed IPC
+
+The UI calls the Rust commands with `invoke`. Their argument and result types are generated
+from the Rust code, so the editor knows what each command takes and returns, and a renamed
+argument or a changed struct shows up as an error in the UI code instead of at run time.
+
+```text
+src-tauri/src/lib.rs   generate_handler![...] + each #[tauri::command] fn's signature
+desktop-core, src-tauri   #[derive(TS)] on the structs they take and return (Config, Hit, AppInfo, ...)
+        |  cargo test -p <app> export_bindings
+        v
+{% if frontend == "react" %}ui-react/src/bindings/{% else %}ui/bindings/{% endif %}types.d.ts      every struct and enum (the settings, the feature flags, ...)
+{% if frontend == "react" %}ui-react/src/bindings/{% else %}ui/bindings/{% endif %}commands.d.ts   Commands (args and result of each command), Invoke, Api
+```
+
+{% if frontend == "react" %}In the React UI, call commands through `src/ipc.js`:
+
+```js
+import { api } from './ipc.js';
+
+const hits = await api.search({ query: 'heart', k: 5 }); // Hit[]
+const info = await api.app_info(); // info.features.ai, info.settings.config.search.topK, ...
+```
+
+`api.<command>(args)` is `invoke('<command>', args)` with the types attached; `invoke` from
+`./ipc.js` is the same typed `invoke` for a command chosen at run time. The UI stays plain
+JavaScript and JSX: the types reach it through `.d.ts` files and JSDoc `@type` comments, so
+there is no TypeScript build step. Editors (VS Code and others) show them as you type; for a
+full check run `npx tsc --noEmit --allowJs --checkJs --jsx preserve --moduleResolution bundler src/*.js`.
+{% else %}The plain UI gets the same types through JSDoc: `ui/app.js` declares
+`/** @type {import('./bindings/commands').Invoke} */ const invoke = ...`, so editors know each
+command's arguments and result while the files stay plain JavaScript with no build step.
+{% endif %}
+**How it works.** [`desktop_core::bindings`](../desktop-core/src/bindings.rs) (cargo feature
+`ts`, which the app turns on for its tests only) reads the `generate_handler![...]` list in
+`src-tauri/src/lib.rs` with `syn`, follows each entry's `#[cfg(...)]` and finds the command's
+signature (Tauri's own parameters, such as `AppHandle` and `State`, are left out; argument
+names become camelCase, as Tauri expects). The types come from
+[ts-rs](https://docs.rs/ts-rs), a derive that follows the serde attributes the types already
+have. ts-rs was picked over specta/tauri-specta because it is only a derive: commands stay
+ordinary `#[tauri::command]` functions registered with Tauri's own `generate_handler!`, and
+tauri-specta is still a release candidate for Tauri 2. The derives are behind
+`cfg_attr(test, ...)` and `cfg_attr(feature = "ts", ...)`, so release builds contain none of it.
+
+**Keeping them fresh.**
+
+```sh
+cargo test -p {{project-name}} export_bindings                          # writes the files (commit them)
+KITCHEN_BINDINGS=check cargo test -p {{project-name}} export_bindings   # only compares
+```
+
+With `CI` set (GitHub Actions sets it) the test only compares, and fails with
+`stale TypeScript bindings` when the Rust commands or types changed and the files were not
+regenerated; `KITCHEN_BINDINGS=write` or `=check` overrides that. Run it with the default
+features: the bindings describe the build the app was generated with. A missing file is
+written in either mode, so a new app gets its first bindings from its first test run.
+`kitchen generate command <name>` runs the test after adding the command (`--no-bindings`
+skips it).
+
+**A new command** needs nothing extra when it takes and returns plain types, `Value` or types
+already listed. When it returns a new struct, derive the type and register it in the test:
+
+```rust
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]          // in desktop-core: #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct Export { rows: usize, file: String }
+
+// src-tauri/src/lib.rs, fn export_bindings, above `// kitchen:bindings`:
+b.add::<export_csv::Export>("export_csv::Export");
+```
+
+The test names any type it cannot write (`` `Export` has no TypeScript type ``), and any two
+types that would share a TypeScript name (rename one with `#[ts(rename = "...")]`).
+Commands that return `serde_json::Value` are typed `JsonValue`; give them a struct to type
+the result.
+
+## Accessibility
+
+{% if frontend == "react" %}`npm run a11y` (in `ui-react/`, and part of `kitchen test` when Node is installed) checks
+the UI in a real browser: it builds the UI with the browser dev mock, serves it, and runs
+[axe-core](https://github.com/dequelabs/axe-core) on the main screen, the first-run wizard,
+the Settings window (with the app shell) and every Settings section, in light and dark mode.
+Serious and critical issues fail it (`A11Y_LEVEL=moderate` is stricter), and so does a Tab
+stop that cannot be seen. It also renders each screen in the **pseudo-locale** (every text
+accented and 30% longer, `src/pseudo.js`) and fails when anything then sticks out past the
+window, so a longer translation will not break the layout. Turn the pseudo-locale on by hand
+with `?pseudo=1` in `npm run dev`.
+
+It uses Playwright, which is large and so not a dependency of the app: install it once with
+`npm i -g playwright && npx playwright install chromium` (CI installs it on the runner). Without
+it the check says so and passes, unless `A11Y_REQUIRED=1`.
+
+What the UI does for this, and what new screens should keep doing:
+
+- every input, select and textarea has a label: a wrapping `<label>`, or `aria-label` when
+  the placeholder is the only visible text;
+- status lines are live regions (`role="status"`, errors `role="alert"`), so screen readers
+  read the outcome of an action;
+- buttons are real `<button>`s with text, in reading order, with a visible focus ring
+  (`:focus-visible` in `style.css`); the Settings sections are a `nav` with `aria-current`;
+- colours come from the theme tokens, which keep text contrast at WCAG AA in light and dark.
+{% else %}The plain UI has no build step and no browser test; keep labels on every input, `role="status"`
+on status lines and visible focus rings (see the React UI's `npm run a11y` for the checks).
+{% endif %}
+
 ## Tests
 
 ```sh
@@ -426,7 +535,9 @@ kitchen test --feature    # the real app, driven through its window
 
 Both set `KITCHEN_ENV=test`, so the build embeds `config/environments/test.json`. If
 `ui-react/package.json` has a `test` script, `--unit` runs it too; the template ships none,
-so Node stays a build tool for the UI.
+so Node stays a build tool for the UI. With Node installed, `--unit` also runs the UI's
+accessibility check (`npm run a11y`, see [Accessibility](#accessibility)). The unit tests
+include `export_bindings`, which keeps the [typed IPC](#typed-ipc) bindings in step.
 
 **Feature tests** live in [`e2e/`](../e2e): Rust tests that start the built app and drive
 it with [tauri-driver](https://v2.tauri.app/develop/tests/webdriver/) over WebDriver, with
@@ -470,6 +581,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`backup`](../desktop-core/src/backup.rs) | always | Portable backups (optionally encrypted) and restores |
 | [`logging`](../desktop-core/src/logging.rs) | always | JSON-lines logs with rotation, through the `log` facade |
 | [`net`](../desktop-core/src/net.rs) | always | The network policy and the one HTTP client |
+| [`bindings`](../desktop-core/src/bindings.rs) | `ts` (tests only) | Typed IPC: TypeScript types for the Tauri commands ([Typed IPC](#typed-ipc)) |
 | [`governor`](../desktop-core/src/governor.rs) | always | CPU share and background priority for ingest |
 | [`audio`](../desktop-core/src/audio.rs) | always | WAV, PCM, resampling, base64 |
 | [`embed`](../desktop-core/src/embed.rs) | `embed` | Local ONNX embeddings (fastembed) |

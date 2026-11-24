@@ -108,6 +108,7 @@ pub fn entry(uv: &Path) -> Value {
 
 /// What `register` did, for the UI.
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Registration {
     /// The config file written.
     pub file: String,

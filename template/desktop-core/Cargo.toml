@@ -13,6 +13,9 @@ workspace = true
 
 [features]
 default = []
+# TypeScript types for the Tauri commands (desktop_core::bindings, "Typed IPC" in docs/GUIDE.md).
+# The app turns it on for its tests only, so release builds never contain it.
+ts = ["dep:ts-rs", "dep:syn", "dep:proc-macro2", "dep:quote"]
 {% if embeddings -%}
 # Local ONNX embeddings through fastembed-rs (model downloads once into the cache folder).
 embed = ["dep:fastembed", "dep:ort"]
@@ -120,6 +123,12 @@ sha2 = "0.10"
 # Already in every build through rustls; seals encrypted backups (ChaCha20-Poly1305).
 ring = "0.17"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+# Feature `ts` (tests only): TypeScript types from the Rust types (a derive, no runtime), and
+# syn (already in the tree through serde and Tauri) to read the app's command list.
+ts-rs = { version = "12", optional = true, features = ["serde-json-impl", "no-serde-warnings"] }
+syn = { version = "2", optional = true, features = ["full", "visit", "parsing", "printing"] }
+proc-macro2 = { version = "1", optional = true }
+quote = { version = "1", optional = true }
 {% if background_jobs -%}
 # Cron parsing and next-run times (croner), in local time (chrono's clock: no time zone database).
 croner = { version = "5", optional = true, default-features = false, features = ["std", "chrono"] }
@@ -145,9 +154,7 @@ tokio = { version = "1", optional = true, default-features = false, features = [
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }
 {% endif -%}
 {% if postgres or rclone -%}
-# Read-only use (unpacking downloads); 9.x clears RUSTSEC-2026-0367..0369, -0429, -0545..0548.
-# Pure-Rust inflate only: no zopfli compressor, no C zlib.
-zip = { version = "9.8", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "2", optional = true, default-features = false, features = ["deflate"] }
 {% endif -%}
 {% if postgres -%}
 postgresql_embedded = { version = "0.22", optional = true, features = ["blocking"] }

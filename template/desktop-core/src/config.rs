@@ -29,6 +29,7 @@ use std::path::PathBuf;
 /// All engine settings: search, ingest, watching, resources, logs, network, backups
 /// and each built-in feature's own section.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
     /// How search ranks and filters results.
@@ -104,6 +105,7 @@ pub struct Config {
 
 /// Which lists a search uses.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
     /// Vector search when a model is loaded, keyword search otherwise.
@@ -119,6 +121,7 @@ pub enum SearchMode {
 
 /// How the Postgres store ranks keywords.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum KeywordEngine {
     /// BM25 (VectorChord-BM25) when it is built in and installed, else full text.
@@ -132,6 +135,7 @@ pub enum KeywordEngine {
 
 /// Search settings: mode, result count, thresholds and fusion weights.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct SearchConfig {
     /// Vector, keyword, hybrid, or auto (vector when a model is loaded).
@@ -181,6 +185,7 @@ impl Default for SearchConfig {
 
 /// Ingest settings: workers, chunk size and overlap, batch size, file limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct IngestConfig {
     /// Files read, chunked and embedded at once. 0 means one per CPU core.
@@ -212,6 +217,7 @@ impl Default for IngestConfig {
 
 /// Folder watching settings (used with feature `watch`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct WatchConfig {
     /// Watch at all (off by default).

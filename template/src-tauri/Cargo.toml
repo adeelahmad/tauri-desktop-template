@@ -216,3 +216,9 @@ tauri-plugin-shell = "2"
 [target.'cfg(windows)'.dependencies]
 windows-service = { version = "0.8", optional = true }
 {% endif -%}{% endif -%}
+
+[dev-dependencies]
+# Typed IPC (the `export_bindings` test): desktop-core's TypeScript types, and ts-rs for the
+# derives on this crate's own command types. Tests only; the app does not contain them.
+desktop-core = { workspace = true, features = ["ts"] }
+ts-rs = { version = "12", features = ["serde-json-impl", "no-serde-warnings"] }

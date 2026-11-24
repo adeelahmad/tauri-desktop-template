@@ -1,10 +1,14 @@
 // Plain JS, no build step: the Tauri API comes from `withGlobalTauri`.
-const { invoke } = window.__TAURI__.core;
+// Typed IPC: bindings/*.d.ts (written by `cargo test -p <app> export_bindings`) give `invoke`
+// each command's argument and result types in the editor (docs/GUIDE.md, "Typed IPC").
+/** @type {import('./bindings/commands').Invoke} */
+const invoke = window.__TAURI__.core.invoke;
 const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 const show = (id, on = true) => { $(id).hidden = !on; };
 const say = (id, text, error = false) => { $(id).textContent = text; $(id).classList.toggle('error', error); };
 
+/** @type {import('./bindings/types').AppInfo} */
 let info;
 
 // One line on where a passage came from (chunk provenance from the backend).

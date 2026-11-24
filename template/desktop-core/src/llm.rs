@@ -82,6 +82,7 @@ use std::time::Duration;
 
 /// Who answers: a cloud API, a local server, or the model built into the app.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     /// Claude through Anthropic's Messages API (`ANTHROPIC_API_KEY`).
@@ -156,6 +157,7 @@ impl Provider {
 
 /// A provider and model to try (the main one, or a fallback).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Target {
     /// Who answers.
@@ -191,6 +193,7 @@ impl Target {
 
 /// AI settings (`llm` in settings). Off by default; keys are not here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct LlmConfig {
     /// Allow calls at all.
@@ -242,6 +245,7 @@ pub struct LlmConfig {
 
 /// Dollar budgets and what happens near and over a budget (`llm.budget`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct BudgetConfig {
     /// Stop calling once this many US dollars were spent today (UTC). None: no limit.
@@ -262,6 +266,7 @@ impl Default for BudgetConfig {
 
 /// Settings for provider `local` (llama.cpp in the app, feature `llama`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct LocalConfig {
     /// The .gguf file to run.
@@ -408,6 +413,7 @@ pub const USAGE_FILE: &str = "llm-usage.json";
 
 /// Who wrote a chat message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     /// Instructions for the model.
@@ -420,6 +426,7 @@ pub enum Role {
 
 /// One chat message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Message {
     /// Who wrote it.
     pub role: Role,
@@ -462,6 +469,7 @@ fn joined(messages: &[Message]) -> Vec<Message> {
 
 /// A finished reply, who gave it, and what it cost.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Reply {
     /// The whole reply text.
     pub text: String,
@@ -499,6 +507,7 @@ impl Reply {
 
 /// One failed try of a target.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Attempt {
     /// Who was asked.
     pub provider: Provider,

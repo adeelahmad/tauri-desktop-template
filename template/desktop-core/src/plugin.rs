@@ -90,6 +90,7 @@ pub trait Plugin: Send + Sync {
 
 /// Plugin settings (`plugins` in settings): all off by default.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct PluginsConfig {
     /// Run plugins at all.
@@ -122,6 +123,7 @@ impl PluginsConfig {
 
 /// What Settings shows about a plugin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginInfo {
     /// The plugin's unique name.
     pub name: String,

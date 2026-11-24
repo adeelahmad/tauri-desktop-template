@@ -101,6 +101,7 @@ const HISTORY_KEPT: usize = 10_000;
 
 /// `jobs` in the settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct JobsConfig {
     /// Run background jobs and schedules (the queue is kept either way).
@@ -389,6 +390,7 @@ impl Registry {
 
 /// Where a job is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum State {
     /// Waits for its time (`runAt`) and a free worker.
@@ -406,6 +408,7 @@ pub enum State {
 
 /// A job in the queue (or in the dead letters).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct JobRecord {
     /// Unique in the queue.
@@ -438,6 +441,7 @@ pub struct JobRecord {
 
 /// How a run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum Outcome {
     /// Done.
@@ -454,6 +458,7 @@ pub enum Outcome {
 
 /// One attempt, in the run history.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Run {
     /// The job's id.
@@ -482,6 +487,7 @@ pub struct Run {
 /// A job enqueued again and again: by a cron expression (five fields, minute first, in local
 /// time; `@daily` and the like work too) or every `every_secs` seconds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Schedule {
     /// Unique among the schedules.
@@ -560,6 +566,7 @@ pub fn next_cron(expr: &str, after_ms: u64) -> Result<u64> {
 
 /// When and how a job runs (each field optional).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Enqueue {
     /// Wait this long first.
@@ -581,6 +588,7 @@ impl Enqueue {
 
 /// A change to one schedule (`jobs_set_schedule`). Fields left out stay as they are.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct ScheduleUpdate {
     /// The schedule to change (or create).
@@ -601,6 +609,7 @@ pub struct ScheduleUpdate {
 
 /// What `list` shows: waiting and running jobs, the dead letters and recent runs.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     /// `jobs.enabled`.
@@ -638,6 +647,7 @@ impl Default for QueueOptions {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 struct QueueFile {
     jobs: Vec<JobRecord>,
@@ -1376,6 +1386,7 @@ mod tests {
     }
 
     #[derive(Serialize, Deserialize)]
+    #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
     struct N {
         n: u32,
     }

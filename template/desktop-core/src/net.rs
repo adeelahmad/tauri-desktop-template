@@ -36,6 +36,7 @@ const USER_AGENT: &str = concat!("desktop-core/", env!("CARGO_PKG_VERSION"));
 /// The network policy (`net` in settings). The default allows everything through the
 /// system proxy.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct NetConfig {
     /// Block every request that leaves this computer.

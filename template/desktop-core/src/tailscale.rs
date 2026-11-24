@@ -58,6 +58,7 @@ pub type Result<T, E = TailscaleError> = std::result::Result<T, E>;
 
 /// Tailscale settings (`tailscale` in settings). Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct TailscaleConfig {
     /// Use Tailscale (off by default).
@@ -93,6 +94,7 @@ impl TailscaleConfig {
 
 /// What `tailscale status --json` says about this machine.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     /// The Tailscale version.
@@ -218,6 +220,7 @@ fn run(cli: &Path, args: &[String], limit: Duration) -> Result<(bool, String, St
 
 /// What Settings shows.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     /// The `tailscale` command is there.

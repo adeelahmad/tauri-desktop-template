@@ -67,6 +67,7 @@ const FIRST_PHONE: i64 = 17;
 
 /// Text to speech settings (`tts` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct TtsConfig {
     /// Allow speech (off by default).

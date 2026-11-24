@@ -36,6 +36,7 @@ pub const FILE_FACTOR: u64 = 4;
 
 /// The ONNX Runtime execution provider to prefer (embeddings, speech).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum OnnxProvider {
     /// The CPU (always there).
@@ -99,6 +100,7 @@ impl Plan {
 
 /// How much of the computer background work may use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct ResourceConfig {
     /// Share of the CPU cores background work may use (10 to 100).

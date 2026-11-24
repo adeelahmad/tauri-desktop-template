@@ -1,7 +1,7 @@
 // Read text aloud with the built-in voice (feature `tts`).
 // (No double curly braces in this folder: the template engine would eat them.)
 import { useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './ipc.js';
 
 export default function Speak({ text }) {
   const [busy, setBusy] = useState(false);
@@ -12,7 +12,7 @@ export default function Speak({ text }) {
     setBusy(true);
     setError('');
     try {
-      const r = await invoke('speak', { text });
+      const r = await api.speak({ text });
       audio.current = new Audio(`data:audio/wav;base64,${r.wav}`);
       await audio.current.play();
     } catch (e) {
@@ -26,7 +26,12 @@ export default function Speak({ text }) {
       <button className="link" onClick={play} disabled={busy || !text}>
         {busy ? 'Preparing…' : 'Read aloud'}
       </button>
-      {error && <span className="status error"> {error}</span>}
+      {error && (
+        <span className="status error" role="alert">
+          {' '}
+          {error}
+        </span>
+      )}
     </span>
   );
 }

@@ -29,6 +29,7 @@ pub const MAX_CHARS: usize = 800;
 
 /// A piece of a document: the unit that is embedded, stored and returned by search.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Chunk {
     /// Where the text came from: a file path or a name the user gave.
     pub source: String,
@@ -44,6 +45,7 @@ pub struct Chunk {
 
 /// Where a chunk came from and how it was made, kept through search and citations.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct Provenance {
     /// SHA-256 of the source file (hex); empty for text given directly.

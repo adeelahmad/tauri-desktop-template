@@ -1,7 +1,8 @@
-//! The `{{name}}` command. From the UI:
+//! The `{{name}}` command. From the UI (typed IPC: `kitchen generate command` also updates
+//! the UI's TypeScript bindings, see docs/GUIDE.md):
 //!
 //! ```js
-//! const reply = await invoke('{{name}}', { input: { text: 'hello' } });
+//! const reply = await api.{{name}}({ input: { text: 'hello' } }); // import { api } from './ipc.js'
 //! ```
 
 use serde_json::{json, Value};

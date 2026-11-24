@@ -57,6 +57,7 @@ const ROLLBACK_DIR: &str = "rollback";
 
 /// Which releases this install follows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
     /// Full releases only (the default).
@@ -78,6 +79,7 @@ impl Channel {
 
 /// Settings section `updates`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct UpdatesConfig {
     /// The channel to take updates from.

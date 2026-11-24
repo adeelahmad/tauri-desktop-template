@@ -61,7 +61,7 @@ fn start(service: Arc<dyn Service>, config: &HttpApiConfig) -> Result<Server, St
         Ok(reply)
     };
     let mut opts = ServerOptions::new(config.clone(), token);
-    opts.features = crate::features();
+    opts.features = serde_json::json!(crate::features());
     Server::start(Arc::new(backend), opts).map_err(|e| e.to_string())
 }
 

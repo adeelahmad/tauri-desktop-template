@@ -64,6 +64,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// What happens when a client calls a tool.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum ToolPolicy {
     /// Run it.
@@ -80,6 +81,7 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// The MCP server's policy (`mcp` in settings). Off, and read-only, by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
 pub struct McpConfig {
     /// Answer MCP clients at all (the `--mcp` entry point refuses when off).
@@ -161,6 +163,7 @@ pub trait Approver {
 
 /// A call waiting for approval, as the app shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PendingCall {
     /// Identifies the call (pass it to the decision).
     pub id: String,
