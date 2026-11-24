@@ -227,6 +227,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`rclone`](../desktop-core/src/rclone.rs) | `rclone` | Sync backups (or the data folder) to a cloud with rclone |
 | [`tailscale`](../desktop-core/src/tailscale.rs) | `tailscale` | Tailscale status and `tailscale serve` for one local port |
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
+| [`oauth`](../desktop-core/src/oauth.rs) | `oauth` | OAuth 2 / OpenID Connect sign-in (PKCE, browser, keychain) |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 
 A module only exists in your app if its feature was chosen when the app was generated

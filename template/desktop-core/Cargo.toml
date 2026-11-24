@@ -47,6 +47,10 @@ stt = ["dep:ort"]
 # SMTP email (TLS, STARTTLS, attachments) on the rustls already in the tree.
 mail = ["dep:rustls", "dep:webpki-roots"]
 {% endif -%}
+{% if oauth -%}
+# OAuth 2 / OpenID Connect sign-in (PKCE, loopback or deep-link redirect) with tokens in the OS keychain.
+oauth = ["dep:keyring"]
+{% endif -%}
 {% if plugins -%}
 # Static, compiled-in plugins (desktop_core::plugin): ingest hooks, search sources, methods.
 plugins = []
@@ -86,6 +90,12 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # The same rustls and Mozilla roots ureq already uses (no new crates in the build).
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = { version = "1", optional = true }
+{% endif -%}
+{% if oauth -%}
+# The OS keychain: macOS/iOS Keychain, Windows Credential Manager, Secret Service on Linux
+# (pure-Rust D-Bus and RustCrypto: no libdbus, no OpenSSL). HTTP, PKCE and JWT checks use
+# the ureq, sha2 and ring already in the tree.
+keyring = { version = "3.6", optional = true, default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 {% endif -%}
 {% if embeddings -%}
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }

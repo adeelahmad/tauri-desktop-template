@@ -13,7 +13,8 @@
 //! - `mcp_setup`, `mcp_register_claude`, `mcp_pending` and `mcp_decide` (feature `mcp`).
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
-//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`).
+//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
+//! - `oauth_login`, `oauth_logout`, `oauth_status` and `oauth_client_secret` (feature `oauth`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -164,6 +165,8 @@ fn features() -> Value {
         "plugins": cfg!(feature = "plugins"),
         "rclone": cfg!(feature = "rclone"),
         "tailscale": cfg!(feature = "tailscale"),
+        "oauth": cfg!(feature = "oauth"),
+        "oauthDeepLink": {% if tauri_plugins %}{% if tauri_deep_link %}cfg!(feature = "oauth"){% else %}false{% endif %}{% else %}false{% endif %},
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(all(desktop, feature = "mcp")),
         "pdf": cfg!(feature = "pdf"),
@@ -471,7 +474,65 @@ fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, String> {
     call(&state, "tailscale_apply", Value::Null)
 }
 
-/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
+{% if oauth %}/// Where the browser returns with `oauth.redirect = deepLink` (the app's own URL scheme).
+#[cfg(feature = "oauth")]
+const OAUTH_DEEP_LINK: &str = "{{project-name}}://oauth/callback";
+
+/// Sign-in: providers, who is signed in, and the redirect in use (feature `oauth`).
+#[cfg(feature = "oauth")]
+#[tauri::command(async)]
+fn oauth_status(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "oauth_status", Value::Null)
+}
+
+/// Sign in with `provider` in the system browser (authorization code + PKCE). With the
+/// loopback redirect this returns once the browser comes back; with the deep link it returns
+/// `{pending: true}` at once and an `oauth-changed` event follows. Either way
+/// `oauth-changed` carries the provider's new status.
+#[cfg(feature = "oauth")]
+#[tauri::command(async)]
+fn oauth_login(app: tauri::AppHandle, state: tauri::State<AppState>, provider: String) -> Result<Value, String> {
+    use desktop_core::oauth::{open_browser, Loopback, RedirectMode};
+    let status = call(&state, "oauth_status", Value::Null)?;
+    let redirect: RedirectMode = serde_json::from_value(status["redirect"].clone()).unwrap_or_default();
+    if redirect == RedirectMode::DeepLink {
+{% if tauri_plugins %}{% if tauri_deep_link %}        let begun = call(&state, "oauth_begin", json!({"provider": provider, "redirectUri": OAUTH_DEEP_LINK}))?;
+        open_browser(begun["url"].as_str().unwrap_or_default()).map_err(err)?;
+        return Ok(json!({"pending": true}));
+{% else %}        log::warn!("the deep-link plugin is not built in; signing in through {OAUTH_DEEP_LINK:?} is not possible, using the loopback redirect");
+{% endif %}{% else %}        log::warn!("the deep-link plugin is not built in; signing in through {OAUTH_DEEP_LINK:?} is not possible, using the loopback redirect");
+{% endif %}    }
+    // The wait for the browser happens here, not in the backend, so a slow sign-in never
+    // holds up the worker process.
+    let loopback = Loopback::bind().map_err(err)?;
+    let begun = call(&state, "oauth_begin", json!({"provider": provider, "redirectUri": loopback.redirect_uri()}))?;
+    open_browser(begun["url"].as_str().unwrap_or_default()).map_err(err)?;
+    let timeout = std::time::Duration::from_secs(status["timeoutSecs"].as_u64().unwrap_or(300));
+    let target = loopback.wait(begun["state"].as_str().unwrap_or_default(), timeout).map_err(err)?;
+    let done = call(&state, "oauth_complete", json!({"url": target}))?;
+    let _ = app.emit("oauth-changed", &done);
+    Ok(done)
+}
+
+/// Sign out of `provider`: the token is revoked where the provider supports it, then
+/// removed from the keychain. Returns `{revoked}`.
+#[cfg(feature = "oauth")]
+#[tauri::command(async)]
+fn oauth_logout(app: tauri::AppHandle, state: tauri::State<AppState>, provider: String) -> Result<Value, String> {
+    let done = call(&state, "oauth_logout", json!({ "provider": provider }))?;
+    let _ = app.emit("oauth-changed", &done);
+    Ok(done)
+}
+
+/// Save a provider's client secret in the OS keychain (empty removes it), or with none, say
+/// whether one is saved. Secrets never go into settings.
+#[cfg(feature = "oauth")]
+#[tauri::command(async)]
+fn oauth_client_secret(state: tauri::State<AppState>, provider: String, secret: Option<String>) -> Result<Value, String> {
+    call(&state, "oauth_client_secret", json!({ "provider": provider, "secret": secret }))
+}
+
+{% endif %}/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
 #[cfg(feature = "tts")]
 #[tauri::command(async)]
 fn speak(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
@@ -771,7 +832,27 @@ pub fn run() {
                 log::warn!("could not register the deep-link scheme: {e}");
             }
         }
-{% endif %}{% endif %}        // iOS and Android: everything lives in the app's private folder.
+{% endif %}{% endif %}{% if oauth %}{% if tauri_plugins %}{% if tauri_deep_link %}        // Sign-in replies that come back through the deep link (`oauth.redirect = deepLink`).
+        #[cfg(feature = "oauth")]
+        {
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let url = url.to_string();
+                    if !url.starts_with(OAUTH_DEEP_LINK) {
+                        continue;
+                    }
+                    let handle = handle.clone();
+                    std::thread::spawn(move || {
+                        let Some(state) = handle.try_state::<AppState>() else { return };
+                        let reply = state.service.call("oauth_complete", json!({ "url": url }), &mut |_| {}).unwrap_or_else(|e| json!({ "error": e }));
+                        let _ = handle.emit("oauth-changed", reply);
+                    });
+                }
+            });
+        }
+{% endif %}{% endif %}{% endif %}        // iOS and Android: everything lives in the app's private folder.
         #[cfg(mobile)]
         {
             paths::set_mobile_root(app.path().app_data_dir()?);
@@ -849,6 +930,14 @@ pub fn run() {
             tailscale_status,
             #[cfg(feature = "tailscale")]
             tailscale_apply,
+            #[cfg(feature = "oauth")]
+            oauth_status,
+            #[cfg(feature = "oauth")]
+            oauth_login,
+            #[cfg(feature = "oauth")]
+            oauth_logout,
+            #[cfg(feature = "oauth")]
+            oauth_client_secret,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]

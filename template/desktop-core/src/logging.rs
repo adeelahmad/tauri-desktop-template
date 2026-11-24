@@ -301,7 +301,8 @@ mod tests {
         log::trace!(target: "desktop_core::test", "not written at debug");
         log::logger().flush();
         let text = std::fs::read_to_string(&file).unwrap();
-        let last: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        // Only this test's lines: other tests running in parallel log through the same logger.
+        let last: serde_json::Value = text.lines().rev().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).find(|v| v["target"] == "desktop_core::test").unwrap();
         assert_eq!(last["level"], "info");
         assert!(last["msg"].as_str().unwrap().starts_with("line 11"));
         assert!(dir.join("test.1.log").exists() && dir.join("test.2.log").exists() && !dir.join("test.3.log").exists());

@@ -14,7 +14,10 @@
 //! with feature `plugins`: `plugins` (the list with schemas) and `plugin.<name>.<method>`
 //! {..} for any method a plugin offers; with feature `rclone`: `rclone_status`,
 //! `rclone_config` {text?}, `rclone_install`, `rclone_sync` (rclone's lines stream as
-//! progress); with feature `tailscale`: `tailscale_status`, `tailscale_apply`.
+//! progress); with feature `tailscale`: `tailscale_status`, `tailscale_apply`; with feature
+//! `oauth`: `oauth_status`, `oauth_begin` {provider, redirectUri} (the sign-in URL),
+//! `oauth_complete` {url} (the redirect the browser came back with), `oauth_logout`
+//! {provider}, `oauth_client_secret` {provider, secret?} (kept in the OS keychain).
 //! with feature `mcp`:
 //! `mcp_pending` (MCP calls waiting for approval) and `mcp_decide` {id, allow} (every other call
 //! is timed for opt-in traces/analytics).
@@ -71,6 +74,9 @@ pub struct Local {
     /// The Whisper model, loaded on first use (and again when the size changes).
     #[cfg(feature = "stt")]
     whisper: Mutex<Option<Arc<desktop_core::stt::Stt>>>,
+    /// Sign-ins started and waiting for the browser (feature `oauth`).
+    #[cfg(feature = "oauth")]
+    oauth_pending: Mutex<Vec<desktop_core::oauth::Pending>>,
     /// Recent watch events, newest last (at most 100).
     events: Arc<Mutex<std::collections::VecDeque<Value>>>,
 }
@@ -143,7 +149,15 @@ impl Local {
     }
 }
 
-{% if rclone %}/// The folder cloud sync copies: the backups folder or the data folder, as configured.
+{% if oauth %}/// Sign-in for the open profile: its settings, with tokens and client secrets in the OS
+/// keychain under this app's identifier (one scope per data folder, so profiles stay apart).
+#[cfg(feature = "oauth")]
+fn oauth(e: &Engine) -> desktop_core::oauth::Oauth {
+    use desktop_core::oauth::{scope_for, Keychain, Oauth};
+    Oauth::new(e.config().oauth, Keychain::new("{{identifier}}"), &scope_for(e.data_dir()))
+}
+
+{% endif %}{% if rclone %}/// The folder cloud sync copies: the backups folder or the data folder, as configured.
 #[cfg(feature = "rclone")]
 fn rclone_folder(e: &Engine) -> std::path::PathBuf {
     match e.config().rclone.folder {
@@ -213,6 +227,26 @@ impl Local {
                             if desktop_core::rclone::due(e.data_dir(), &cfg) {
                                 if let Err(err) = desktop_core::rclone::sync(e.data_dir(), &rclone_folder(&e), &cfg, &mut |l| log::debug!("rclone: {l}")) {
                                     log::warn!("scheduled cloud sync failed: {err}");
+                                }
+                            }
+                        })
+                        .map_err(err)?;
+                }
+{% endif %}{% if oauth %}                // Access tokens are refreshed shortly before they expire, while this engine is open.
+                #[cfg(feature = "oauth")]
+                {
+                    let weak = weak.clone();
+                    std::thread::Builder::new()
+                        .name("oauth-refresh".into())
+                        .spawn(move || loop {
+                            std::thread::sleep(std::time::Duration::from_secs(60));
+                            let Some(e) = weak.upgrade() else { break };
+                            if !e.config().oauth.enabled {
+                                continue;
+                            }
+                            for (provider, result) in oauth(&e).refresh_due() {
+                                if let Err(err) = result {
+                                    log::warn!("could not refresh the {provider} sign-in: {err}");
                                 }
                             }
                         })
@@ -476,6 +510,52 @@ impl Local {
             "tailscale_status" => to(Ok(desktop_core::tailscale::status(&self.engine()?.config().tailscale))),
             #[cfg(feature = "tailscale")]
             "tailscale_apply" => to(Ok(desktop_core::tailscale::apply(&self.engine()?.config().tailscale).map_err(err)?)),
+{% endif %}{% if oauth %}            #[cfg(feature = "oauth")]
+            "oauth_status" => {
+                let e = self.engine()?;
+                let cfg = e.config().oauth;
+                Ok(json!({"enabled": cfg.enabled, "redirect": cfg.redirect, "timeoutSecs": cfg.timeout_secs, "providers": oauth(&e).status()}))
+            }
+            #[cfg(feature = "oauth")]
+            "oauth_begin" => {
+                let e = self.engine()?;
+                let o = oauth(&e);
+                let (url, pending) = o.begin(&arg::<String>(&params, "provider")?, &arg::<String>(&params, "redirectUri")?).map_err(err)?;
+                let state = pending.state.clone();
+                let timeout = std::time::Duration::from_secs(o.config().timeout_secs);
+                let mut list = self.oauth_pending.lock().map_err(err)?;
+                list.retain(|p| p.age() < timeout);
+                list.push(pending);
+                Ok(json!({"url": url, "state": state}))
+            }
+            #[cfg(feature = "oauth")]
+            "oauth_complete" => {
+                let url = arg::<String>(&params, "url")?;
+                let state = desktop_core::oauth::callback_state(&url).ok_or("the sign-in reply has no state")?;
+                let pending = {
+                    let mut list = self.oauth_pending.lock().map_err(err)?;
+                    let i = list.iter().position(|p| p.state == state).ok_or("no sign-in in progress for this reply; start again")?;
+                    list.remove(i)
+                };
+                let e = self.engine()?;
+                to(Ok(oauth(&e).complete(&pending, &url).map_err(err)?))
+            }
+            #[cfg(feature = "oauth")]
+            "oauth_logout" => {
+                let e = self.engine()?;
+                Ok(json!({"revoked": oauth(&e).logout(&arg::<String>(&params, "provider")?).map_err(err)?}))
+            }
+            #[cfg(feature = "oauth")]
+            "oauth_client_secret" => {
+                let e = self.engine()?;
+                let o = oauth(&e);
+                let provider = arg::<String>(&params, "provider")?;
+                o.provider(&provider).map_err(err)?;
+                if let Some(secret) = arg::<Option<String>>(&params, "secret")? {
+                    o.set_client_secret(&provider, Some(&secret)).map_err(err)?;
+                }
+                Ok(json!({"set": o.client_secret(&provider).map_err(err)?.is_some()}))
+            }
 {% endif %}            // kitchen:methods (`kitchen generate command` adds methods above this line)
             other => Err(format!("unknown method {other:?}")),
         }

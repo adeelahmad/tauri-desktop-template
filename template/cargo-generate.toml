@@ -60,6 +60,11 @@ type = "bool"
 prompt = "Send email over SMTP (native Rust: SSL/TLS on 465, STARTTLS on 587, login, attachments)?"
 default = false
 
+[placeholders.oauth]
+type = "bool"
+prompt = "Sign-in with OAuth 2 / OpenID Connect (Google, GitHub, Microsoft, any OIDC provider; PKCE in the system browser, tokens in the OS keychain)?"
+default = false
+
 [placeholders.plugins]
 type = "bool"
 prompt = "Plugin API: compiled-in app extensions (ingest hooks, extra search sources, their own methods and settings), with an example plugin?"
@@ -275,6 +280,9 @@ ignore = ["desktop-core/src/mail.rs"]
 
 [conditional.'!stt']
 ignore = ["desktop-core/src/stt.rs", "src-tauri/Info.plist", "src-tauri/Entitlements.plist"]
+
+[conditional.'!oauth']
+ignore = ["desktop-core/src/oauth.rs"]
 
 [conditional.'!plugins']
 ignore = ["desktop-core/src/plugin.rs"]

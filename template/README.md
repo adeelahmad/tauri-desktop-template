@@ -59,6 +59,9 @@ Everything runs on the user's machine.
 {% if email -%}
 | Email over SMTP in Rust (SSL/TLS on 465, STARTTLS on 587, `AUTH PLAIN`/`LOGIN`, HTML, attachments) on the rustls already in the tree; the password stays in an owner-only file. Turn on under Settings → Email | `desktop-core/src/mail.rs` | `mail` |
 {% endif -%}
+{% if oauth -%}
+| Sign-in with OAuth 2 / OpenID Connect: Google, GitHub, Microsoft or any OIDC provider (discovery). Authorization code + PKCE in the system browser, back through a loopback server on `127.0.0.1` (random port) or the app's deep link; `state`, `nonce` and the ID token's signature checked; tokens refreshed before they expire, revoked on sign-out; tokens and client secrets in the OS keychain only. Settings → Sign-in (see [Sign-in](#sign-in-oauth)) | `desktop-core/src/oauth.rs` | `oauth` |
+{% endif -%}
 {% if plugins -%}
 | Plugin API: compiled-in extensions (`Plugin` trait + registry) with ingest hooks, extra search sources, their own methods (`plugin.<name>.<method>`) and a settings schema; example plugin `glossary`. Turn on under Settings → Plugins | `desktop-core/src/plugin.rs` | `plugins` |
 {% endif -%}
@@ -316,6 +319,11 @@ is off by default; values are clamped to safe ranges.
 | `mail.enabled`, `mail.host`, `mail.port`, `mail.security` | off, empty, 587, `starttls` | SMTP server; `tls` for port 465; `none` only to this computer |
 | `mail.username`, `mail.from`, `mail.maxMb`, `mail.timeoutSecs` | empty, empty, 25, 30 | login (empty = none), sender, largest message, timeout |
 {% endif -%}
+{% if oauth -%}
+| `oauth.enabled`, `oauth.redirect` | off, `loopback` | allow sign-in; `deepLink` returns through `{{project-name}}://oauth/callback` (needs the deep-link plugin) |
+| `oauth.providers` | none | `[{"kind": "google", "clientId": "...", "scopes": []}]`; kinds `google`, `github`, `microsoft` (+ `tenant`), `oidc` (+ `issuer`); `id` defaults to the kind |
+| `oauth.timeoutSecs`, `oauth.refreshBeforeSecs` | 300, 120 | time to finish in the browser; refresh the access token this early |
+{% endif -%}
 {% if plugins -%}
 | `plugins.enabled`, `plugins.disabled`, `plugins.settings` | off, none, `{}` | run plugins; leave some out; each plugin's settings by name |
 {% endif -%}
@@ -346,6 +354,56 @@ Email (`desktop_core::mail::send`) speaks SMTP itself: it refuses a password ove
 unencrypted link, checks certificates against the bundled Mozilla roots (or `net.caFiles` and
 `net.pins`), and rejects line breaks in addresses and headers. The `send_mail` command takes
 `{to, cc, bcc, subject, text, html?, attachments: [path]}`; Settings → Email has a test button.
+{% endif -%}
+{% if oauth -%}
+<a id="sign-in-oauth"></a>
+#### Sign-in (OAuth 2 / OpenID Connect)
+
+Users sign in in their own browser (never a web view), so the app never sees a password and
+saved sign-ins and passkeys work. `desktop_core::oauth` runs the authorization code flow
+with PKCE (S256): the `oauth_login` command opens the provider's page, waits on
+`http://127.0.0.1:<random port>/callback` (or the deep link), checks `state`, swaps the code
+for tokens, verifies the ID token (signature from the provider's keys, issuer, audience,
+expiry, `nonce`) and stores the tokens in the OS keychain (macOS Keychain, Windows Credential
+Manager, Secret Service on Linux) under `{{identifier}}`. Nothing secret is written to
+settings or logs. `oauth_status` lists who is signed in, `oauth_logout` revokes the token
+where the provider can and forgets it, and `oauth_client_secret` keeps an optional client
+secret in the keychain. Rust code gets a fresh token with `Oauth::access_token`, which
+refreshes it shortly before it expires; a background thread does the same every minute.
+
+Set it up in Settings → Sign-in: turn it on, add a provider with its client id, save, then
+press **Sign in**. Register the app with the provider as a *desktop* (native, public) client:
+
+- **Google**: Google Cloud console → APIs & Services → Credentials → Create credentials →
+  OAuth client ID → *Desktop app*. Copy the client id; Google also gives desktop apps a client
+  secret that it requires with PKCE (it is not really secret): save it with **Save secret**.
+  No redirect URI needs registering (any `127.0.0.1` port works). Scopes default to
+  `openid email profile`; refresh tokens come with offline access, which is requested.
+- **GitHub**: Settings → Developer settings → OAuth Apps (or GitHub Apps) → New. Set the
+  callback URL to `http://127.0.0.1/callback` (GitHub accepts any port for loopback URLs).
+  GitHub needs the client secret at the token step, so save it with **Save secret**; it also
+  lets sign-out revoke the token. GitHub is OAuth 2 only: the user comes from
+  `api.github.com/user`. Scopes default to `read:user user:email`. OAuth App tokens do not
+  expire; GitHub App tokens expire after 8 hours and are refreshed.
+- **Microsoft** (personal and work accounts): Entra admin center → App registrations → New
+  registration. Under Authentication add the platform *Mobile and desktop applications* with
+  the redirect URI `http://127.0.0.1/callback` (Entra ignores the port of loopback URIs), and
+  turn on *Allow public client flows*. No secret is needed. `tenant` is `common` by default
+  (any account); use `organizations`, `consumers` or your tenant id to narrow it. Scopes
+  default to `openid email profile offline_access`. Microsoft has no revocation endpoint, so
+  signing out forgets the tokens on this computer.
+- **Any OpenID Connect provider** (Okta, Auth0, Keycloak, Authentik, Zitadel, ...): create a
+  native or public client with PKCE and the redirect URI `http://127.0.0.1/callback` (allow
+  any port if the provider asks), then set `kind` to `oidc` and `issuer` to its issuer URL;
+  the endpoints come from `<issuer>/.well-known/openid-configuration`. Sign-out revokes the
+  token when the provider lists a `revocation_endpoint`.
+
+{% if tauri_plugins %}{% if tauri_deep_link %}With `oauth.redirect` set to `deepLink`, register `{{project-name}}://oauth/callback` as the
+redirect URI instead; the deep-link plugin hands the reply back to the app and an
+`oauth-changed` event reports the result.
+{% endif %}{% endif %}On Linux the Secret Service needs a running keyring (GNOME Keyring or KWallet); without one
+Settings shows the keychain error and sign-in is not saved. Every request follows `net`.
+
 {% endif -%}
 {% if plugins -%}
 Plugins (`desktop_core::plugin`) are Rust types compiled into the app, never loaded from

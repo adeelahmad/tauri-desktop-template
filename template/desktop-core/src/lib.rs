@@ -18,7 +18,7 @@
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`]. Feature modules: `embed`,
 //! `pdf`, `pgstore`, `watch`, `llm` (feature `ai`), `local` (feature `llama`), `mcp`,
-//! `tts`, `stt`, `mail`, `telemetry`.
+//! `tts`, `stt`, `mail`, `oauth`, `telemetry`.
 //!
 //! # Example
 //!
@@ -74,6 +74,8 @@ pub mod tts;
 pub mod stt;
 {% endif %}{% if email %}#[cfg(feature = "mail")]
 pub mod mail;
+{% endif %}{% if oauth %}#[cfg(feature = "oauth")]
+pub mod oauth;
 {% endif %}{% if telemetry %}#[cfg(feature = "telemetry")]
 pub mod telemetry;
 {% endif %}{% if plugins %}#[cfg(feature = "plugins")]
