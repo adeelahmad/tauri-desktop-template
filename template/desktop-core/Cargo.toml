@@ -108,6 +108,10 @@ supply-chain = []
 # Update channels, staged rollout buckets and rollback bookkeeping (sha2 and ring are in the tree).
 release-channels = []
 {% endif -%}
+{% if evals -%}
+# Search and RAG evals (desktop_core::eval): metrics, baselines, an optional LLM judge. No new crates.
+evals = []
+{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile", "dep:libc"]

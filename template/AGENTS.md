@@ -78,6 +78,9 @@ This build has:
 {% if telemetry -%}
 - `telemetry` (cargo feature `telemetry`): opt-in crash reports, analytics and traces, `desktop-core/src/telemetry.rs`.
 {% endif -%}
+{% if evals -%}
+- `evals` (cargo feature `evals`): search and RAG evals, `desktop-core/src/eval.rs`; run `make eval` (or `kitchen eval`) after changing search, and refresh `evals/baseline.json` only on purpose.
+{% endif -%}
 {% if mcp_server -%}
 - `mcp_server` (cargo feature `mcp`): this app as an MCP server (`<app> --mcp`), `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs`.
 {% endif -%}

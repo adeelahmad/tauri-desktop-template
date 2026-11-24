@@ -28,6 +28,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Typed IPC](#typed-ipc)
 - [Accessibility](#accessibility)
 - [Tests](#tests)
+- [Search evals](#search-evals)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
 - [Feature dependencies](#feature-dependencies)
@@ -595,6 +596,45 @@ KITCHEN_ENV=test cargo tauri build --debug --no-bundle
 APP_BINARY=target/debug/<app> cargo test -p e2e -- --ignored
 ```
 
+## Search evals
+
+With the `evals` answer (cargo feature `evals`, off by default), the app can score its own
+search on a labelled dataset and fail when a change makes it worse. The logic is
+`desktop_core::eval` ([`desktop-core/src/eval.rs`](../desktop-core/src/eval.rs)); the
+command line is `src-tauri/src/eval.rs`.
+
+```sh
+make eval                                               # evals/dataset.jsonl against evals/baseline.json
+cargo run -p <app> -- --eval                            # the bundled sample, JSON report on stdout
+cargo run -p <app> -- --eval my/dataset.jsonl --baseline my/baseline.json --threshold 0.02
+cargo run -p <app> -- --eval --out evals/baseline.json  # save a new baseline (on purpose)
+cargo run -p <app> -- --eval --answers                  # also the AI answer path (feature ai)
+kitchen eval [dataset] [--baseline file]                # the same from Kitchen (and the MCP tool `eval`)
+```
+
+- **Data.** A dataset is JSON lines, `{"query", "relevant_doc_ids": [...], "expected_answer"?}`.
+  The corpus is `corpus.jsonl` next to it (or `--corpus`), JSON lines of `{"id", "text"}`;
+  each document is indexed with its id as the source, so the ids in `relevant_doc_ids` are
+  what search returns. `evals/` ships a sample: 20 short cooking notes and 15 queries.
+- **What runs.** The corpus goes into a fresh temporary store (`--backend file|postgres`)
+  with the saved search and AI settings. Keyword search (BM25, in the file store or with
+  `bm25` in Postgres) always runs; with `embed`, vector and hybrid run too.
+- **Metrics**, per mode, with binary relevance over the top `k` (`--k`, default 5):
+  recall@k, MRR, nDCG@k, and p50/p95/mean latency per query. Each query's results are in
+  `per_query`.
+- **Answers** (`--answers`, feature `ai`). For each case with an `expected_answer` the app
+  asks through `Engine::ask` and reports the word-overlap F1 with it, plus a faithfulness
+  score from an LLM judge that goes through `desktop_core::llm` (budgets and the network
+  policy apply; `--no-judge` leaves it out). Skipped, with the reason in the report, when AI
+  is off or the provider has no API key, so CI without keys still passes.
+- **Baseline.** `--baseline` compares with a saved report: a drop in recall@k, MRR,
+  nDCG@k or faithfulness of more than `--threshold` (default 0.02), or a mode the baseline
+  has that is gone, sets `"ok": false` and exits 1. Latency is only checked with
+  `--latency-ratio` (e.g. 1.5), since it depends on the machine.
+- **Extending it.** Anything that ranks document ids is a `Retriever` (a closure is
+  enough), and anything that grades an answer is a `Judge`, so a new search source or
+  judge needs no changes to the metrics or the report.
+
 ## Module index
 
 Paths are relative to this file. The rustdoc page of `desktop_core::X` is
@@ -638,6 +678,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`oauth`](../desktop-core/src/oauth.rs) | `oauth` | OAuth 2 / OpenID Connect sign-in (PKCE, browser, keychain) |
 | [`webview`](../desktop-core/src/webview.rs) | `webview` | Embedded web view policy: allowlist, isolation, message bridge |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
+| [`eval`](../desktop-core/src/eval.rs) | `evals` | Search and RAG evals: recall@k, MRR, nDCG@k, latency, baselines, LLM judge |
 
 A module only exists in your app if its feature was chosen when the app was generated
 (`kitchen enable <feature>` adds it later).
@@ -662,6 +703,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`python`](../src-tauri/src/python.rs) | `python-example` | A Python child process behind a command |
 | [`claude`](../src-tauri/src/claude.rs) | `claude-mcp` | Register a Python MCP server in Claude Desktop through bundled uv |
 | [`webview`](../src-tauri/src/webview.rs) | `webview` | Remote pages in app windows: allowlist hook, isolation, no IPC, bridge |
+| [`eval`](../src-tauri/src/eval.rs) | `evals` | `--eval`: the command line of the search evals |
 
 ## Docs and checks
 
@@ -753,6 +795,7 @@ answers it was generated with.
 | `kitchen test [--unit\|--feature]` | Unit tests and feature tests ([Tests](#tests)), with `KITCHEN_ENV=test` |
 | `kitchen package [mac\|windows\|linux] [--release]` | `cargo tauri build` with this OS's bundles, copied into `./packages`. Other OSes are refused |
 | `kitchen publish [--tag v1.2.3] [--yes]` | A GitHub release with `./packages` through `gh`; a dry run without `--yes` |
+| `kitchen eval [dataset] [--baseline file]` | Run the app's search evals (`<app> --eval`, feature `evals`) and fail on a regression ([Search evals](#search-evals)) |
 | `kitchen eject vite\|tauri\|cargo` | Where that tool's own config is, and what Kitchen sets on top |
 | `kitchen mcp` | Offer the same commands to AI agents as an MCP server over stdio (`claude mcp add kitchen -- kitchen mcp`) |
 

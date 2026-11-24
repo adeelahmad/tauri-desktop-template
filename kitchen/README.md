@@ -53,6 +53,7 @@ kitchen service install           # the app's daemon as a user service (template
 kitchen service status            # installed? running? pid, log file
 kitchen service logs --lines 100 --follow
 kitchen service stop | start | restart | uninstall [--system]
+kitchen eval --baseline evals/baseline.json   # the app's search evals (feature evals); fails on a regression
 kitchen build                     # cargo tauri build, as is
 kitchen mcp                       # MCP server over stdio
 ```
@@ -154,7 +155,7 @@ claude mcp add kitchen -- kitchen mcp
 ```
 
 The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
-`start`, `test`, `package`, `publish`, `eject`, `service` and `new`. Each one takes an optional
+`start`, `test`, `package`, `publish`, `eject`, `service`, `eval` and `new`. Each one takes an optional
 `project` folder, and the ones that change files also take `dry_run`; `enable`, `disable`,
 `set` and `new` take `with_deps`, and `features` takes `check`. `start` keeps
 running, so it answers with the command to run in a terminal instead of blocking; `test`

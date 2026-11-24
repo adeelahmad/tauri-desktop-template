@@ -23,7 +23,7 @@
 //! `http_api` (a local REST API, feature `http-api`), `appearance` (feature `app-shell`),
 //! `notices` (licence notices, feature `supply-chain`), `release` (update channels, feature
 //! `release-channels`), `bindings` (typed IPC: TypeScript types for the Tauri commands; feature
-//! `ts`, tests only).
+//! `ts`, tests only), `eval` (search and RAG evals, feature `evals`).
 //!
 //! # Example
 //!
@@ -115,6 +115,8 @@ pub mod actions;
 pub mod notices;
 {% endif %}{% if release_channels %}#[cfg(feature = "release-channels")]
 pub mod release;
+{% endif %}{% if evals %}#[cfg(feature = "evals")]
+pub mod eval;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

@@ -7,6 +7,7 @@
 //! my-app --worker                 run the backend process (feature ipc-worker)
 //! my-app --mcp                    serve MCP over stdio (feature mcp)
 //! my-app --self-test [out.json]   index and search a sample, print a JSON report
+//! my-app --eval [dataset] [--baseline file]   search evals, JSON report (feature evals)
 {%- if pdf %}
 //! my-app --parse                  parse one PDF from stdin, JSON on stdout (feature pdf)
 {%- endif %}
@@ -36,6 +37,10 @@ fn main() {
         // `--self-test [report.json]`: CI runs this on the installed app. Release builds have
         // no console on Windows, so the report can also go to a file.
         std::process::exit(app_lib::self_test(args.get(2).map(std::path::Path::new)));
+    }
+    if args.get(1).map(String::as_str) == Some("--eval") {
+        // `--eval [dataset.jsonl] [--baseline b.json] ...`: search and RAG evals (feature `evals`).
+        std::process::exit(app_lib::eval_main(&args[2..]));
     }
     // Production safety: a production build refuses to start without the config listed in
     // config/*.json `requiredInProduction` (see app_lib::app_config::check).

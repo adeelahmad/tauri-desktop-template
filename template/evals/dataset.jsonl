@@ -1,0 +1,15 @@
+{"query": "how do I know when bread dough has finished rising", "relevant_doc_ids": ["bread-proofing"], "expected_answer": "When it has nearly doubled in size and a gentle finger dent springs back slowly."}
+{"query": "feeding schedule for a sourdough starter", "relevant_doc_ids": ["sourdough-starter"], "expected_answer": "Equal weights of flour and water once a day at room temperature, or once a week in the fridge."}
+{"query": "how much salt goes in pasta water", "relevant_doc_ids": ["pasta-water"], "expected_answer": "About ten grams of salt per litre of water."}
+{"query": "my mayonnaise split, how can I rescue it", "relevant_doc_ids": ["broken-mayo-fix", "emulsions"], "expected_answer": "Whisk the broken sauce a few drops at a time into a fresh egg yolk or a spoon of warm water."}
+{"query": "why does meat turn brown when it is seared", "relevant_doc_ids": ["maillard"], "expected_answer": "The Maillard reaction between amino acids and sugars."}
+{"query": "stop a cast iron skillet from rusting", "relevant_doc_ids": ["cast-iron-care"], "expected_answer": "Dry it on the stove after washing and rub in a drop of oil."}
+{"query": "keep green vegetables bright before freezing them", "relevant_doc_ids": ["blanching"], "expected_answer": "Blanch them: boil briefly, then plunge them into iced water."}
+{"query": "what temperature should chicken be cooked to", "relevant_doc_ids": ["food-safety-temps"], "expected_answer": "Until the thickest part reaches 74 C."}
+{"query": "difference between baking soda and baking powder", "relevant_doc_ids": ["baking-powder-soda"], "expected_answer": "Baking soda needs an acid to make a batter rise; baking powder already contains its own acid."}
+{"query": "why did my stock turn cloudy", "relevant_doc_ids": ["stock"], "expected_answer": "It boiled; stock should only simmer gently."}
+{"query": "how long to boil an egg for a jammy yolk", "relevant_doc_ids": ["egg-boiling"], "expected_answer": "Six and a half minutes in boiling water, then iced water."}
+{"query": "how to keep parsley and basil fresh", "relevant_doc_ids": ["herbs-storage"], "expected_answer": "Trim the stems and stand them in a glass of water."}
+{"query": "should a steak rest before slicing", "relevant_doc_ids": ["resting-meat"], "expected_answer": "Yes, for five to ten minutes, so the juices settle back into the fibres."}
+{"query": "what angle to hold a knife on a whetstone", "relevant_doc_ids": ["knife-sharpening"], "expected_answer": "Fifteen to twenty degrees."}
+{"query": "what holds gluten-free bread together", "relevant_doc_ids": ["gluten-free-flour"], "expected_answer": "A binder such as psyllium husk or xanthan gum."}
