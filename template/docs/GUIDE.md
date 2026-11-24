@@ -294,6 +294,9 @@ templates.
 
 ## Notes for AI agents
 
+- [AGENTS.md](../AGENTS.md) is the short version of this guide for this build, and
+  `.claude/skills/` has recipes for turning features on, generating code, porting an
+  Electron or web app, and releasing.
 - Start with this guide, then the `//!` doc of the module you are changing. Run
   `cargo doc --document-private-items` to read the app's internal modules.
 - New work follows the [wiring checklist](#by-hand-the-wiring-checklist), or uses
