@@ -421,6 +421,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`tailscale`](../desktop-core/src/tailscale.rs) | `tailscale` | Tailscale status and `tailscale serve` for one local port |
 | [`http_api`](../desktop-core/src/http_api/mod.rs) | `http-api` | Local REST API (Axum): bearer token, one error shape, validated bodies, pagination |
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
+| [`oauth`](../desktop-core/src/oauth.rs) | `oauth` | OAuth 2 / OpenID Connect sign-in (PKCE, browser, keychain) |
 | [`webview`](../desktop-core/src/webview.rs) | `webview` | Embedded web view policy: allowlist, isolation, message bridge |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 
