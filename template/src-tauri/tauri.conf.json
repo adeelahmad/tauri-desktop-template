@@ -6,8 +6,8 @@
   "build": {
     {%- if frontend == "react" %}
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": { "script": "npm install --include=dev && npm run dev", "cwd": "../ui-react" },
-    "beforeBuildCommand": { "script": "npm ci --include=dev && npm run build", "cwd": "../ui-react" },
+    "beforeDevCommand": "npm install --include=dev && npm run dev",
+    "beforeBuildCommand": "npm ci --include=dev && npm run build",
     "frontendDist": "../ui-react/dist"
     {%- else %}
     "frontendDist": "../ui"{% endif %}

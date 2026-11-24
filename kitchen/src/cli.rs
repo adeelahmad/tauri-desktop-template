@@ -30,6 +30,10 @@ Usage:
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
   kitchen generate command <name>
   kitchen generate page <Name>
+  kitchen generate job <name>          a background job type (needs background_jobs)
+  kitchen generate menu <id> [--label <text>] [--shortcut CmdOrCtrl+Shift+K]   (tray_menu)
+  kitchen generate shortcut <action> <keys>                                   (tray_menu)
+  kitchen generate route <name>        POST /v1/<name> on the HTTP API (needs http_api)
   kitchen doctor [--json]              check this machine and this app
 
   kitchen start [--install]            run the app with hot reload (cargo tauri dev, KITCHEN_ENV=development)
@@ -61,7 +65,7 @@ pub struct Args {
 
 /// Options that take a value (all others are flags).
 const VALUED: &[&str] = &[
-    "enable", "disable", "set", "dir", "source", "rev", "label", "tag",
+    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "tag",
 ];
 
 impl Args {
@@ -203,7 +207,10 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
         "upgrade" => project()?.upgrade(args.value("rev"), &opts),
         "generate" | "g" => {
             let root = project()?.root;
-            let kind = args.word(1, "what to generate (module, setting, command, page)")?;
+            let kind = args.word(
+                1,
+                "what to generate (module, setting, command, page, menu, shortcut, job, route)",
+            )?;
             let name = args.word(2, "a name")?;
             match kind {
                 "module" | "mod" => generate::module(&root, name, args.flag("config"), &opts),
@@ -217,8 +224,23 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 ),
                 "command" | "cmd" => generate::command(&root, name, &opts),
                 "page" => generate::page(&root, name, &opts),
+                "menu" => generate::menu(
+                    &root,
+                    name,
+                    args.value("label"),
+                    args.value("shortcut"),
+                    &opts,
+                ),
+                "shortcut" => generate::shortcut(
+                    &root,
+                    name,
+                    args.word(3, "the keys, e.g. CmdOrCtrl+Shift+K")?,
+                    &opts,
+                ),
+                "job" => generate::job(&root, name, &opts),
+                "route" => generate::route(&root, name, &opts),
                 other => Err(Error::Usage(format!(
-                    "cannot generate {other:?}: module, setting, command or page"
+                    "cannot generate {other:?}: module, setting, command, page, menu, shortcut, job or route"
                 ))),
             }
         }

@@ -29,8 +29,12 @@ kitchen generate module invoices --config                     # desktop-core mod
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_csv                           # Tauri command + backend method
 kitchen generate page Reports                                 # React page on the main screen
+kitchen generate job send_digest                              # background job type (needs background_jobs)
+kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E   # app action in the app menu (tray_menu)
+kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global shortcut for an action (tray_menu)
+kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (http_api)
 
-kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, tauri-driver, the app's markers
+kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, tauri-driver, the app's markers and AGENTS.md
 
 kitchen start                     # cargo tauri dev, KITCHEN_ENV=development: Vite HMR + Rust rebuilds (`dev` works too)
 kitchen start --install           # first installs a missing Tauri CLI / npm packages
@@ -113,9 +117,26 @@ Each generator writes a new file that already has docs and a test. It wires that
 the `// kitchen:…` marker comments in the app (`kitchen doctor` checks they are there).
 
 To change what a generator writes, put your own copy of the file template in
-`.kitchen/templates/`. The files are `module.rs`, `module_config.rs`, `command.rs` and
-`page.jsx`; copy the originals from [`templates/`](templates). They use the variables
+`.kitchen/templates/`. The files are `module.rs`, `module_config.rs`, `command.rs`,
+`page.jsx` and `job.rs`; copy the originals from [`templates/`](templates).
+
+`menu` and `shortcut` need the `tray_menu` feature. `menu` registers the action and its app
+menu item at `// kitchen:actions` in `src-tauri/src/tray.rs` (the `--shortcut` keys become
+its accelerator) and adds a backend arm at `// kitchen:action-methods` in
+`src-tauri/src/service.rs`; `shortcut` adds a default global shortcut at `// kitchen:actions`.
+Users can rebind or clear it in Settings → Tray & shortcuts. They use the variables
 `{{name}}`, `{{Name}}`, `{{camelName}}` and `{{Title}}`.
+
+### Background jobs
+
+`kitchen generate job <name>` needs the `background_jobs` feature (`kitchen enable
+background_jobs`). It writes `desktop-core/src/job_types/<name>.rs`: a job type with a typed
+payload, a doc example that runs it through a queue, and a test. It registers the type at the
+`// kitchen:job-mods` and `// kitchen:jobs` markers in `desktop-core/src/job_types/mod.rs`.
+After that the job can be enqueued from the UI (`invoke('jobs_enqueue', { kind: '<name>', payload })`),
+from Rust (`queue.enqueue_job::<Name>(&payload, Enqueue::default())`), or put on a cron or
+interval schedule in Settings → Jobs. Failed attempts retry with exponential backoff and
+jitter, then wait in the dead letters until retried.
 
 ## MCP
 
@@ -123,13 +144,21 @@ To change what a generator writes, put your own copy of the file template in
 claude mcp add kitchen -- kitchen mcp
 ```
 
-The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
+The `generate` tool takes the kinds `module`, `setting`, `command`, `page` and `job`. The tools are `features`, `enable`, `disable`, `set`, `upgrade`, `generate`, `doctor`,
 `start`, `test`, `package`, `publish`, `eject` and `new`. Each one takes an optional
 `project` folder, and the ones that change files also take `dry_run`. `start` keeps
 running, so it answers with the command to run in a terminal instead of blocking; `test`
 and `package` run and return the report (the commands, the test results, and the last
 lines of output of a step that failed); `publish` only shows the release unless `yes` is
 true.
+
+## For AI agents
+
+Every app comes with `AGENTS.md` (layout, golden rules, the features that are on, tests,
+markers, and what never to do), `CLAUDE.md` pointing to it, `TESTING.md`, `BRAND.md`,
+skills in `.claude/skills/` (`kitchen-feature`, `kitchen-generate`, `kitchen-port-app`,
+`kitchen-release`) and a `.mcp.json` that registers `kitchen mcp` (and the app's own MCP
+server when `mcp_server` is on). `kitchen doctor` warns when `AGENTS.md` is missing.
 
 ## Why cargo-generate and not Yeoman
 

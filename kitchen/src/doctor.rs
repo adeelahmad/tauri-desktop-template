@@ -232,7 +232,8 @@ fn feature_test_checks() -> Vec<Check> {
     out
 }
 
-/// Checks on an app: its `kitchen.toml`, and the markers the generators need.
+/// Checks on an app: its `kitchen.toml`, the markers the generators need, and the agent
+/// docs (`AGENTS.md` and friends).
 fn project_checks(dir: &Path) -> Vec<Check> {
     let Some(root) = Manifest::find_root(dir) else {
         return vec![check(
@@ -243,6 +244,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
         )];
     };
     let mut out = Vec::new();
+    let mut tray_menu = false;
     match Manifest::load(&root) {
         Ok(m) => {
             let rev = if m.template.rev.is_empty() {
@@ -253,6 +255,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
                     &m.template.rev[..m.template.rev.len().min(12)]
                 )
             };
+            tray_menu = m.is_on("tray_menu");
             out.push(check(
                 "Kitchen app",
                 Status::Ok,
@@ -281,15 +284,25 @@ fn project_checks(dir: &Path) -> Vec<Check> {
             "fix kitchen.toml, or restore it from git",
         )),
     }
-    let markers = [
+    let mut markers = vec![
         ("desktop-core/src/lib.rs", "kitchen:modules"),
         ("desktop-core/src/config.rs", "kitchen:config"),
         ("src-tauri/src/lib.rs", "kitchen:mods"),
         ("src-tauri/src/lib.rs", "kitchen:handlers"),
         ("src-tauri/src/service.rs", "kitchen:methods"),
+        // Only in apps with background jobs.
+        ("desktop-core/src/job_types/mod.rs", "kitchen:job-mods"),
+        ("desktop-core/src/job_types/mod.rs", "kitchen:jobs"),
     ];
+    if tray_menu {
+        markers.extend([
+            ("src-tauri/src/tray.rs", "kitchen:actions"),
+            ("src-tauri/src/service.rs", "kitchen:action-methods"),
+        ]);
+    }
     let missing: Vec<String> = markers
         .iter()
+        .filter(|(f, _)| !f.contains("job_types") || root.join(f).is_file())
         .filter(|(f, m)| {
             std::fs::read_to_string(root.join(f))
                 .map(|s| !s.contains(m))
@@ -307,7 +320,50 @@ fn project_checks(dir: &Path) -> Vec<Check> {
             "kitchen upgrade (or add the comment back by hand)",
         )
     });
+    out.push(agent_files(&root));
     out
+}
+
+/// The files that tell AI agents how to work in an app (`kitchen new` writes them).
+pub const AGENT_FILES: &[&str] = &[
+    "AGENTS.md",
+    "CLAUDE.md",
+    "TESTING.md",
+    "BRAND.md",
+    ".mcp.json",
+    ".claude/skills",
+];
+
+/// Warn when the agent docs are missing; `AGENTS.md` is named first, since agents read it
+/// before anything else.
+fn agent_files(root: &Path) -> Check {
+    let missing: Vec<&str> = AGENT_FILES
+        .iter()
+        .copied()
+        .filter(|f| !root.join(f).exists())
+        .collect();
+    if missing.is_empty() {
+        return check(
+            "Agent docs",
+            Status::Ok,
+            "AGENTS.md and the rest present",
+            "",
+        );
+    }
+    let detail = if missing.contains(&"AGENTS.md") {
+        format!(
+            "AGENTS.md is missing, so agents get no instructions (missing: {})",
+            missing.join(", ")
+        )
+    } else {
+        format!("missing: {}", missing.join(", "))
+    };
+    check(
+        "Agent docs",
+        Status::Warn,
+        detail,
+        "kitchen upgrade adds them to an app made before they existed; otherwise copy them from the template",
+    )
 }
 
 /// The checks as a report.
@@ -346,6 +402,30 @@ mod tests {
         assert_eq!(parse_version("v20.11.1"), Some((20, 11)));
         assert_eq!(parse_version("tauri-cli 2.1.0"), Some((2, 1)));
         assert_eq!(parse_version("none"), None);
+    }
+
+    #[test]
+    fn warns_without_agents_md() {
+        let dir = crate::TempDir::new("doctor").unwrap();
+        let c = agent_files(dir.path());
+        assert_eq!(c.status, Status::Warn);
+        assert!(c.detail.starts_with("AGENTS.md is missing"), "{}", c.detail);
+        for f in AGENT_FILES {
+            let p = dir.path().join(f);
+            if f.ends_with("skills") {
+                std::fs::create_dir_all(&p).unwrap();
+            } else {
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(&p, "x").unwrap();
+            }
+        }
+        assert_eq!(agent_files(dir.path()).status, Status::Ok);
+        std::fs::remove_file(dir.path().join("BRAND.md")).unwrap();
+        let c = agent_files(dir.path());
+        assert_eq!(
+            (c.status, c.detail.as_str()),
+            (Status::Warn, "missing: BRAND.md")
+        );
     }
 
     #[test]
