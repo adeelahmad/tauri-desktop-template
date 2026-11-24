@@ -107,7 +107,7 @@ With the [Kitchen CLI](kitchen/README.md) (recommended: turn features on and off
 generate code, check your machine, MCP server for agents):
 
 ```sh
-cargo install --git https://github.com/<owner>/<this-repo> desktop-kitchen
+cargo install --git https://github.com/adeelahmad/tauri-desktop-template desktop-kitchen
 cargo install cargo-generate
 kitchen new my-app --enable email,ai
 cd my-app && kitchen doctor && kitchen dev
@@ -117,12 +117,20 @@ Or with cargo-generate alone:
 
 ```sh
 cargo install cargo-generate
-cargo generate --git https://github.com/<owner>/<this-repo> template --name my-app
+cargo generate --git https://github.com/adeelahmad/tauri-desktop-template template --name my-app
 cd my-app && cargo tauri dev
 ```
 
-For a private repository, cargo-generate uses your git credentials (the repository's SSH
-clone URL works too). Non-interactive: pass answers with
+The repository is private, so cargo needs your GitHub login to fetch it. Sign in once with
+`gh auth login` (or have an SSH key on GitHub), then let cargo use git's own credentials:
+
+```sh
+export CARGO_NET_GIT_FETCH_WITH_CLI=true   # cargo fetches with your git/gh credentials
+gh auth setup-git                          # only if you signed in with gh
+```
+
+The SSH URL works too: `cargo install --git ssh://git@github.com/adeelahmad/tauri-desktop-template desktop-kitchen`.
+cargo-generate uses the same credentials. Non-interactive: pass answers with
 `-d key=value` (see `.github/workflows/test-template.yml`).
 
 The generated project's README covers developing, releasing, signing keys for the
