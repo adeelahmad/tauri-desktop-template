@@ -4,6 +4,22 @@
 //! `vector_weight / (k + vector_rank) + keyword_weight / (k + keyword_rank)`, with ranks
 //! from 1 and a missing list contributing nothing. The result keeps both raw scores, so
 //! the UI can show why a chunk ranked where it did.
+//!
+//! Main items: [`rrf`] for hybrid search, [`single`] for one list, and [`Candidate`].
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::fuse::{rrf, Candidate};
+//! use desktop_core::{Hit, SearchConfig};
+//!
+//! let hit = |text: &str, score: f32| Hit { source: "s".into(), page: None, text: text.into(), score, vector_score: None, keyword_score: None, prov: None };
+//! let vector = vec![Candidate { key: 1, hit: hit("a", 0.9) }, Candidate { key: 2, hit: hit("b", 0.8) }];
+//! let keyword = vec![Candidate { key: 2, hit: hit("b", 7.5) }];
+//! let fused = rrf(vector, keyword, &SearchConfig::default());
+//! assert_eq!(fused[0].text, "b"); // found by both lists
+//! assert_eq!((fused[0].vector_score, fused[0].keyword_score), (Some(0.8), Some(7.5)));
+//! ```
 
 use crate::config::SearchConfig;
 use crate::store::Hit;
@@ -11,10 +27,14 @@ use std::collections::HashMap;
 
 /// One candidate: a stable key (store row id or record index), its hit, and its raw score.
 pub struct Candidate {
+    /// Identifies the chunk across both lists.
     pub key: u64,
+    /// The hit, with its raw score from this list in `score`.
     pub hit: Hit,
 }
 
+/// Fuse a vector list and a keyword list (each best first) per `cfg`, best first, at most
+/// `cfg.top_k` hits.
 pub fn rrf(vector: Vec<Candidate>, keyword: Vec<Candidate>, cfg: &SearchConfig) -> Vec<Hit> {
     let pass = |min: Option<f32>| move |c: &Candidate| min.is_none_or(|m| c.hit.score >= m);
     let vector: Vec<Candidate> = vector.into_iter().filter(pass(cfg.min_vector_score)).collect();

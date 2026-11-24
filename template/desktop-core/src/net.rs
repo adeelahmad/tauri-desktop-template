@@ -8,6 +8,21 @@
 //! here, one hop at a time, so every hop is checked against the policy. Child processes get
 //! the same proxy and offline settings through `apply_env`. Requests go out over HTTPS,
 //! except plain HTTP to this computer.
+//!
+//! Main items: [`configure`] and [`check`] (the policy), [`agent`], [`get`], [`get_bytes`],
+//! [`download_to`], [`post_json`] (requests), [`apply_env`] (child processes).
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::net::{check, configure, NetConfig};
+//!
+//! configure(NetConfig { deny: vec!["*.example.com".into()], ..NetConfig::default() });
+//! assert!(check("https://api.example.com/v1").is_err());
+//! assert!(check("https://example.org/").is_ok());
+//! assert!(check("http://example.org/").is_err()); // plain HTTP only to this computer
+//! assert!(check("http://127.0.0.1:8080/").is_ok());
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -18,6 +33,8 @@ use std::time::Duration;
 const MAX_REDIRECTS: usize = 8;
 const USER_AGENT: &str = concat!("desktop-core/", env!("CARGO_PKG_VERSION"));
 
+/// The network policy (`net` in settings). The default allows everything through the
+/// system proxy.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct NetConfig {
@@ -43,6 +60,7 @@ pub struct NetConfig {
 }
 
 impl NetConfig {
+    /// Host patterns trimmed and lower-cased; empty entries dropped.
     pub fn validated(mut self) -> Self {
         let clean = |v: &mut Vec<String>| {
             *v = v.iter().map(|h| h.trim().trim_end_matches('.').to_ascii_lowercase()).filter(|h| !h.is_empty()).collect();
@@ -185,6 +203,7 @@ pub fn trusted_roots(host: &str) -> Result<Option<Vec<ureq::tls::Certificate<'st
 /// Timeouts for one request.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
+    /// Time to connect (TCP and TLS).
     pub connect: Duration,
     /// The whole request, body included.
     pub total: Option<Duration>,
@@ -193,6 +212,7 @@ pub struct Limits {
 }
 
 impl Limits {
+    /// Connect within `connect_secs`, finish within `total_secs`.
     pub const fn total(connect_secs: u64, total_secs: u64) -> Self {
         Self { connect: Duration::from_secs(connect_secs), total: Some(Duration::from_secs(total_secs)), idle: None }
     }

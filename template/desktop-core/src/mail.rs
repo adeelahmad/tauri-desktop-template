@@ -30,6 +30,19 @@
 //! println!("sent {} to {} recipients", sent.message_id, sent.recipients);
 //! # Ok::<(), desktop_core::mail::MailError>(())
 //! ```
+//!
+//! Addresses and the message itself can be checked without a server:
+//!
+//! ```
+//! use desktop_core::mail::{address, render, Message};
+//!
+//! assert_eq!(address("Ann <ann@example.com>")?, "ann@example.com");
+//! assert!(address("not an address").is_err());
+//! let message = Message { to: vec!["ann@example.com".into()], subject: "Hi".into(), text: "Hello.".into(), ..Message::default() };
+//! let (data, _message_id) = render("me@example.com", &message)?;
+//! assert!(data.contains("Subject: Hi"));
+//! # Ok::<(), desktop_core::mail::MailError>(())
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
@@ -57,9 +70,13 @@ pub enum Security {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct MailConfig {
+    /// Allow sending at all (off by default).
     pub enabled: bool,
+    /// The SMTP server, such as `smtp.example.com`.
     pub host: String,
+    /// 465 for SSL/TLS, 587 for STARTTLS (0 picks by `security`).
     pub port: u16,
+    /// How the connection is encrypted.
     pub security: Security,
     /// Login name (empty: send without logging in).
     pub username: String,
@@ -78,6 +95,7 @@ impl Default for MailConfig {
 }
 
 impl MailConfig {
+    /// Names trimmed, a zero port set from `security`, limits clamped.
     pub fn validated(mut self) -> Self {
         self.host = self.host.trim().to_string();
         self.username = self.username.trim().to_string();
@@ -99,6 +117,7 @@ pub struct Attachment {
     pub name: String,
     /// MIME type; guessed from the name when empty.
     pub content_type: String,
+    /// The file's bytes (not serialized: the UI sends paths).
     #[serde(skip)]
     pub data: Vec<u8>,
 }
@@ -116,16 +135,21 @@ impl Attachment {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Message {
+    /// Recipients (`Name <address>` or a bare address).
     pub to: Vec<String>,
+    /// Copied recipients, shown in the headers.
     pub cc: Vec<String>,
     /// Receive the message without appearing in its headers.
     pub bcc: Vec<String>,
+    /// Where replies go, when not to the sender.
     pub reply_to: Option<String>,
+    /// The subject line.
     pub subject: String,
     /// The plain-text body (always sent, for clients that do not show HTML).
     pub text: String,
     /// An HTML body shown instead of `text` where supported.
     pub html: Option<String>,
+    /// Files to attach (not serialized: the UI sends paths).
     #[serde(skip)]
     pub attachments: Vec<Attachment>,
 }
@@ -134,10 +158,13 @@ pub struct Message {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sent {
+    /// The `Message-ID` header the message went out with.
     pub message_id: String,
+    /// Recipients the server accepted (to, cc and bcc).
     pub recipients: usize,
 }
 
+/// Why a message was not sent.
 #[derive(Debug, thiserror::Error)]
 pub enum MailError {
     /// Settings or the message are not usable (nothing was sent).
@@ -148,7 +175,12 @@ pub enum MailError {
     Connect(String),
     /// The server answered with an error.
     #[error("the mail server said {code}: {text}")]
-    Server { code: u16, text: String },
+    Server {
+        /// The SMTP reply code, such as 535 (login refused).
+        code: u16,
+        /// The server's text after the code.
+        text: String,
+    },
 }
 
 fn io(e: std::io::Error) -> MailError {
@@ -159,9 +191,11 @@ fn io(e: std::io::Error) -> MailError {
 pub struct PasswordFile(std::path::PathBuf);
 
 impl PasswordFile {
+    /// The password file in `data_dir` (it need not exist yet).
     pub fn new(data_dir: &Path) -> Self {
         Self(data_dir.join("mail-password"))
     }
+    /// The saved password, if any.
     pub fn get(&self) -> Option<String> {
         std::fs::read_to_string(&self.0).ok().filter(|p| !p.is_empty())
     }

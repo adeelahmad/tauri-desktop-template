@@ -28,6 +28,7 @@ use serde_json::{json, Value};
 /// jobs already queued keep working).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Payload {
+    /// The text to work on (an example field).
     pub text: String,
 }
 

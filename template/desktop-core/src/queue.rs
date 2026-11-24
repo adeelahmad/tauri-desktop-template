@@ -169,6 +169,7 @@ fn random_unit() -> f64 {
 
 /// Milliseconds since the Unix epoch; tests use [`FakeClock`].
 pub trait Clock: Send + Sync {
+    /// Now, in milliseconds since the Unix epoch.
     fn now_ms(&self) -> u64;
 }
 
@@ -186,12 +187,15 @@ impl Clock for SystemClock {
 pub struct FakeClock(AtomicU64);
 
 impl FakeClock {
+    /// A clock stopped at `ms`.
     pub fn new(ms: u64) -> Self {
         Self(AtomicU64::new(ms))
     }
+    /// Move the clock to `ms`.
     pub fn set(&self, ms: u64) {
         self.0.store(ms, Ordering::SeqCst);
     }
+    /// Move the clock forward by `by`.
     pub fn advance(&self, by: Duration) {
         self.0.fetch_add(by.as_millis() as u64, Ordering::SeqCst);
     }
@@ -206,6 +210,7 @@ impl Clock for FakeClock {
 /// Why an attempt failed, and whether trying again could help.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobError {
+    /// What went wrong, shown in the queue and the history.
     pub message: String,
     /// Retry (with backoff) while attempts are left; `false` sends the job straight to the
     /// dead letters.
@@ -255,7 +260,9 @@ impl From<serde_json::Error> for JobError {
 
 /// What a running job knows about itself.
 pub struct JobContext {
+    /// The job's id.
     pub id: String,
+    /// The job type.
     pub kind: String,
     /// 1 for the first attempt.
     pub attempt: u32,
@@ -345,6 +352,7 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// An empty registry.
     pub fn new() -> Self {
         Self::default()
     }
@@ -373,6 +381,7 @@ impl Registry {
         self.handlers.keys().cloned().collect()
     }
 
+    /// Whether a job type of this name is registered.
     pub fn contains(&self, kind: &str) -> bool {
         self.handlers.contains_key(kind)
     }
@@ -385,6 +394,7 @@ pub enum State {
     /// Waits for its time (`runAt`) and a free worker.
     #[default]
     Queued,
+    /// An attempt is running now.
     Running,
     /// Failed; waits for its next attempt.
     Retrying,
@@ -398,19 +408,27 @@ pub enum State {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobRecord {
+    /// Unique in the queue.
     pub id: String,
     /// The job type.
     pub kind: String,
+    /// The queue it runs in (each has its own concurrency limit).
     pub queue: String,
+    /// The job type's payload, as JSON.
     pub payload: Value,
+    /// Where it is.
     pub state: State,
     /// Attempts started so far.
     pub attempts: u32,
+    /// Attempts before it goes to the dead letters.
     pub max_attempts: u32,
     /// Not before this time (ms since the Unix epoch).
     pub run_at: u64,
+    /// When it was enqueued (ms since the Unix epoch).
     pub created: u64,
+    /// How long one attempt may take.
     pub timeout_secs: u64,
+    /// Why the last attempt failed (or why it waits).
     #[serde(default)]
     pub last_error: Option<String>,
     /// The schedule that enqueued it.
@@ -422,9 +440,13 @@ pub struct JobRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Outcome {
+    /// Done.
     Ok,
+    /// `run` returned an error.
     Failed,
+    /// It took longer than its timeout.
     TimedOut,
+    /// Cancelled while it ran (or before).
     Cancelled,
     /// The process stopped while it ran.
     Interrupted,
@@ -434,14 +456,22 @@ pub enum Outcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Run {
+    /// The job's id.
     pub job: String,
+    /// The job type.
     pub kind: String,
+    /// 1 for the first attempt.
     pub attempt: u32,
+    /// When it started (ms since the Unix epoch).
     pub started: u64,
+    /// When it ended.
     pub finished: u64,
+    /// How it ended.
     pub outcome: Outcome,
+    /// The error, when it failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// What `run` returned, when it succeeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Value>,
     /// When the next attempt is due, if there is one.
@@ -454,13 +484,21 @@ pub struct Run {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Schedule {
+    /// Unique among the schedules.
     pub id: String,
+    /// The job type it enqueues.
     pub kind: String,
+    /// The payload of each job.
     pub payload: Value,
+    /// A cron expression, or
     pub cron: Option<String>,
+    /// an interval in seconds.
     pub every_secs: Option<u64>,
+    /// Paused schedules do not fire.
     pub paused: bool,
+    /// When it fires next (ms since the Unix epoch; `None` while paused).
     pub next_run: Option<u64>,
+    /// When it last fired.
     pub last_run: Option<u64>,
 }
 
@@ -481,11 +519,13 @@ impl Schedule {
         Self { id: id.into(), kind: kind.into(), every_secs: Some(secs), ..Self::default() }
     }
 
+    /// The same schedule with this payload.
     pub fn with_payload(mut self, payload: Value) -> Self {
         self.payload = payload;
         self
     }
 
+    /// The same schedule, paused or not.
     pub fn paused(mut self, paused: bool) -> Self {
         self.paused = paused;
         self
@@ -526,7 +566,9 @@ pub struct Enqueue {
     pub delay_secs: Option<u64>,
     /// Or not before this time (ms since the Unix epoch).
     pub run_at: Option<u64>,
+    /// Attempts before the dead letters (default: the job type's, else `jobs.maxAttempts`).
     pub max_attempts: Option<u32>,
+    /// How long one attempt may take (default: the job type's).
     pub timeout_secs: Option<u64>,
 }
 
@@ -541,13 +583,17 @@ impl Enqueue {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ScheduleUpdate {
+    /// The schedule to change (or create).
     pub id: String,
+    /// Its job type (needed for a new one).
     pub kind: Option<String>,
+    /// Its payload.
     pub payload: Option<Value>,
     /// Switch to this cron expression.
     pub cron: Option<String>,
     /// Or to this interval.
     pub every_secs: Option<u64>,
+    /// Pause (`true`) or resume (`false`).
     pub paused: Option<bool>,
     /// Delete the schedule.
     pub remove: bool,
@@ -561,16 +607,21 @@ pub struct Snapshot {
     pub enabled: bool,
     /// This process runs the queue (another process of the app may own it).
     pub owner: bool,
+    /// The registered job types.
     pub types: Vec<String>,
+    /// Waiting and running jobs.
     pub jobs: Vec<JobRecord>,
+    /// The dead letters.
     pub dead: Vec<JobRecord>,
     /// Newest first.
     pub history: Vec<Run>,
+    /// The queue's clock now (ms since the Unix epoch).
     pub now: u64,
 }
 
 /// What `Queue` needs from the outside world; tests swap in a fake clock and fixed jitter.
 pub struct QueueOptions {
+    /// The time.
     pub clock: Arc<dyn Clock>,
     /// A number in 0..1 for backoff jitter.
     pub jitter: fn() -> f64,
@@ -1174,6 +1225,7 @@ impl Runtime {
         Ok(Self { queue, stop, thread: Some(thread) })
     }
 
+    /// The queue it runs.
     pub fn queue(&self) -> &Queue {
         &self.queue
     }

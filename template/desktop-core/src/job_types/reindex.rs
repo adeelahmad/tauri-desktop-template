@@ -32,7 +32,9 @@ use std::path::PathBuf;
 /// What to re-index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payload {
+    /// The folder.
     pub path: PathBuf,
+    /// Include subfolders (default yes).
     #[serde(default = "yes")]
     pub recursive: bool,
 }

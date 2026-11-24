@@ -33,26 +33,34 @@ pub const INSTALL_URL: &str = "https://tailscale.com/download";
 /// HTTPS ports `tailscale serve` accepts.
 pub const HTTPS_PORTS: [u16; 3] = [443, 8443, 10000];
 
+/// Why a Tailscale step failed.
 #[derive(Debug, thiserror::Error)]
 pub enum TailscaleError {
+    /// The `tailscale` command is not on this computer.
     #[error("Tailscale is not installed; get it from {INSTALL_URL}")]
     NotInstalled,
+    /// The settings are not usable.
     #[error("{0}")]
     Config(String),
+    /// `tailscale` ran and failed.
     #[error("tailscale: {0}")]
     Failed(String),
+    /// `tailscale` replied with something unexpected.
     #[error("could not read tailscale's reply: {0}")]
     Parse(String),
+    /// Running the command failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
+/// This module's `Result`.
 pub type Result<T, E = TailscaleError> = std::result::Result<T, E>;
 
 /// Tailscale settings (`tailscale` in settings). Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TailscaleConfig {
+    /// Use Tailscale (off by default).
     pub enabled: bool,
     /// Share `port` with the tailnet through `tailscale serve`.
     pub serve: bool,
@@ -69,6 +77,7 @@ impl Default for TailscaleConfig {
 }
 
 impl TailscaleConfig {
+    /// An HTTPS port Tailscale does not serve becomes 443.
     pub fn validated(mut self) -> Self {
         if !HTTPS_PORTS.contains(&self.https_port) {
             self.https_port = 443;
@@ -86,14 +95,19 @@ impl TailscaleConfig {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
+    /// The Tailscale version.
     pub version: String,
     /// `Running`, `NeedsLogin`, `Stopped`, ...
     pub backend_state: String,
+    /// Connected to the tailnet.
     pub running: bool,
+    /// This machine's name.
     pub host_name: String,
     /// This machine's MagicDNS name, without the trailing dot.
     pub dns_name: String,
+    /// This machine's tailnet addresses.
     pub ips: Vec<String>,
+    /// The tailnet's name.
     pub tailnet: String,
     /// Where to log in, when `NeedsLogin`.
     pub auth_url: String,
@@ -206,8 +220,11 @@ fn run(cli: &Path, args: &[String], limit: Duration) -> Result<(bool, String, St
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
+    /// The `tailscale` command is there.
     pub installed: bool,
+    /// Where to get Tailscale.
     pub install_url: String,
+    /// This machine's state, when Tailscale answered.
     pub status: Option<Status>,
     /// What the configured HTTPS port forwards to now.
     pub served: Option<String>,

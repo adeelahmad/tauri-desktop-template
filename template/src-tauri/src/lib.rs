@@ -15,7 +15,8 @@
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
 //! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
 //! - `jobs_list`, `jobs_enqueue`, `jobs_cancel`, `jobs_retry`, `jobs_schedules` and
-//!   `jobs_set_schedule` (feature `jobs-queue`).
+//!   `jobs_set_schedule` (feature `jobs-queue`),
+//! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -25,6 +26,43 @@
 //! background agent (the backend runs in this process), the updater (the app stores
 //! update the app), single instance, the stdio MCP server, Python, Claude Desktop,
 //! folder watching and embedded Postgres (the file store is used).
+//!
+//! # Layers
+//!
+//! ```text
+//! UI (ui/ or ui-react/)  --invoke-->  Tauri commands (this file)
+//!                                      |  call(method, params)
+//!                                      v
+//!                          service::Service
+//!                      Local (this process)  |  ipc::Remote --socket--> `<app> --worker` (ipc::serve -> Local)
+//!                                      |
+//!                                      v
+//!                          desktop_core::Engine (store, embedder, config)
+//! ```
+//!
+//! Every command is a thin wrapper: it turns its arguments into a JSON `params` object and
+//! calls the service by method name, so the same backend serves the window, the worker
+//! process, `--mcp` and `--self-test`. Settings live in `<config>/settings.json` (see
+//! `paths` for profiles); `get_config` / `set_config` read and write the `config` part, and
+//! `set_config` also hands it to the running engine (`configure`).
+//!
+//! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
+//! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
+//! `update`, `single`, `python`, `claude`.
+//!
+//! # Example
+//!
+//! The entry points are what `main.rs` calls; opening a window needs a desktop session:
+//!
+//! ```no_run
+//! // `<app>`: the window.
+//! app_lib::run();
+//! ```
+//!
+//! ```no_run
+//! // `<app> --self-test report.json`: index and search a sample with every built-in store.
+//! std::process::exit(app_lib::self_test(Some(std::path::Path::new("report.json"))));
+//! ```
 
 use desktop_core::{Backend, Config, Engine, EngineOptions, Hit, IngestReport, SearchConfig, Status};
 use serde::{Deserialize, Serialize};
@@ -49,6 +87,8 @@ mod service;
 // kitchen:mods (`kitchen generate command` adds modules above this line)
 {% if single_instance %}#[cfg(all(desktop, feature = "single-instance"))]
 mod single;
+{% endif %}{% if tray_menu %}#[cfg(all(desktop, feature = "tray-menu"))]
+mod tray;
 {% endif %}{% if updater %}#[cfg(all(desktop, feature = "updater"))]
 mod update;
 {% endif %}
@@ -139,6 +179,7 @@ fn features() -> Value {
         "backgroundAgent": cfg!(all(desktop, feature = "background-agent")),
         "pythonExample": cfg!(all(desktop, feature = "python-example")),
         "claudeMcp": cfg!(all(desktop, feature = "claude-mcp")),
+        "trayMenu": cfg!(all(desktop, feature = "tray-menu")),
     })
 }
 
@@ -301,6 +342,9 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
+    // The tray, the menus and the shortcuts change at once.
+    #[cfg(all(desktop, feature = "tray-menu"))]
+    tray::apply(&app, &applied);
     Ok(applied)
 }
 
@@ -573,8 +617,8 @@ fn clear(state: tauri::State<AppState>) -> Result<Status, String> {
     typed(call(&state, "clear", Value::Null))
 }
 
-/// `<app> --worker`: serve the backend over the local socket until told to stop.
-/// `--mcp`: serve MCP over stdio (feature `mcp`), sharing the worker when there is one.
+/// `<app> --mcp`: serve MCP over stdio (feature `mcp`), sharing the worker when there is
+/// one. Returns the exit code.
 #[cfg(all(desktop, feature = "mcp"))]
 pub fn mcp_main() -> i32 {
     #[cfg(all(desktop, feature = "ipc-worker"))]
@@ -585,6 +629,7 @@ pub fn mcp_main() -> i32 {
     mcp::main(load, service)
 }
 
+/// `<app> --mcp` where there is no MCP server (feature off, or mobile): says so and returns 2.
 #[cfg(not(all(desktop, feature = "mcp")))]
 pub fn mcp_main() -> i32 {
     eprintln!("this build has no MCP server (feature mcp)");
@@ -640,6 +685,8 @@ fn mcp_heartbeat() {
     }
 }
 
+/// `<app> --worker`: serve the backend over the local socket until told to stop.
+/// Returns the exit code.
 #[cfg(all(desktop, feature = "ipc-worker"))]
 pub fn worker_main() -> i32 {
     let (config, data) = paths::app_dirs();
@@ -649,6 +696,7 @@ pub fn worker_main() -> i32 {
     ipc::serve()
 }
 
+/// `<app> --worker` where there is no worker process (feature off, or mobile): says so and returns 2.
 #[cfg(not(all(desktop, feature = "ipc-worker")))]
 pub fn worker_main() -> i32 {
     eprintln!("this build has no worker process (feature ipc-worker)");
@@ -795,7 +843,26 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
 {% endif %}{% if tauri_process %}    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_process::init());
-{% endif %}{% endif %}    let builder = builder.setup(move |app| {
+{% endif %}{% endif %}{% if tray_menu %}    // Tray, global shortcuts and app menu: one action registry (see tray.rs).
+{% unless tauri_plugins and tauri_global_shortcut %}    #[cfg(all(desktop, feature = "tray-menu"))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+{% endunless %}    #[cfg(all(desktop, feature = "tray-menu"))]
+    let builder = builder
+        .manage(tray::Tray::default())
+        .on_menu_event(|app, e| {
+            if let Some(action) = desktop_core::actions::action_of(e.id().as_ref()) {
+                tray::run(app, action);
+            }
+        })
+        .on_window_event(|w, e| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                if tray::closes_to_tray(w.app_handle()) {
+                    api.prevent_close();
+                    let _ = w.hide();
+                }
+            }
+        });
+{% endif %}    let builder = builder.setup(move |app| {
         let _ = &app;
 {% if tauri_plugins %}{% if tauri_deep_link %}        // Installers register the URL scheme; this covers development builds on Windows and Linux.
         #[cfg(any(windows, target_os = "linux"))]
@@ -813,6 +880,8 @@ pub fn run() {
         }
         #[cfg(feature = "mcp")]
         mcp_heartbeat();
+        #[cfg(all(desktop, feature = "tray-menu"))]
+        tray::apply(app.handle(), &load_settings(app.handle()).config);
         // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
         {
@@ -927,6 +996,10 @@ pub fn run() {
             python::python_call,
             #[cfg(all(desktop, feature = "claude-mcp"))]
             claude::register_claude,
+            #[cfg(all(desktop, feature = "tray-menu"))]
+            tray::tray_status,
+            #[cfg(all(desktop, feature = "tray-menu"))]
+            tray::run_action,
             // kitchen:handlers
         ])
         .build(tauri::generate_context!())

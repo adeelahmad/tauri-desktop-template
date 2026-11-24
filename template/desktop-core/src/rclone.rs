@@ -59,20 +59,27 @@ const BUILDS: [(&str, &str, &str); 6] = [
 pub const DATA_EXCLUDES: [&str; 9] =
     ["/rclone/**", "/postgres/**", "/models/**", "/logs/**", "/backup.key", "/mail-password", "/keys.json", "*.part", "*.tmp"];
 
+/// Why a sync or a setup step failed.
 #[derive(Debug, thiserror::Error)]
 pub enum RcloneError {
+    /// The settings or the remote config are not usable.
     #[error("{0}")]
     Config(String),
+    /// There is no rclone build for this computer.
     #[error("rclone is not available for this computer ({0})")]
     Unsupported(String),
+    /// Downloading or checking rclone failed.
     #[error("download: {0}")]
     Download(String),
+    /// rclone ran and failed; its last lines say why.
     #[error("rclone failed: {0}")]
     Failed(String),
+    /// Reading or writing a file failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
+/// This module's `Result`.
 pub type Result<T, E = RcloneError> = std::result::Result<T, E>;
 
 /// Which way files go.
@@ -105,12 +112,15 @@ pub enum Folder {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RcloneConfig {
+    /// Allow syncing (off by default).
     pub enabled: bool,
     /// The remote's name in `rclone.conf`, e.g. `gdrive` (without the colon).
     pub remote: String,
     /// The folder on the remote (empty = its root).
     pub path: String,
+    /// What is synced.
     pub folder: Folder,
+    /// Which way files go.
     pub direction: Direction,
     /// Sync every this many minutes (0 = only when asked; otherwise at least 5).
     pub interval_minutes: u32,
@@ -282,12 +292,15 @@ pub fn install(data_dir: &Path, progress: &mut dyn FnMut(u64, Option<u64>)) -> R
 pub struct ConfigFile(PathBuf);
 
 impl ConfigFile {
+    /// The config file in this app's rclone folder (it need not exist yet).
     pub fn new(data_dir: &Path) -> Self {
         Self(dir(data_dir).join("rclone.conf"))
     }
+    /// Where the file is.
     pub fn path(&self) -> &Path {
         &self.0
     }
+    /// Whether it has been written.
     pub fn exists(&self) -> bool {
         self.0.is_file()
     }
@@ -317,9 +330,11 @@ pub fn remotes_in(text: &str) -> Vec<String> {
 pub struct LastRun {
     /// RFC 3339, UTC.
     pub finished: String,
+    /// Whether it succeeded.
     pub ok: bool,
     /// rclone's last lines (its summary, or why it failed).
     pub message: String,
+    /// Where it synced to (`remote:path`).
     pub target: String,
 }
 
@@ -327,15 +342,21 @@ pub struct LastRun {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
+    /// The pinned rclone version.
     pub version: &'static str,
+    /// rclone is downloaded.
     pub installed: bool,
     /// rclone builds for this computer.
     pub supported: bool,
+    /// A remote config is saved.
     pub configured: bool,
+    /// The remotes it defines.
     pub remotes: Vec<String>,
+    /// How the last sync went, if there was one.
     pub last: Option<LastRun>,
 }
 
+/// rclone's state for Settings.
 pub fn status(data_dir: &Path) -> Status {
     let conf = ConfigFile::new(data_dir);
     Status {

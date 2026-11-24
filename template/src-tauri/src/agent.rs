@@ -9,6 +9,18 @@
 //!
 //! The agent runs `<this app> --worker`; the UI connects to that worker if it is up and
 //! starts one itself otherwise.
+//!
+//! Commands: `agent_status` and `set_agent` (feature `background-agent`, which needs
+//! `ipc-worker`).
+//!
+//! # Example
+//!
+//! What the UI gets back from `agent_status`:
+//!
+//! ```
+//! let status = serde_json::json!({"installed": false, "kind": "systemd user unit", "location": "~/.config/systemd/user/com-example-app-worker.service"});
+//! assert_eq!(status["installed"], false);
+//! ```
 
 use serde::Serialize;
 use std::path::PathBuf;
@@ -16,10 +28,14 @@ use std::process::Command;
 
 const ID: &str = env!("APP_IDENTIFIER");
 
+/// Whether the agent is installed, and where (for Settings).
 #[derive(Serialize)]
 pub struct AgentStatus {
+    /// The agent is set up to start the worker at login.
     pub installed: bool,
+    /// What kind of agent this OS uses, such as `launchd LaunchAgent`.
     pub kind: &'static str,
+    /// The plist, registry key or unit file.
     pub location: String,
 }
 
@@ -45,12 +61,14 @@ fn run(cmd: &mut Command) -> Result<(), String> {
 mod os {
     use super::*;
 
+    /// Shown in Settings.
     pub const KIND: &str = "launchd LaunchAgent";
 
     fn label() -> String {
         format!("{ID}.worker")
     }
 
+    /// The LaunchAgent plist.
     pub fn location() -> PathBuf {
         home().join("Library/LaunchAgents").join(format!("{}.plist", label()))
     }
@@ -64,6 +82,7 @@ mod os {
         s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     }
 
+    /// Write the plist and load it.
     pub fn install() -> Result<(), String> {
         let log = home().join("Library/Logs").join(format!("{}.log", label()));
         let plist = format!(
@@ -92,6 +111,7 @@ mod os {
         run(Command::new("launchctl").args(["bootstrap", &domain()?]).arg(&file))
     }
 
+    /// Unload the agent and delete the plist.
     pub fn uninstall() -> Result<(), String> {
         let _ = Command::new("launchctl").args(["bootout", &format!("{}/{}", domain()?, label())]).output();
         match std::fs::remove_file(location()) {
@@ -100,6 +120,7 @@ mod os {
         }
     }
 
+    /// Whether the plist exists.
     pub fn installed() -> bool {
         location().is_file()
     }
@@ -109,6 +130,7 @@ mod os {
 mod os {
     use super::*;
 
+    /// Shown in Settings.
     pub const KIND: &str = "Windows Run entry";
     const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
@@ -116,10 +138,12 @@ mod os {
         format!("{ID}.worker")
     }
 
+    /// The registry value that holds the entry.
     pub fn location() -> PathBuf {
         PathBuf::from(format!(r"{KEY}\{}", value()))
     }
 
+    /// Add the Run entry and start the worker now.
     pub fn install() -> Result<(), String> {
         let exe = exe()?;
         run(Command::new("reg").args(["add", KEY, "/v", &value(), "/t", "REG_SZ", "/d", &format!("\"{exe}\" --worker"), "/f"]))?;
@@ -127,6 +151,7 @@ mod os {
         Command::new(exe).arg("--worker").spawn().map(|_| ()).map_err(|e| e.to_string())
     }
 
+    /// Remove the Run entry.
     pub fn uninstall() -> Result<(), String> {
         if installed() {
             run(Command::new("reg").args(["delete", KEY, "/v", &value(), "/f"]))?;
@@ -134,6 +159,7 @@ mod os {
         Ok(())
     }
 
+    /// Whether the Run entry exists.
     pub fn installed() -> bool {
         Command::new("reg").args(["query", KEY, "/v", &value()]).output().is_ok_and(|o| o.status.success())
     }
@@ -143,16 +169,19 @@ mod os {
 mod os {
     use super::*;
 
+    /// Shown in Settings.
     pub const KIND: &str = "systemd user unit";
 
     fn unit() -> String {
         format!("{}-worker.service", ID.replace('.', "-"))
     }
 
+    /// The unit file.
     pub fn location() -> PathBuf {
         home().join(".config/systemd/user").join(unit())
     }
 
+    /// Write the unit, then enable and start it.
     pub fn install() -> Result<(), String> {
         let text = format!(
             "[Unit]\nDescription={ID} background worker\n\n[Service]\nExecStart=\"{}\" --worker\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n",
@@ -165,6 +194,7 @@ mod os {
         run(Command::new("systemctl").args(["--user", "enable", "--now", &unit()]))
     }
 
+    /// Disable the unit and delete it.
     pub fn uninstall() -> Result<(), String> {
         let _ = Command::new("systemctl").args(["--user", "disable", "--now", &unit()]).output();
         match std::fs::remove_file(location()) {
@@ -173,24 +203,29 @@ mod os {
         }
     }
 
+    /// Whether the unit file exists.
     pub fn installed() -> bool {
         location().is_file()
     }
 }
 
+/// Whether the agent is installed.
 pub fn installed() -> bool {
     os::installed()
 }
 
+/// The agent's state, for Settings.
 pub fn status() -> AgentStatus {
     AgentStatus { installed: os::installed(), kind: os::KIND, location: os::location().to_string_lossy().into_owned() }
 }
 
+/// Tauri command: the agent's state.
 #[tauri::command(async)]
 pub fn agent_status() -> AgentStatus {
     status()
 }
 
+/// Tauri command: install or remove the agent, then return its state.
 #[tauri::command(async)]
 pub fn set_agent(enabled: bool) -> Result<AgentStatus, String> {
     if enabled {

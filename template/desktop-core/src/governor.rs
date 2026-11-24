@@ -78,7 +78,9 @@ impl OnnxProvider {
 /// What `ResourceConfig::plan` allows for one ingest run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
+    /// Ingest workers to run.
     pub workers: usize,
+    /// Texts per embedding call.
     pub embed_batch: usize,
     /// Memory the run may use in MB (`None`: no budget).
     pub memory_mb: Option<u64>,
@@ -95,6 +97,7 @@ impl Plan {
     }
 }
 
+/// How much of the computer background work may use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ResourceConfig {

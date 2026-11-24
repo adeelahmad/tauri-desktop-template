@@ -8,8 +8,11 @@
 //! | `command <name>` | `src-tauri/src/<name>.rs` (a Tauri command + backend method) | `src-tauri/src/lib.rs`, `service.rs` |
 //! | `page <Name>` | `ui-react/src/<Name>.jsx` | `ui-react/src/App.jsx` |
 //! | `job <name>` | `desktop-core/src/job_types/<name>.rs` (a background job type, `background_jobs`) | `desktop-core/src/job_types/mod.rs` |
+//! | `menu <id> [--label <text>] [--shortcut <keys>]` | an app action in the app menu | `src-tauri/src/tray.rs`, `service.rs` (needs `tray_menu`) |
+//! | `shortcut <action> <keys>` | a default global shortcut | `src-tauri/src/tray.rs` (needs `tray_menu`) |
 //!
-//! Setting types: `bool`, `int`, `float`, `text`, `list` (of text).
+//! Setting types: `bool`, `int`, `float`, `text`, `list` (of text). Keys are written like
+//! `CmdOrCtrl+Shift+K` (modifiers `CmdOrCtrl`, `Ctrl`, `Alt`, `Shift`, `Super`, then one key).
 //!
 //! ```
 //! use kitchen::generate::{to_camel, to_pascal, check_name};
@@ -19,6 +22,8 @@
 //! assert!(check_name("invoices").is_ok());
 //! assert!(check_name("Bad-Name").is_err());
 //! assert!(check_name("type").is_err());
+//! assert!(kitchen::generate::check_accelerator("CmdOrCtrl+Shift+K").is_ok());
+//! assert!(kitchen::generate::check_accelerator("Ctrl+").is_err());
 //! ```
 
 use crate::{io, Error, Options, Report, Result};
@@ -451,6 +456,115 @@ pub fn page(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     e.finish(root, format!("Generated page {pascal}"), opts)
 }
 
+/// A quick check of a key combination like `CmdOrCtrl+Shift+K`: known modifiers, then
+/// exactly one key. The app checks the key name itself (and shows problems in Settings).
+pub fn check_accelerator(keys: &str) -> Result<()> {
+    const MODS: &[&str] = &[
+        "cmdorctrl",
+        "commandorcontrol",
+        "commandorctrl",
+        "cmdorcontrol",
+        "ctrl",
+        "control",
+        "alt",
+        "option",
+        "shift",
+        "super",
+        "cmd",
+        "command",
+        "meta",
+        "win",
+    ];
+    let parts: Vec<&str> = keys.split('+').map(str::trim).collect();
+    let bad = |why: &str| {
+        Error::Usage(format!(
+            "{keys:?}: {why}; write keys like CmdOrCtrl+Shift+K"
+        ))
+    };
+    if parts.iter().any(|p| p.is_empty()) {
+        return Err(bad("an empty part"));
+    }
+    let (key, mods) = parts.split_last().ok_or_else(|| bad("empty"))?;
+    if let Some(m) = mods
+        .iter()
+        .find(|m| !MODS.contains(&m.to_ascii_lowercase().as_str()))
+    {
+        return Err(bad(&format!("{m:?} is not a modifier")));
+    }
+    if MODS.contains(&key.to_ascii_lowercase().as_str()) {
+        return Err(bad("it ends with a modifier"));
+    }
+    if !key.chars().all(|c| c.is_ascii_graphic()) {
+        return Err(bad("unknown key"));
+    }
+    Ok(())
+}
+
+fn tray_file(root: &Path) -> Result<PathBuf> {
+    let f = root.join("src-tauri/src/tray.rs");
+    if !f.is_file() {
+        return Err(Error::Usage(
+            "menus and shortcuts need the tray_menu feature: `kitchen enable tray_menu`".into(),
+        ));
+    }
+    Ok(f)
+}
+
+/// `kitchen generate menu <id> [--label <text>] [--shortcut <keys>]`: an app action, in
+/// the app menu (with the keys as its accelerator), with a backend method to fill in. The
+/// tray and global shortcuts can name it too.
+pub fn menu(
+    root: &Path,
+    id: &str,
+    label: Option<&str>,
+    shortcut: Option<&str>,
+    opts: &Options,
+) -> Result<Report> {
+    check_name(id)?;
+    if let Some(s) = shortcut {
+        check_accelerator(s)?;
+    }
+    let label = label.map(String::from).unwrap_or_else(|| to_title(id));
+    let tray = tray_file(root)?;
+    let mut e = Edits::default();
+    e.insert(
+        tray,
+        "// kitchen:actions",
+        &format!(
+            "    r.register({id:?}, {label:?})?;\n    r.menu_item({id:?}, {})?;\n",
+            shortcut.map_or("None".into(), |s| format!("Some({s:?})"))
+        ),
+    )?;
+    e.insert(
+        root.join("src-tauri/src/service.rs"),
+        "// kitchen:action-methods",
+        &format!(
+            "            // {label}: the backend side (the window also gets the `app-action` event).\n            {id:?} => Ok(json!({{\"message\": {:?}}})),\n",
+            format!("{label}: done")
+        ),
+    )?;
+    let mut r = e.finish(root, format!("Generated menu action {id}"), opts)?;
+    r.next = vec![
+        format!("Fill in the {id:?} arm in src-tauri/src/service.rs, or listen for `app-action` in the UI"),
+        format!("Put it in the tray from Settings → Tray & shortcuts, or bind keys: kitchen generate shortcut {id} <keys>"),
+    ];
+    Ok(r)
+}
+
+/// `kitchen generate shortcut <action> <keys>`: a global shortcut on by default (the user
+/// can rebind or clear it in Settings).
+pub fn shortcut(root: &Path, action: &str, keys: &str, opts: &Options) -> Result<Report> {
+    check_name(action)?;
+    check_accelerator(keys)?;
+    let mut e = Edits::default();
+    e.insert(
+        tray_file(root)?,
+        "// kitchen:actions",
+        &format!("    r.default_shortcut({action:?}, {keys:?})?;\n"),
+    )?;
+    e.finish(root, format!("Bound {keys} to {action}"), opts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,6 +669,44 @@ mod tests {
             super::job(t.path(), "other", &o).is_err(),
             "needs background_jobs"
         );
+    }
+
+    #[test]
+    fn menu_and_shortcut() {
+        let t = app();
+        let o = Options::default();
+        assert!(
+            menu(t.path(), "export_csv", None, None, &o).is_err(),
+            "no tray.rs"
+        );
+        let w = |p: &str, s: &str| std::fs::write(t.path().join(p), s).unwrap();
+        w(
+            "src-tauri/src/tray.rs",
+            "fn own(r: &mut Registry) -> R {\n    // kitchen:actions (...)\n    Ok(())\n}\n",
+        );
+        w("src-tauri/src/service.rs", "match id {\n            // kitchen:action-methods (...)\n            _ => Ok(Value::Null),\n}\n");
+        menu(
+            t.path(),
+            "export_csv",
+            Some("Export \"CSV\""),
+            Some("CmdOrCtrl+Shift+E"),
+            &o,
+        )
+        .unwrap();
+        let tray = read(&t, "src-tauri/src/tray.rs");
+        assert!(tray.contains("    r.register(\"export_csv\", \"Export \\\"CSV\\\"\")?;\n    r.menu_item(\"export_csv\", Some(\"CmdOrCtrl+Shift+E\"))?;\n    // kitchen:actions"), "{tray}");
+        assert!(read(&t, "src-tauri/src/service.rs").contains("\"export_csv\" => Ok(json!("));
+        shortcut(t.path(), "search", "CmdOrCtrl+Alt+F", &o).unwrap();
+        assert!(read(&t, "src-tauri/src/tray.rs").contains(
+            "r.default_shortcut(\"search\", \"CmdOrCtrl+Alt+F\")?;\n    // kitchen:actions"
+        ));
+        assert!(shortcut(t.path(), "search", "Ctrl+Shift", &o).is_err());
+        assert!(shortcut(t.path(), "search", "Hyper+K", &o).is_err());
+        assert!(menu(t.path(), "Bad-Id", None, None, &o).is_err());
+        menu(t.path(), "sync_now", None, None, &o).unwrap();
+        assert!(read(&t, "src-tauri/src/tray.rs").contains(
+            "r.register(\"sync_now\", \"Sync now\")?;\n    r.menu_item(\"sync_now\", None)?;"
+        ));
     }
 
     #[test]

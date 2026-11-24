@@ -8,6 +8,21 @@
 //!   worker → zero or more `{"progress": "..."}`, then `{"result": ...}` or `{"error": "..."}`
 //! `shutdown` stops the worker (used when the app exits without a background agent, and
 //! after an update so the new binary takes over).
+//!
+//! # Example
+//!
+//! One exchange, as the lines on the socket:
+//!
+//! ```
+//! use serde_json::{json, Value};
+//!
+//! let request = json!({"method": "ingest_folder", "params": {"path": "/docs", "recursive": true}});
+//! let replies = ["{\"progress\": \"Ingesting 12 files with 4 workers\"}", "{\"result\": {\"files\": 12, \"chunks\": 80}}"];
+//! let last: Value = serde_json::from_str(replies[1])?;
+//! assert_eq!(request["method"], "ingest_folder");
+//! assert_eq!(last["result"]["files"], 12);
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use crate::service::{Local, Service};
 use interprocess::local_socket::{prelude::*, GenericFilePath, GenericNamespaced, ListenerOptions, Name, Stream};

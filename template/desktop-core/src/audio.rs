@@ -1,5 +1,19 @@
 //! Audio helpers shared by speech in and out: WAV read and write, 16-bit PCM, resampling,
 //! and base64 for passing audio to and from the web view. Plain Rust, no dependencies.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::audio::{base64, base64_decode, read_wav, resample, wav};
+//!
+//! let tone: Vec<f32> = (0..480).map(|i| (i as f32 * 0.1).sin() * 0.5).collect();
+//! let bytes = wav(&tone, 48_000);
+//! let (samples, rate) = read_wav(&bytes)?;
+//! assert_eq!((samples.len(), rate), (480, 48_000));
+//! assert_eq!(resample(&samples, 48_000, 16_000).len(), 160);
+//! assert_eq!(base64_decode(&base64(&bytes))?, bytes);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::{Error, Result};
 
@@ -91,7 +105,7 @@ pub fn read_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
 
 /// 16-bit little-endian PCM bytes to samples.
 pub fn from_pcm16(bytes: &[u8]) -> Vec<f32> {
-    bytes.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0).collect()
+    bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b) as f32 / 32768.0).collect()
 }
 
 /// Band-limited resampling (a Hann-windowed sinc, 16 zero crossings each side).
