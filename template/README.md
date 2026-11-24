@@ -394,6 +394,7 @@ is off by default; values are clamped to safe ranges.
 | `search.minVectorScore`, `search.minKeywordScore`, `search.minScore` | none | thresholds per list and on the final score |
 | `search.keywordEngine` | `auto` | Postgres: `bm25` (when built in), `fulltext` |
 | `search.bm25Tokenizer` | `bert_base_uncased` | pg_tokenizer model |
+| `postgres.upgrade`, `postgres.upgradeCopy` | `ask`, off | a data folder from an older major Postgres: `ask` first, upgrade `auto`matically, or `off` (keep the old server); `--copy` instead of `--link` (docs/GUIDE.md, "Postgres upgrades") |
 | `ingest.workers` | 1 | parallel read/chunk/embed; 0 = one per core |
 | `ingest.chunkChars`, `ingest.chunkOverlap` | 800, 0 | chunking |
 | `ingest.extensions`, `ingest.maxFileMb` | common text types + pdf, 64 | what folder ingest takes |

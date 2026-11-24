@@ -46,7 +46,10 @@ pub struct Config {
     pub net: crate::net::NetConfig,
     /// Scheduled backups: how often, how many to keep, and where.
     pub backup: crate::backup::BackupConfig,
-{% if ai %}    /// AI chat: provider, model, fallbacks and budgets.
+{% if postgres %}    /// Embedded Postgres: what to do when the data folder is from an older major version.
+    #[cfg(feature = "postgres")]
+    pub postgres: crate::pgstore::PostgresConfig,
+{% endif %}{% if ai %}    /// AI chat: provider, model, fallbacks and budgets.
     #[cfg(feature = "ai")]
     pub llm: crate::llm::LlmConfig,
 {% endif %}{% if mcp_server %}    /// The MCP server's policy: on or off, write tools, allowlist, audit log.

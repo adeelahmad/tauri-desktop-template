@@ -28,6 +28,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Accessibility](#accessibility)
 - [Tests](#tests)
 - [Search evals](#search-evals)
+- [Postgres upgrades](#postgres-upgrades)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
 - [Feature dependencies](#feature-dependencies)
@@ -602,6 +603,64 @@ kitchen eval [dataset] [--baseline file]                # the same from Kitchen 
   enough), and anything that grades an answer is a `Judge`, so a new search source or
   judge needs no changes to the metrics or the report.
 
+## Postgres upgrades
+
+With the `postgres` answer, the app runs its own Postgres server on a data folder in the
+profile (`<data>/postgres/data`). Postgres cannot start on files made by another major
+version, so when an app update brings a newer major (say 16 to 17), the folder is upgraded
+with `pg_upgrade`. The logic is `desktop_core::pgupgrade`
+([`desktop-core/src/pgupgrade.rs`](../desktop-core/src/pgupgrade.rs)); `pgstore` calls it
+when it starts the server.
+
+| `postgres.upgrade` | What happens at start when `PG_VERSION` is older |
+|---|---|
+| `ask` (default) | setup stops with a `pg-upgrade-needed: ...` error; the UI shows **Upgrade database** / **Not now** (`run_setup` with `pgUpgrade: true` or `false`) |
+| `auto` | upgrades now; the setup screen shows "Upgrading database: <step> (n/m)…" |
+| `off` | keeps running on the old major's server; Settings shows a notice (`Status.notice`) |
+
+`postgres.upgradeCopy` (off) uses `pg_upgrade --copy` instead of `--link`: slower and twice
+the disk space, but the old folder can always be started again.
+
+The steps, each a progress line and a log entry:
+
+1. Get the old server: the copy the previous version left in `install/<old version>`, else a
+   download from a pinned release URL checked against a pinned SHA-256 (`OLD_SERVERS`; the
+   server only). When you bump `PG_VERSION`, move the old version and its hashes there.
+2. Start the old server once to read its encoding and locale, and stop it cleanly.
+3. `initdb` the new cluster in `data.pg<new>.new` with the same encoding, locale and password.
+4. `pg_upgrade --check`, then `pg_upgrade --link` (or `--copy`). The extension bundle for the
+   new major (pgvector, and pg_tokenizer + VectorChord-BM25 with `bm25`) is installed first.
+5. `data` becomes `data.pg<old>.bak`, the new cluster becomes `data`.
+6. Start, a smoke query, `ALTER EXTENSION ... UPDATE`, `ANALYZE`.
+7. Remove `data.pg<old>.bak`.
+
+**When it fails.** Up to and including `pg_upgrade`, the old folder is put back as it was,
+the error goes to `pg-upgrade-failed.txt` and the app keeps running on the old server, with
+the error as a notice. `auto` then asks instead of retrying at every start. If the new server
+fails its smoke test, a `--copy` upgrade is rolled back the same way (the new cluster is kept
+as `data.pg<new>.failed`); after `--link` the old folder shares files with a server that has
+started, so it is kept as `data.pg<old>.bak` and the error says where. User data is never
+deleted on failure, and a crash part-way is finished or undone on the next start.
+
+```sh
+<app> --pg-upgrade --check   # pg_upgrade --check only: nothing changes
+<app> --pg-upgrade           # upgrade now, whatever postgres.upgrade says (also retries a failed one)
+```
+
+```rust
+use desktop_core::pgupgrade::{need, Need};
+
+match need(&data_dir.join("postgres").join("data"), desktop_core::pgstore::bundled_major())? {
+    Need::Upgrade { from, to } => println!("Postgres {from} -> {to} needed"),
+    other => println!("{other:?}"),
+}
+```
+
+**Tests.** `cargo test -p desktop-core --features postgres pgupgrade` runs the plan and the
+rollback against a fake `Runner`, with no Postgres. The real upgrade (downloads Postgres 15
+and 16; `initdb` and `pg_upgrade` refuse to run as root) is ignored by default:
+`APP_PG_UPGRADE_E2E=1 cargo test -p desktop-core --features postgres -- --ignored upgrade_e2e`.
+
 ## Module index
 
 Paths are relative to this file. The rustdoc page of `desktop_core::X` is
@@ -627,6 +686,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`embed`](../desktop-core/src/embed.rs) | `embed` | Local ONNX embeddings (fastembed) |
 | [`pdf`](../desktop-core/src/pdf.rs) | `pdf` | PDF text, with OCR for pages without text |
 | [`pgstore`](../desktop-core/src/pgstore.rs) | `postgres` (`bm25`) | Embedded Postgres + pgvector (+ BM25) store |
+| [`pgupgrade`](../desktop-core/src/pgupgrade.rs) | `postgres` | Upgrading the data folder to a new major Postgres with `pg_upgrade` ([Postgres upgrades](#postgres-upgrades)) |
 | [`watch`](../desktop-core/src/watch.rs) | `watch` | Drop folder and watched folders |
 | [`llm`](../desktop-core/src/llm.rs) | `ai` | Chat client for cloud and local models: retries, fallback chain, budgets, prompt caching; API keys; RAG prompt |
 | [`meter`](../desktop-core/src/meter.rs) | `ai` | AI cost meter: price table, per-day and per-month usage, budgets |

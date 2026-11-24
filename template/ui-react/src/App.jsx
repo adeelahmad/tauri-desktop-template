@@ -14,6 +14,9 @@ import { provenance } from './provenance.js';
 import { drawsTitlebar, useAppearance, useSettingsShortcut } from './shell.js';
 {% endif %}// kitchen:imports (`kitchen generate page` adds imports above this line)
 
+// The start of the error that asks before the database is upgraded (desktop_core::pgupgrade).
+const UPGRADE_NEEDED = 'pg-upgrade-needed';
+
 function describe(info, status) {
   if (!info) return '';
   const s = status || info.status;
@@ -332,24 +335,35 @@ export default function App() {
   const [message, setMessage] = useState({ text: 'Starting…' });
   const [status, setStatus] = useState(null);
   const [armed, setArmed] = useState(false);
+  const [upgrade, setUpgrade] = useState(null);
+  const [storeNotice, setStoreNotice] = useState('');
 {% if app_shell %}  // App shell (feature app-shell): live themes, Cmd/Ctrl+, and Settings in its own window.
   useAppearance();
   useSettingsShortcut();
   const shell = drawsTitlebar();
 {% endif %}
-  const setup = async (backend, embeddings) => {
+  // pgUpgrade answers the database-upgrade prompt: true upgrades now, false waits (Postgres only).
+  const setup = async (backend, embeddings, pgUpgrade) => {
     setBusy(true);
+    setUpgrade(null);
     const offs = [
       await listen('setup-progress', (e) => setMessage({ text: `${e.payload}…` })),
       await listen('setup-done', (e) => {
         offs.forEach((f) => f());
         setBusy(false);
-        if (!e.payload.ok) return setMessage({ text: `Setup failed: ${e.payload.error}`, error: true });
+        const error = e.payload.error || '';
+        if (!e.payload.ok && error.includes(UPGRADE_NEEDED)) {
+          // The data folder is from an older Postgres and postgres.upgrade is "ask".
+          setMessage({ text: error.slice(error.indexOf(UPGRADE_NEEDED) + UPGRADE_NEEDED.length + 1).trim() });
+          return setUpgrade({ backend, embeddings });
+        }
+        if (!e.payload.ok) return setMessage({ text: `Setup failed: ${error}`, error: true });
         setStatus(e.payload.status);
+        if (e.payload.status?.notice) setStoreNotice(e.payload.status.notice);
         setPhase('ready');
       }),
     ];
-    api.run_setup({ backend, embeddings }).catch((e) => {
+    api.run_setup({ backend, embeddings, pgUpgrade }).catch((e) => {
       setBusy(false);
       setMessage({ text: String(e), error: true });
     });
@@ -410,6 +424,13 @@ export default function App() {
         </section>
       )}
       {phase === 'wizard' && <Wizard info={info} onSetup={setup} busy={busy} message={message} />}
+      {upgrade && (
+        <section className="upgrade" aria-label="Database upgrade">
+          <button onClick={() => setup(upgrade.backend, upgrade.embeddings, true)}>Upgrade database</button>{' '}
+          <button onClick={() => setup(upgrade.backend, upgrade.embeddings, false)}>Not now</button>
+        </section>
+      )}
+      {storeNotice && <Status text={storeNotice} error />}
       {notice && <Status text={notice.text} error={notice.error} />}
       {phase === 'ready' && (
         <main>

@@ -8,6 +8,7 @@
 //! my-app --mcp                    serve MCP over stdio (feature mcp)
 //! my-app --self-test [out.json]   index and search a sample, print a JSON report
 //! my-app --eval [dataset] [--baseline file]   search evals, JSON report (feature evals)
+//! my-app --pg-upgrade [--check]   upgrade the embedded Postgres data now (feature postgres)
 //! ```
 //!
 //! Development builds first load `.env` and `.env.local` from the project folder (see
@@ -30,6 +31,10 @@ fn main() {
     if args.get(1).map(String::as_str) == Some("--eval") {
         // `--eval [dataset.jsonl] [--baseline b.json] ...`: search and RAG evals (feature `evals`).
         std::process::exit(app_lib::eval_main(&args[2..]));
+    }
+    if args.get(1).map(String::as_str) == Some("--pg-upgrade") {
+        // `--pg-upgrade [--check]`: upgrade the embedded Postgres data folder now (feature `postgres`).
+        std::process::exit(app_lib::pg_upgrade_main(&args[2..]));
     }
     // Production safety: a production build refuses to start without the config listed in
     // config/*.json `requiredInProduction` (see app_lib::app_config::check).

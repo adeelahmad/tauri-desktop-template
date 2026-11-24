@@ -95,6 +95,10 @@ pub struct Status {
     pub chunks: usize,
     /// The data folder, for display.
     pub data_dir: String,
+    /// Something the user should know about the store (an old Postgres still running after
+    /// an upgrade that is off or failed), shown beside the status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 /// The store, the optional embedder and the live config, behind one thread-safe object.
@@ -139,7 +143,7 @@ impl Engine {
     pub fn open(opts: &EngineOptions, progress: &mut dyn FnMut(&str)) -> Result<Self> {
         crate::net::configure(opts.config.net.clone());
         progress("Opening the store");
-        let store = open_store(opts)?;
+        let store = open_store(opts, progress)?;
         let embedder = if opts.embeddings { load_embedder(&opts.data_dir.join("models"), opts.config.resources.onnx_provider, progress)? } else { None };
         let engine = Self::with_parts(store, embedder, &opts.data_dir, progress)?;
         engine.configure(opts.config.clone())?;
@@ -218,6 +222,7 @@ impl Engine {
             embedder: self.embedder.as_ref().map(|e| e.name()),
             chunks: self.store.count()?,
             data_dir: self.data_dir.to_string_lossy().into_owned(),
+            notice: self.store.notice(),
         })
     }
 
@@ -693,11 +698,11 @@ impl Engine {
     }
 }
 
-fn open_store(opts: &EngineOptions) -> Result<Box<dyn Store>> {
+fn open_store(opts: &EngineOptions, _progress: &mut dyn FnMut(&str)) -> Result<Box<dyn Store>> {
     match opts.backend {
         Backend::File => Ok(Box::new(FileStore::open(&opts.data_dir.join("store"))?)),
         #[cfg(feature = "postgres")]
-        Backend::Postgres => Ok(Box::new(crate::pgstore::PostgresStore::open(&opts.data_dir.join("postgres"))?)),
+        Backend::Postgres => Ok(Box::new(crate::pgstore::PostgresStore::open_with(&opts.data_dir.join("postgres"), &opts.config.postgres, _progress)?)),
         #[cfg(not(feature = "postgres"))]
         Backend::Postgres => Err(Error::NotBuilt("Postgres")),
     }
