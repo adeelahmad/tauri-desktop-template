@@ -428,6 +428,8 @@ impl Local {
                 to(e.ask(&arg::<String>(&params, "question")?, &lookup, &mut |t| progress(t)))
             }
             #[cfg(feature = "ai")]
+            "ai_usage" => to(Ok(self.engine()?.ai_usage())),
+            #[cfg(feature = "ai")]
             "ai_keys" => to(Ok(desktop_core::llm::KeyFile::new(self.engine()?.data_dir().join("keys.json")).present())),
             #[cfg(feature = "ai")]
             "set_ai_key" => {

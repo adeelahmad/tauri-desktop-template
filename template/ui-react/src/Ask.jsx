@@ -32,7 +32,19 @@ export default function Ask({ features }) {
       setBusy(false);
     }
   };
-  const usage = result && `${result.reply.model} · ${result.reply.input_tokens} in / ${result.reply.output_tokens} out tokens`;
+  const reply = result?.reply;
+  const usage =
+    reply &&
+    [
+      `${reply.provider || ''} ${reply.model}`.trim(),
+      `${reply.input_tokens} in / ${reply.output_tokens} out tokens`,
+      reply.cached_tokens ? `${reply.cached_tokens} cached` : '',
+      reply.cost_usd != null ? `$${reply.cost_usd.toFixed(4)}` : '',
+      reply.attempts?.length ? `after ${reply.attempts.length} failed ${reply.attempts.length === 1 ? 'try' : 'tries'}` : '',
+      result.cached ? 'from the answer cache' : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
   return (
     <section>
       <h2>Ask</h2>
@@ -53,9 +65,14 @@ export default function Ask({ features }) {
       {answer && <div className="answer">{answer}</div>}
       {result && (
         <>
-          <p className="hint">
+          <p className="hint" title={reply.attempts?.map((a) => `${a.provider} ${a.model}: ${a.error}`).join('\n')}>
             {usage} {features?.tts && <Speak text={answer} />}
           </p>
+          {reply.warnings?.map((w) => (
+            <p key={w} className="status error">
+              {w}
+            </p>
+          ))}
           <ol className="sources">
             {result.sources.map((h, i) => (
               <li key={i}>

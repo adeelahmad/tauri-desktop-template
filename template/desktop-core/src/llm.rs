@@ -2,19 +2,38 @@
 //!
 //! Providers: Anthropic (Messages API), OpenAI, Google Gemini (its OpenAI-compatible
 //! endpoint), Ollama, and any OpenAI-compatible server (LM Studio, llama.cpp's
-//! `llama-server`, vLLM). Replies stream token by token. A failed call is retried with
-//! backoff, then the next entry of `fallbacks` is tried. Token use is counted against
-//! optional daily and monthly budgets. API keys come from the caller (the app keeps them
-//! in the OS keychain), never from this config.
+//! `llama-server`, vLLM). Replies stream token by token. API keys come from the caller
+//! (the app keeps them in an owner-only key file), never from this config.
+//!
+//! Operations, all set in [`LlmConfig`]:
+//! - **Retries.** A transient failure (HTTP 408, 429, 5xx, a timeout or a dropped
+//!   connection) is retried up to `retries` times with exponential backoff from
+//!   `retry_base_ms`, with random jitter, capped at `retry_max_secs`. A `Retry-After` (or
+//!   `retry-after-ms`) header sets the wait instead; one longer than `retry_max_secs` moves
+//!   on to the next target at once.
+//! - **Fallback chain.** `fallbacks` is an ordered list of providers and models tried after
+//!   the main one fails for good (a bad request, a missing key, or retries used up). The
+//!   [`Reply`] says who answered (`provider`, `model`) and lists every failed try in
+//!   `attempts`, which `Engine::ask` keeps with the answer.
+//! - **Cost meter and budgets.** Token use comes from the provider's usage fields, prompt
+//!   cache reads and writes included, and is priced with `prices` ([`crate::meter`],
+//!   edit the table when prices change). Totals per day and month go to `llm-usage.json` in
+//!   the data folder. Token and dollar budgets warn from `budget.warn_percent` (80%) and
+//!   block at 100% unless `budget.override_limits` is on.
+//! - **Prompt caching** (`prompt_cache`). Anthropic: `cache_control: {type: "ephemeral"}`
+//!   on the system prompt and on stable context blocks ([`Message::cached`], such as the
+//!   sources of a RAG question; at most four breakpoints). OpenAI and Gemini cache a
+//!   repeated prompt prefix on their own: the system prompt and the sources always come
+//!   first and the question last, and cached tokens are read into the meter.
 //!
 //! Main items: [`LlmConfig`] and [`Target`] (who answers), [`Client`] (sends chats),
 //! [`KeyFile`] (API keys), [`rag_messages`] (a question with numbered sources).
-//! `Engine::ask` puts search and chat together.
+//! `Engine::ask` puts search and chat together, and `Engine::ai_usage` reports the meter.
 //!
 //! # Examples
 //!
 //! ```
-//! use desktop_core::llm::{rag_messages, LlmConfig, Provider, Role, Target};
+//! use desktop_core::llm::{rag_messages, BudgetConfig, LlmConfig, Provider, Role, Target};
 //! use desktop_core::Hit;
 //!
 //! let cfg = LlmConfig { enabled: true, target: Target { provider: Provider::Ollama, ..Target::default() }, ..LlmConfig::default() };
@@ -26,7 +45,17 @@
 //! let hit = Hit { source: "sky.md".into(), page: None, text: "The sky is blue.".into(), score: 1.0, vector_score: None, keyword_score: None, prov: None };
 //! let messages = rag_messages(None, "What colour is the sky?", &[hit]);
 //! assert_eq!(messages[0].role, Role::System);
-//! assert!(messages[1].content.contains("[1] (sky.md)"));
+//! assert!(messages[1].content.contains("[1] (sky.md)") && messages[1].cache);
+//!
+//! // Retries, fallbacks and budgets are plain settings.
+//! let cfg = LlmConfig {
+//!     retries: 3,
+//!     fallbacks: vec![Target { provider: Provider::Openai, model: "gpt-5-mini".into(), ..Target::default() }],
+//!     budget: BudgetConfig { daily_usd: Some(1.0), ..BudgetConfig::default() },
+//!     ..LlmConfig::default()
+//! };
+//! assert_eq!(cfg.limits().warn_percent, 80);
+//! assert!(cfg.prices.contains_key("gpt-5-mini"));
 //! ```
 //!
 //! Chatting needs a provider (here Claude, with `ANTHROPIC_API_KEY` set):
@@ -38,13 +67,15 @@
 //! let keys = |p: Provider| p.key_env().and_then(|v| std::env::var(v).ok());
 //! let client = Client::new(cfg, &keys, None);
 //! let reply = client.chat(&[Message::new(Role::User, "Say hello")], &mut |t| print!("{t}"))?;
-//! println!("\n{} tokens", reply.input_tokens + reply.output_tokens);
+//! println!("\n{} tokens, ${:.4}, answered by {:?}", reply.input_tokens + reply.output_tokens, reply.cost_usd.unwrap_or(0.0), reply.provider);
 //! # Ok::<(), desktop_core::Error>(())
 //! ```
 
+use crate::meter::{self, Limits, Meter, Price, State, Usage};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -169,29 +200,64 @@ pub struct LlmConfig {
     pub target: Target,
     /// Tried in order when the main target fails.
     pub fallbacks: Vec<Target>,
-    /// Sampling temperature (0 to 2).
-    pub temperature: f32,
+    /// Sampling temperature (0 to 2). `None` (the default): Claude and OpenAI use their own
+    /// default, and local servers get [`DEFAULT_TEMPERATURE`]. Claude only gets it on models
+    /// up to 4.6 (newer ones refuse sampling settings), OpenAI only when set.
+    pub temperature: Option<f32>,
     /// Longest reply, in tokens.
     pub max_tokens: u32,
     /// Whole-request timeout per attempt.
     pub timeout_secs: u64,
     /// Retries per target (with exponential backoff) before falling back.
     pub retries: u32,
+    /// The first retry waits about this long (ms); each further retry doubles it, with
+    /// random jitter between half and all of it.
+    pub retry_base_ms: u64,
+    /// The longest wait between retries (seconds). A `Retry-After` longer than this skips
+    /// to the next target instead of waiting.
+    pub retry_max_secs: u64,
     /// Replaces the built-in system prompt for `ask`.
     pub system_prompt: Option<String>,
-    /// Stop calling once this many tokens (in + out) were used today / this month.
+    /// Stop calling once this many tokens (in + out) were used today (UTC).
     pub daily_token_budget: Option<u64>,
     /// Like `daily_token_budget`, per calendar month.
     pub monthly_token_budget: Option<u64>,
+    /// Dollar budgets, the warning line and the override.
+    pub budget: BudgetConfig,
+    /// US dollars per million tokens per model; a model matches its exact name or the
+    /// longest name it starts with. **Edit me**: the defaults ([`meter::default_prices`])
+    /// are list prices at the time of writing.
+    pub prices: BTreeMap<String, Price>,
     /// Plain-HTTP URLs are allowed only for these hosts (local servers).
     pub http_hosts: Vec<String>,
-    /// Anthropic prompt caching on the system prompt and sources.
+    /// Prompt caching: Anthropic `cache_control` on the system prompt and the sources.
+    /// OpenAI and Gemini cache the stable prefix on their own either way.
     pub prompt_cache: bool,
     /// The built-in llama.cpp model (provider `local`).
     pub local: LocalConfig,
     /// Reuse answers to the same (or, with embeddings, a near-identical) question while the
     /// index is unchanged. Off by default.
     pub cache: crate::cache::CacheConfig,
+}
+
+/// Dollar budgets and what happens near and over a budget (`llm.budget`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BudgetConfig {
+    /// Stop calling once this many US dollars were spent today (UTC). None: no limit.
+    pub daily_usd: Option<f64>,
+    /// Like `daily_usd`, per calendar month.
+    pub monthly_usd: Option<f64>,
+    /// Warn from this share of any budget, in percent (0: never warn).
+    pub warn_percent: u8,
+    /// Keep calling after a budget is used up (each reply still carries a warning).
+    pub override_limits: bool,
+}
+
+impl Default for BudgetConfig {
+    fn default() -> Self {
+        Self { daily_usd: None, monthly_usd: None, warn_percent: 80, override_limits: false }
+    }
 }
 
 /// Settings for provider `local` (llama.cpp in the app, feature `llama`).
@@ -234,13 +300,17 @@ impl Default for LlmConfig {
             enabled: false,
             target: Target::default(),
             fallbacks: Vec::new(),
-            temperature: 0.2,
+            temperature: None,
             max_tokens: 1024,
             timeout_secs: 120,
             retries: 2,
+            retry_base_ms: 500,
+            retry_max_secs: 30,
             system_prompt: None,
             daily_token_budget: None,
             monthly_token_budget: None,
+            budget: BudgetConfig::default(),
+            prices: meter::default_prices(),
             http_hosts: vec!["127.0.0.1".into(), "localhost".into(), "[::1]".into()],
             prompt_cache: true,
             local: LocalConfig::default(),
@@ -252,17 +322,89 @@ impl Default for LlmConfig {
 impl LlmConfig {
     /// Values clamped into safe ranges (called from `Config::validated`).
     pub fn validated(mut self) -> Self {
-        self.temperature = if self.temperature.is_finite() { self.temperature.clamp(0.0, 2.0) } else { 0.2 };
+        self.temperature = self.temperature.filter(|t| t.is_finite()).map(|t| t.clamp(0.0, 2.0));
         self.max_tokens = self.max_tokens.clamp(1, 200_000);
         self.timeout_secs = self.timeout_secs.clamp(5, 3600);
         self.retries = self.retries.min(10);
+        self.retry_base_ms = self.retry_base_ms.clamp(50, 60_000);
+        self.retry_max_secs = self.retry_max_secs.clamp(1, 600);
+        let usd = |v: Option<f64>| v.filter(|v| v.is_finite() && *v >= 0.0);
+        self.budget.daily_usd = usd(self.budget.daily_usd);
+        self.budget.monthly_usd = usd(self.budget.monthly_usd);
+        self.budget.warn_percent = self.budget.warn_percent.min(100);
+        let ok = |v: f64| if v.is_finite() { v.max(0.0) } else { 0.0 };
+        for p in self.prices.values_mut() {
+            for v in [&mut p.input, &mut p.output, &mut p.cached_input, &mut p.cache_write] {
+                *v = ok(*v);
+            }
+            if let Some(l) = p.long_prompt.as_mut() {
+                for v in [&mut l.input, &mut l.output, &mut l.cached_input, &mut l.cache_write] {
+                    *v = ok(*v);
+                }
+            }
+        }
         self.fallbacks.truncate(8);
         self.local.context = self.local.context.clamp(512, 131_072);
         self.local.threads = self.local.threads.min(256);
         self.cache = self.cache.validated();
         self
     }
+
+    /// The token and dollar budgets as [`meter::Limits`].
+    pub fn limits(&self) -> Limits {
+        Limits {
+            daily_tokens: self.daily_token_budget,
+            monthly_tokens: self.monthly_token_budget,
+            daily_usd: self.budget.daily_usd,
+            monthly_usd: self.budget.monthly_usd,
+            warn_percent: self.budget.warn_percent,
+            override_limits: self.budget.override_limits,
+        }
+    }
 }
+
+/// The temperature local servers and the built-in model get when none is set.
+pub const DEFAULT_TEMPERATURE: f32 = 0.2;
+
+/// Whether a Claude model still takes sampling settings (`temperature`, `top_p`, `top_k`):
+/// only versions up to 4.6 (and the 3.x family). Newer models answer 400 to them, and an
+/// unrecognised name is treated as new.
+///
+/// ```
+/// use desktop_core::llm::claude_takes_sampling;
+/// assert!(claude_takes_sampling("claude-sonnet-4-5-20250929"));
+/// assert!(claude_takes_sampling("claude-3-5-haiku-latest"));
+/// assert!(!claude_takes_sampling("claude-opus-4-7"));
+/// assert!(!claude_takes_sampling("claude-sonnet-5-5"));
+/// assert!(!claude_takes_sampling("my-proxy-model"));
+/// ```
+pub fn claude_takes_sampling(model: &str) -> bool {
+    let Some(rest) = model.strip_prefix("claude-") else { return false };
+    // The version is the first one or two short numbers (`opus-4-6`, `3-5-haiku`); a date
+    // (`20250929`) or a word after them ends it.
+    let mut version = Vec::new();
+    for part in rest.split(['-', '.', '@']) {
+        if part.chars().all(|c| c.is_ascii_alphabetic()) {
+            if version.is_empty() {
+                continue;
+            }
+            break;
+        }
+        match part.parse::<u32>() {
+            Ok(n) if part.len() <= 2 && version.len() < 2 => version.push(n),
+            _ => break,
+        }
+    }
+    match version.as_slice() {
+        [major, ..] if *major < 4 => true,
+        [4] => true,
+        [4, minor] => *minor <= 6,
+        _ => false,
+    }
+}
+
+/// The usage ledger's file name in the data folder.
+pub const USAGE_FILE: &str = "llm-usage.json";
 
 /// Who wrote a chat message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,16 +425,42 @@ pub struct Message {
     pub role: Role,
     /// What it says.
     pub content: String,
+    /// Stable context worth caching (Anthropic `cache_control` when `prompt_cache` is on).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cache: bool,
 }
 
 impl Message {
     /// A message from `role`.
     pub fn new(role: Role, content: impl Into<String>) -> Self {
-        Self { role, content: content.into() }
+        Self { role, content: content.into(), cache: false }
+    }
+
+    /// A message of stable context (documents, instructions) that a provider may cache.
+    /// Consecutive messages of one role go to the provider as one message.
+    pub fn cached(role: Role, content: impl Into<String>) -> Self {
+        Self { cache: true, ..Self::new(role, content) }
     }
 }
 
-/// A finished reply and what it cost.
+/// Consecutive messages of one role joined into one (blank line between), for providers
+/// that take plain strings.
+fn joined(messages: &[Message]) -> Vec<Message> {
+    let mut out: Vec<Message> = Vec::new();
+    for m in messages {
+        match out.last_mut() {
+            Some(l) if l.role == m.role => {
+                l.content.push_str("\n\n");
+                l.content.push_str(&m.content);
+                l.cache &= m.cache;
+            }
+            _ => out.push(m.clone()),
+        }
+    }
+    out
+}
+
+/// A finished reply, who gave it, and what it cost.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Reply {
     /// The whole reply text.
@@ -301,10 +469,43 @@ pub struct Reply {
     pub provider: Option<Provider>,
     /// The model that answered.
     pub model: String,
-    /// Prompt tokens, as the provider counted them.
+    /// Prompt tokens, as the provider counted them (cached ones included).
     pub input_tokens: u64,
     /// Reply tokens, as the provider counted them.
     pub output_tokens: u64,
+    /// Prompt tokens read from the provider's prompt cache.
+    #[serde(default)]
+    pub cached_tokens: u64,
+    /// Prompt tokens written to the prompt cache (Anthropic).
+    #[serde(default)]
+    pub cache_write_tokens: u64,
+    /// What the call cost in US dollars (`None`: the model has no price in `llm.prices`).
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    /// Every failed try before this answer, in order (the provenance of a fallback).
+    #[serde(default)]
+    pub attempts: Vec<Attempt>,
+    /// Budget warnings (80% used, or over budget with the override on).
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+impl Reply {
+    /// The token counts as a [`meter::Usage`].
+    pub fn usage(&self) -> Usage {
+        Usage { input_tokens: self.input_tokens, output_tokens: self.output_tokens, cached_tokens: self.cached_tokens, cache_write_tokens: self.cache_write_tokens }
+    }
+}
+
+/// One failed try of a target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Attempt {
+    /// Who was asked.
+    pub provider: Provider,
+    /// The model asked.
+    pub model: String,
+    /// What went wrong.
+    pub error: String,
 }
 
 /// Looks up the API key for a provider (the app: `KeyFile::get`).
@@ -314,48 +515,95 @@ pub type KeyLookup<'a> = &'a dyn Fn(Provider) -> Option<String>;
 pub struct Client<'a> {
     cfg: LlmConfig,
     keys: KeyLookup<'a>,
-    usage_file: Option<PathBuf>,
+    meter: Option<Meter>,
+    sleep: Box<dyn Fn(Duration) + 'a>,
 }
 
 impl<'a> Client<'a> {
-    /// `usage_file` keeps the token counts for the budgets (none: no budgets).
+    /// `usage_file` keeps the totals for the meter and the budgets (none: no budgets).
     pub fn new(cfg: LlmConfig, keys: KeyLookup<'a>, usage_file: Option<&Path>) -> Self {
-        Self { cfg, keys, usage_file: usage_file.map(Path::to_path_buf) }
+        Self { cfg, keys, meter: usage_file.map(Meter::new), sleep: Box::new(std::thread::sleep) }
+    }
+
+    /// Wait between retries with `sleep` instead of `std::thread::sleep` (tests record the
+    /// waits instead of sleeping).
+    pub fn with_sleep(mut self, sleep: impl Fn(Duration) + 'a) -> Self {
+        self.sleep = Box::new(sleep);
+        self
     }
 
     /// Send `messages`; `on_token` gets the reply as it streams.
+    ///
+    /// Fails when AI is off, when a budget is used up (unless `budget.override_limits`),
+    /// or when every target failed (the error is the last failure).
     pub fn chat(&self, messages: &[Message], on_token: &mut dyn FnMut(&str)) -> Result<Reply> {
         if !self.cfg.enabled {
             return Err(Error::Llm("AI is turned off in Settings".into()));
         }
-        self.check_budget()?;
-        let targets: Vec<&Target> = std::iter::once(&self.cfg.target).chain(&self.cfg.fallbacks).collect();
+        if let Some(m) = &self.meter {
+            if let State::Blocked(why) = self.cfg.limits().check(&m.ledger(), meter::today()) {
+                return Err(Error::Llm(why));
+            }
+        }
+        let targets = std::iter::once(&self.cfg.target).chain(&self.cfg.fallbacks);
+        let mut attempts = Vec::new();
         let mut last = String::new();
         for t in targets {
-            for attempt in 0..=self.cfg.retries {
-                if attempt > 0 {
-                    std::thread::sleep(Duration::from_millis(500 * 2u64.pow(attempt - 1)));
-                }
-                match self.call(t, messages, on_token) {
-                    Ok(reply) => {
-                        self.record(reply.input_tokens + reply.output_tokens);
-                        return Ok(reply);
-                    }
+            let mut retry = 0;
+            loop {
+                let (error, wait) = match self.call(t, messages, on_token) {
+                    Ok(reply) => return Ok(self.finish(reply, attempts)),
                     // Bad request or auth: retrying the same target cannot help.
-                    Err(Failure::Fatal(e)) => {
-                        last = e;
-                        break;
-                    }
-                    Err(Failure::Retry(e)) => last = e,
-                }
+                    Err(Failure::Fatal(e)) => (e, None),
+                    Err(Failure::Retry(e, after)) => (e, Some(after)),
+                };
+                log::warn!("AI call to {:?} {} failed: {error}", t.provider, t.model());
+                attempts.push(Attempt { provider: t.provider, model: t.model().to_string(), error: error.clone() });
+                last = error;
+                let Some(after) = wait.filter(|_| retry < self.cfg.retries) else { break };
+                let max = Duration::from_secs(self.cfg.retry_max_secs);
+                let delay = match after {
+                    // The provider asks for a longer pause than we wait: try the next target.
+                    Some(d) if d > max => break,
+                    Some(d) => d,
+                    None => backoff(self.cfg.retry_base_ms, retry, max, jitter()),
+                };
+                (self.sleep)(delay);
+                retry += 1;
             }
         }
         Err(Error::Llm(last))
     }
 
+    /// Price the reply, add it to the meter, and attach provenance and budget warnings.
+    fn finish(&self, mut reply: Reply, attempts: Vec<Attempt>) -> Reply {
+        let usage = reply.usage();
+        let local = matches!(reply.provider, Some(Provider::Ollama | Provider::Local));
+        reply.cost_usd = meter::price_for(&self.cfg.prices, &reply.model).map(|p| usage.cost(p)).or(local.then_some(0.0));
+        if reply.cost_usd.is_none() && reply.provider.is_some_and(Provider::needs_key) {
+            reply.warnings.push(format!("no price for model {}; add it to llm.prices to count its cost", reply.model));
+        }
+        if !attempts.is_empty() {
+            log::info!("AI answer from fallback {:?} {} after {} failed tries", reply.provider, reply.model, attempts.len());
+        }
+        reply.attempts = attempts;
+        if let Some(m) = &self.meter {
+            let ledger = m.record(&usage, reply.cost_usd);
+            match self.cfg.limits().check(&ledger, meter::today()) {
+                State::Ok => {}
+                State::Warn(w) => reply.warnings.extend(w),
+                State::Blocked(why) => reply.warnings.push(why),
+            }
+        }
+        for w in &reply.warnings {
+            log::warn!("{w}");
+        }
+        reply
+    }
+
     #[cfg(feature = "llama")]
     fn call_local(&self, messages: &[Message], on_token: &mut dyn FnMut(&str)) -> std::result::Result<Reply, Failure> {
-        let mut r = crate::local::chat(&self.cfg.local, messages, self.cfg.max_tokens, self.cfg.temperature, on_token).map_err(|e| Failure::Fatal(e.to_string()))?;
+        let mut r = crate::local::chat(&self.cfg.local, &joined(messages), self.cfg.max_tokens, self.cfg.temperature.unwrap_or(DEFAULT_TEMPERATURE), on_token).map_err(|e| Failure::Fatal(e.to_string()))?;
         r.provider = Some(Provider::Local);
         Ok(r)
     }
@@ -407,14 +655,18 @@ impl<'a> Client<'a> {
         } else if t.provider == Provider::Anthropic {
             req = req.header("anthropic-version", "2023-06-01");
         }
-        let resp = req.send(body.to_string()).map_err(|e| Failure::Retry(e.to_string()))?;
+        // No response at all (timeout, refused or dropped connection): transient.
+        let resp = req.send(body.to_string()).map_err(|e| Failure::Retry(e.to_string(), None))?;
         let status = resp.status().as_u16();
+        let after = retry_after(resp.headers());
+        let should_retry = resp.headers().get("x-should-retry").and_then(|v| v.to_str().ok()).map(|v| v.eq_ignore_ascii_case("true"));
         let mut reader = BufReader::new(resp.into_body().into_reader());
         if status >= 400 {
             let mut text = String::new();
             let _ = std::io::Read::read_to_string(&mut reader, &mut text);
             let msg = format!("{:?} HTTP {status}: {}", t.provider, text.chars().take(500).collect::<String>());
-            return Err(if status == 429 || status >= 500 { Failure::Retry(msg) } else { Failure::Fatal(msg) });
+            let transient = should_retry.unwrap_or(status == 408 || status == 429 || status >= 500);
+            return Err(if transient { Failure::Retry(msg, after) } else { Failure::Fatal(msg) });
         }
         let mut reply = Reply { provider: Some(t.provider), model: t.model().to_string(), ..Reply::default() };
         let mut line = String::new();
@@ -423,7 +675,7 @@ impl<'a> Client<'a> {
             match reader.read_line(&mut line) {
                 Ok(0) => break,
                 Ok(_) => {}
-                Err(e) => return Err(Failure::Retry(e.to_string())),
+                Err(e) => return Err(Failure::Retry(e.to_string(), None)),
             }
             let data = line.trim();
             let data = data.strip_prefix("data:").map(str::trim).unwrap_or(data);
@@ -440,86 +692,110 @@ impl<'a> Client<'a> {
         Ok(reply)
     }
 
+    /// OpenAI-style body. The order (system prompt, sources, question) keeps the prefix
+    /// stable, so OpenAI's and Gemini's automatic prompt caching applies.
     fn openai_body(&self, t: &Target, messages: &[Message]) -> Value {
-        json!({
+        let messages: Vec<Value> = joined(messages).iter().map(|m| json!({"role": m.role, "content": m.content})).collect();
+        let mut body = json!({
             "model": t.model(),
             "messages": messages,
-            "temperature": self.cfg.temperature,
             "max_tokens": self.cfg.max_tokens,
             "stream": true,
             "stream_options": {"include_usage": true},
-        })
-    }
-
-    fn ollama_body(&self, t: &Target, messages: &[Message]) -> Value {
-        json!({
-            "model": t.model(),
-            "messages": messages,
-            "stream": true,
-            "options": {"temperature": self.cfg.temperature, "num_predict": self.cfg.max_tokens},
-        })
-    }
-
-    fn anthropic_body(&self, t: &Target, messages: &[Message]) -> Value {
-        let system: Vec<&str> = messages.iter().filter(|m| m.role == Role::System).map(|m| m.content.as_str()).collect();
-        let rest: Vec<Value> = messages
-            .iter()
-            .filter(|m| m.role != Role::System)
-            .map(|m| {
-                let mut block = json!({"type": "text", "text": m.content});
-                // Cache the (large, repeated) sources block of a RAG question.
-                if self.cfg.prompt_cache && m.content.len() > 4000 {
-                    block["cache_control"] = json!({"type": "ephemeral"});
-                }
-                json!({"role": m.role, "content": [block]})
-            })
-            .collect();
-        let mut body = json!({
-            "model": t.model(),
-            "max_tokens": self.cfg.max_tokens,
-            "temperature": self.cfg.temperature,
-            "messages": rest,
-            "stream": true,
         });
-        if !system.is_empty() {
-            let mut block = json!({"type": "text", "text": system.join("\n\n")});
-            if self.cfg.prompt_cache {
-                block["cache_control"] = json!({"type": "ephemeral"});
-            }
-            body["system"] = json!([block]);
+        // OpenAI's reasoning models refuse a non-default temperature: send it only when set.
+        // Other servers keep the low default that suits answers from sources.
+        let temperature = if t.provider == Provider::Openai { self.cfg.temperature } else { Some(self.cfg.temperature.unwrap_or(DEFAULT_TEMPERATURE)) };
+        if let Some(temp) = temperature {
+            body["temperature"] = json!(temp);
         }
         body
     }
 
-    fn usage(&self) -> Usage {
-        self.usage_file.as_ref().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    fn ollama_body(&self, t: &Target, messages: &[Message]) -> Value {
+        let messages: Vec<Value> = joined(messages).iter().map(|m| json!({"role": m.role, "content": m.content})).collect();
+        json!({
+            "model": t.model(),
+            "messages": messages,
+            "stream": true,
+            "options": {"temperature": self.cfg.temperature.unwrap_or(DEFAULT_TEMPERATURE), "num_predict": self.cfg.max_tokens},
+        })
     }
 
-    fn check_budget(&self) -> Result<()> {
-        let u = self.usage().current();
-        if let Some(b) = self.cfg.daily_token_budget.filter(|b| u.day_tokens >= *b) {
-            return Err(Error::Llm(format!("today's token budget ({b}) is used up")));
+    /// Anthropic body: system prompt and [`Message::cached`] blocks get `cache_control`
+    /// (at most four breakpoints, the API's limit); consecutive messages of one role
+    /// become one message with several content blocks. `temperature` goes only to models
+    /// up to 4.6 and only when set; `thinking` is never sent, so 5.x models use their
+    /// default (adaptive).
+    fn anthropic_body(&self, t: &Target, messages: &[Message]) -> Value {
+        const MAX_BREAKPOINTS: usize = 4;
+        let mut breakpoints = 0;
+        let mut mark = |block: &mut Value, want: bool| {
+            if self.cfg.prompt_cache && want && breakpoints < MAX_BREAKPOINTS {
+                block["cache_control"] = json!({"type": "ephemeral"});
+                breakpoints += 1;
+            }
+        };
+        let system: Vec<&str> = messages.iter().filter(|m| m.role == Role::System).map(|m| m.content.as_str()).collect();
+        let mut system_block = (!system.is_empty()).then(|| json!({"type": "text", "text": system.join("\n\n")}));
+        if let Some(b) = system_block.as_mut() {
+            mark(b, true);
         }
-        if let Some(b) = self.cfg.monthly_token_budget.filter(|b| u.month_tokens >= *b) {
-            return Err(Error::Llm(format!("this month's token budget ({b}) is used up")));
+        let mut rest: Vec<Value> = Vec::new();
+        for m in messages.iter().filter(|m| m.role != Role::System) {
+            let mut block = json!({"type": "text", "text": m.content});
+            mark(&mut block, m.cache);
+            match rest.last_mut() {
+                Some(last) if last["role"] == json!(m.role) => {
+                    if let Some(c) = last["content"].as_array_mut() {
+                        c.push(block);
+                    }
+                }
+                _ => rest.push(json!({"role": m.role, "content": [block]})),
+            }
         }
-        Ok(())
-    }
-
-    fn record(&self, tokens: u64) {
-        let Some(file) = &self.usage_file else { return };
-        let mut u = self.usage().current();
-        u.day_tokens += tokens;
-        u.month_tokens += tokens;
-        if let Ok(b) = serde_json::to_vec(&u) {
-            let _ = std::fs::write(file, b);
+        let mut body = json!({
+            "model": t.model(),
+            "max_tokens": self.cfg.max_tokens,
+            "messages": rest,
+            "stream": true,
+        });
+        // No sampling settings (and no `thinking`) unless asked for and the model takes them.
+        if let Some(temp) = self.cfg.temperature.filter(|_| claude_takes_sampling(t.model())) {
+            body["temperature"] = json!(temp);
         }
+        if let Some(b) = system_block {
+            body["system"] = json!([b]);
+        }
+        body
     }
 }
 
 enum Failure {
-    Retry(String),
+    /// Worth another try, after the wait the provider asked for (if it did).
+    Retry(String, Option<Duration>),
     Fatal(String),
+}
+
+/// The wait a 429/503 asks for: `retry-after-ms` (OpenAI) or `Retry-After` in seconds.
+/// An HTTP date is not parsed (the backoff applies instead).
+fn retry_after(h: &ureq::http::HeaderMap) -> Option<Duration> {
+    let num = |name: &str| h.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v >= 0.0);
+    num("retry-after-ms").map(|ms| Duration::from_secs_f64(ms.min(86_400_000.0) / 1000.0)).or_else(|| num("retry-after").map(|s| Duration::from_secs_f64(s.min(86_400.0))))
+}
+
+/// Exponential backoff: `base_ms * 2^retry`, capped at `max`, scaled by `0.5 + jitter / 2`
+/// (`jitter` in 0..1) so clients that failed together do not retry together.
+fn backoff(base_ms: u64, retry: u32, max: Duration, jitter: f64) -> Duration {
+    let full = Duration::from_millis(base_ms.saturating_mul(1u64 << retry.min(20))).min(max);
+    full.mul_f64(0.5 + jitter.clamp(0.0, 1.0) / 2.0)
+}
+
+/// A random number in 0..1 from the standard library's randomly seeded hasher.
+fn jitter() -> f64 {
+    use std::hash::BuildHasher;
+    let x = std::collections::hash_map::RandomState::new().hash_one(std::time::SystemTime::now());
+    (x >> 11) as f64 / (1u64 << 53) as f64
 }
 
 /// Text in one streamed chunk; usage numbers are copied into `reply`.
@@ -531,7 +807,10 @@ fn parse_chunk(provider: Provider, v: &Value, reply: &mut Reply) -> std::result:
     Ok(match provider {
         Provider::Anthropic => {
             if let Some(n) = u64_at("/message/usage/input_tokens") {
-                reply.input_tokens = n;
+                // Anthropic counts cache reads and writes apart from `input_tokens`.
+                reply.cached_tokens = u64_at("/message/usage/cache_read_input_tokens").unwrap_or(0);
+                reply.cache_write_tokens = u64_at("/message/usage/cache_creation_input_tokens").unwrap_or(0);
+                reply.input_tokens = n + reply.cached_tokens + reply.cache_write_tokens;
             }
             if let Some(n) = u64_at("/usage/output_tokens") {
                 reply.output_tokens = n;
@@ -551,54 +830,15 @@ fn parse_chunk(provider: Provider, v: &Value, reply: &mut Reply) -> std::result:
             if let Some(n) = u64_at("/usage/prompt_tokens") {
                 reply.input_tokens = n;
             }
+            if let Some(n) = u64_at("/usage/prompt_tokens_details/cached_tokens") {
+                reply.cached_tokens = n;
+            }
             if let Some(n) = u64_at("/usage/completion_tokens") {
                 reply.output_tokens = n;
             }
             v.pointer("/choices/0/delta/content").and_then(Value::as_str).unwrap_or("").to_string()
         }
     })
-}
-
-/// Tokens used, per UTC day and month.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Usage {
-    day: u64,
-    month: u64,
-    day_tokens: u64,
-    month_tokens: u64,
-}
-
-impl Usage {
-    /// Reset the counters that belong to an earlier day or month.
-    fn current(mut self) -> Self {
-        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let day = secs / 86_400;
-        let month = month_of(day);
-        if self.day != day {
-            self.day = day;
-            self.day_tokens = 0;
-        }
-        if self.month != month {
-            self.month = month;
-            self.month_tokens = 0;
-        }
-        self
-    }
-}
-
-/// Months since 1970 for a day number (civil calendar).
-fn month_of(days: u64) -> u64 {
-    // Howard Hinnant's days-to-civil algorithm.
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    ((y - 1970) * 12 + (m - 1)) as u64
 }
 
 /// The system prompt for answering from documents. Sources are data, not instructions.
@@ -663,9 +903,12 @@ pub fn rag_messages(system: Option<&str>, question: &str, hits: &[crate::Hit]) -
         sources.push_str(&format!("[{}] ({}{}) {}\n", i + 1, h.source, page, text));
     }
     sources.push_str("</sources>");
+    // Stable parts first (system prompt, then the sources as a cacheable block), the
+    // question last, so prompt caches can reuse the prefix.
     vec![
-        Message::new(Role::System, system.unwrap_or(RAG_SYSTEM)),
-        Message::new(Role::User, format!("{sources}\n\nQuestion: {question}")),
+        Message::cached(Role::System, system.unwrap_or(RAG_SYSTEM)),
+        Message::cached(Role::User, sources),
+        Message::new(Role::User, format!("Question: {question}")),
     ]
 }
 
@@ -677,11 +920,16 @@ mod tests {
 
     /// Serves `responses` in order, one per connection, and returns the requests it saw.
     fn serve(responses: Vec<(u16, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        serve_with(responses.into_iter().map(|(s, b)| (s, String::new(), b)).collect())
+    }
+
+    /// Like `serve`, with extra header lines (`name: value\r\n`) per response.
+    fn serve_with(responses: Vec<(u16, String, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://127.0.0.1:{}", l.local_addr().unwrap().port());
         let h = std::thread::spawn(move || {
             let mut seen = Vec::new();
-            for (status, body) in responses {
+            for (status, headers, body) in responses {
                 let (mut s, _) = l.accept().unwrap();
                 let mut buf = vec![0u8; 65536];
                 let mut req = String::new();
@@ -699,7 +947,7 @@ mod tests {
                     }
                 }
                 seen.push(req);
-                let head = format!("HTTP/1.1 {status} X\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+                let head = format!("HTTP/1.1 {status} X\r\ncontent-type: text/event-stream\r\n{headers}content-length: {}\r\nconnection: close\r\n\r\n", body.len());
                 s.write_all(head.as_bytes()).unwrap();
                 s.write_all(body.as_bytes()).unwrap();
             }
@@ -726,7 +974,7 @@ mod tests {
 
     #[test]
     fn openai_compatible_streams_and_counts_usage() {
-        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n";
+        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2,\"prompt_tokens_details\":{\"cached_tokens\":4}}}\n\ndata: [DONE]\n\n";
         let (url, h) = serve(vec![(200, sse.into())]);
         let dir = tempfile::tempdir().unwrap();
         let usage = dir.path().join("usage.json");
@@ -734,7 +982,11 @@ mod tests {
         let c = Client::new(cfg(Provider::Compatible, &format!("{url}/v1")), &none, Some(&usage));
         let mut streamed = String::new();
         let r = c.chat(&[Message::new(Role::User, "hi")], &mut |t| streamed.push_str(t)).unwrap();
-        assert_eq!((r.text.as_str(), streamed.as_str(), r.input_tokens, r.output_tokens), ("Hello", "Hello", 7, 2));
+        assert_eq!((r.text.as_str(), streamed.as_str(), r.input_tokens, r.output_tokens, r.cached_tokens), ("Hello", "Hello", 7, 2, 4));
+        // A local model without a price: counted, but no cost.
+        assert_eq!(r.cost_usd, None);
+        let today = Meter::new(&usage).ledger().day(meter::today());
+        assert_eq!((today.requests, today.tokens(), today.usage.cached_tokens, today.unpriced), (1, 9, 4, 1));
         let req = h.join().unwrap().remove(0);
         assert!(req.starts_with("POST /v1/chat/completions"));
         // A budget of 9 tokens is now used up.
@@ -777,10 +1029,168 @@ mod tests {
         assert_eq!(m[1].content.matches("</sources>").count(), 1);
     }
 
+
+    fn body_of(req: &str) -> Value {
+        serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap()
+    }
+
+    const OK: &str = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n";
+
     #[test]
-    fn months_count_from_1970() {
-        assert_eq!(month_of(0), 0);
-        assert_eq!(month_of(31), 1);
-        assert_eq!(month_of(365), 12);
+    fn retries_honour_retry_after_then_back_off_with_jitter() {
+        let (url, h) = serve_with(vec![(429, "retry-after: 2\r\n".into(), "{}".into()), (503, String::new(), "{}".into()), (200, String::new(), OK.into())]);
+        let c = LlmConfig { retries: 2, retry_base_ms: 100, ..cfg(Provider::Compatible, &url) };
+        let waits = std::cell::RefCell::new(Vec::new());
+        let none = |_| None;
+        let r = Client::new(c, &none, None).with_sleep(|d| waits.borrow_mut().push(d)).chat(&[Message::new(Role::User, "q")], &mut |_| {}).unwrap();
+        assert_eq!(r.text, "ok");
+        assert_eq!(r.attempts.len(), 2);
+        assert!(r.attempts[0].error.contains("429"));
+        let waits = waits.into_inner();
+        assert_eq!(waits[0], Duration::from_secs(2));
+        // Second retry: 100 ms doubled once, then jittered into 100..=200 ms.
+        assert!(waits[1] >= Duration::from_millis(100) && waits[1] <= Duration::from_millis(200), "{waits:?}");
+        assert_eq!(h.join().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn backoff_doubles_caps_and_jitters() {
+        let max = Duration::from_secs(1);
+        assert_eq!(backoff(100, 0, max, 1.0), Duration::from_millis(100));
+        assert_eq!(backoff(100, 3, max, 1.0), Duration::from_millis(800));
+        assert_eq!(backoff(100, 3, max, 0.0), Duration::from_millis(400));
+        assert_eq!(backoff(100, 30, max, 1.0), max);
+        assert!((0.0..1.0).contains(&jitter()));
+    }
+
+    #[test]
+    fn a_long_retry_after_or_a_fatal_error_moves_down_the_fallback_chain_in_order() {
+        let ollama = "{\"message\":{\"content\":\"hi\"},\"done\":false}\n{\"message\":{\"content\":\"\"},\"done\":true,\"prompt_eval_count\":3,\"eval_count\":1}\n";
+        let (url, h) = serve_with(vec![(429, "retry-after: 120\r\n".into(), "{}".into()), (400, String::new(), "{\"error\":\"bad\"}".into()), (200, String::new(), ollama.into())]);
+        let mut c = LlmConfig { retries: 3, ..cfg(Provider::Compatible, &format!("{url}/v1")) };
+        c.fallbacks = vec![
+            Target { provider: Provider::Compatible, model: "second".into(), base_url: format!("{url}/v1") },
+            // No key: skipped without a request.
+            Target { provider: Provider::Openai, model: "gpt-5-mini".into(), base_url: String::new() },
+            Target { provider: Provider::Ollama, model: "llama".into(), base_url: url.clone() },
+        ];
+        let none = |_| None;
+        let r = Client::new(c, &none, None).with_sleep(|_| panic!("must not wait")).chat(&[Message::new(Role::User, "q")], &mut |_| {}).unwrap();
+        assert_eq!((r.text.as_str(), r.provider, r.model.as_str(), r.cost_usd), ("hi", Some(Provider::Ollama), "llama", Some(0.0)));
+        let tried: Vec<(Provider, &str)> = r.attempts.iter().map(|a| (a.provider, a.model.as_str())).collect();
+        assert_eq!(tried, [(Provider::Compatible, "m"), (Provider::Compatible, "second"), (Provider::Openai, "gpt-5-mini")]);
+        assert!(r.attempts[2].error.contains("API key"));
+        let reqs = h.join().unwrap();
+        assert_eq!(reqs.len(), 3);
+        assert!(reqs[2].starts_with("POST /api/chat"));
+    }
+
+    #[test]
+    fn dollar_budget_warns_blocks_and_can_be_overridden() {
+        let (url, h) = serve(vec![(200, OK.into()), (200, OK.into())]);
+        let dir = tempfile::tempdir().unwrap();
+        let usage = dir.path().join(USAGE_FILE);
+        let none = |_| None;
+        let mut c = cfg(Provider::Compatible, &url);
+        // 7 in + 2 out at $0.10 per token: $0.90 a call.
+        c.prices.insert("m".into(), Price::new(100_000.0, 100_000.0, 0.0, 0.0));
+        c.budget.daily_usd = Some(1.0);
+        let q = [Message::new(Role::User, "q")];
+        let r = Client::new(c.clone(), &none, Some(&usage)).chat(&q, &mut |_| {}).unwrap();
+        assert!((r.cost_usd.unwrap() - 0.9).abs() < 1e-9);
+        assert!(r.warnings.iter().any(|w| w.contains("90%")), "{:?}", r.warnings);
+        // A second call goes over: the next one is refused with a clear error.
+        Client::new(c.clone(), &none, Some(&usage)).chat(&q, &mut |_| {}).unwrap();
+        let e = Client::new(c.clone(), &none, Some(&usage)).chat(&q, &mut |_| {}).unwrap_err().to_string();
+        assert!(e.contains("daily USD AI budget is used up") && e.contains("$1.80 of $1.00"), "{e}");
+        h.join().unwrap();
+        // The override lets it through, with a warning.
+        let (url, h) = serve(vec![(200, OK.into())]);
+        c.target.base_url = url;
+        c.budget.override_limits = true;
+        let r = Client::new(c, &none, Some(&usage)).chat(&q, &mut |_| {}).unwrap();
+        assert!(r.warnings.iter().any(|w| w.contains("override")));
+        h.join().unwrap();
+        let report = meter::Report::new(&Meter::new(&usage).ledger(), &LlmConfig::default().limits(), meter::today());
+        assert_eq!(report.today.requests, 3);
+    }
+
+    #[test]
+    fn anthropic_caches_system_and_sources_and_meters_cache_tokens() {
+        let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"cache_read_input_tokens\":100,\"cache_creation_input_tokens\":50}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":5}}\n\n";
+        let (url, h) = serve(vec![(200, sse.into())]);
+        let c = LlmConfig { enabled: true, target: Target { provider: Provider::Anthropic, model: "claude-sonnet-5-5".into(), base_url: url }, ..LlmConfig::default() };
+        let hit = crate::Hit { source: "a.md".into(), page: None, text: "facts".into(), score: 1.0, vector_score: None, keyword_score: None, prov: None };
+        let msgs = rag_messages(None, "why?", &[hit]);
+        let key = |_| Some("sk".to_string());
+        let r = Client::new(c.clone(), &key, None).chat(&msgs, &mut |_| {}).unwrap();
+        assert_eq!((r.input_tokens, r.cached_tokens, r.cache_write_tokens, r.output_tokens), (160, 100, 50, 5));
+        // 10 * $2 + 100 * $0.10 + 50 * $2.50 + 5 * $10, per million.
+        assert!((r.cost_usd.unwrap() - 205e-6).abs() < 1e-12);
+        let body = body_of(&h.join().unwrap()[0]);
+        assert_eq!(body["system"][0]["cache_control"], json!({"type": "ephemeral"}));
+        let content = body["messages"][0]["content"].as_array().unwrap();
+        assert_eq!((body["messages"].as_array().unwrap().len(), content.len()), (1, 2));
+        assert_eq!(content[0]["cache_control"], json!({"type": "ephemeral"}));
+        assert!(content[0]["text"].as_str().unwrap().starts_with("<sources>"));
+        assert!(content[1].get("cache_control").is_none());
+        assert_eq!(content[1]["text"], "Question: why?");
+        // Off: no cache_control anywhere.
+        let off = Client::new(LlmConfig { prompt_cache: false, ..c.clone() }, &key, None);
+        assert!(!off.anthropic_body(&c.target, &msgs).to_string().contains("cache_control"));
+        // At most four breakpoints.
+        let many: Vec<Message> = (0..6).map(|i| Message::cached(Role::User, format!("doc {i}"))).collect();
+        let on = Client::new(c.clone(), &key, None);
+        assert_eq!(on.anthropic_body(&c.target, &many).to_string().matches("cache_control").count(), 4);
+    }
+
+    #[test]
+    fn openai_prefix_is_stable_and_joined() {
+        let none = |_| None;
+        let c = cfg(Provider::Openai, "");
+        let client = Client::new(c.clone(), &none, None);
+        let hit = crate::Hit { source: "a.md".into(), page: None, text: "facts".into(), score: 1.0, vector_score: None, keyword_score: None, prov: None };
+        let a = client.openai_body(&c.target, &rag_messages(None, "one?", std::slice::from_ref(&hit)));
+        let b = client.openai_body(&c.target, &rag_messages(None, "two?", &[hit]));
+        let (ma, mb) = (a["messages"].as_array().unwrap(), b["messages"].as_array().unwrap());
+        assert_eq!(ma.len(), 2);
+        assert_eq!(ma[0], mb[0]);
+        let (ua, ub) = (ma[1]["content"].as_str().unwrap(), mb[1]["content"].as_str().unwrap());
+        assert!(ua.ends_with("Question: one?") && ub.ends_with("Question: two?"));
+        assert_eq!(ua.trim_end_matches("Question: one?"), ub.trim_end_matches("Question: two?"));
+        assert!(!a.to_string().contains("\"cache\""));
+    }
+
+    #[test]
+    fn claude_gets_no_sampling_settings_unless_set_and_old_enough() {
+        let none = |_| None;
+        let body = |model: &str, temperature: Option<f32>| {
+            let c = LlmConfig { temperature, ..cfg(Provider::Anthropic, "") };
+            let t = Target { provider: Provider::Anthropic, model: model.into(), base_url: String::new() };
+            Client::new(c, &none, None).anthropic_body(&t, &[Message::new(Role::User, "q")])
+        };
+        for model in ["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-7", "claude-haiku-5-5", "claude-fable-5-2"] {
+            let b = body(model, Some(0.7));
+            assert!(b.get("temperature").is_none() && b.get("top_p").is_none() && b.get("top_k").is_none() && b.get("thinking").is_none(), "{model}: {b}");
+        }
+        assert!(body("claude-sonnet-4-6", None).get("temperature").is_none());
+        assert_eq!(body("claude-sonnet-4-6", Some(0.5))["temperature"], json!(0.5));
+        // OpenAI: only when set; local servers: the low default.
+        let openai = Client::new(cfg(Provider::Openai, ""), &none, None);
+        let t = Target { provider: Provider::Openai, ..Target::default() };
+        assert!(openai.openai_body(&t, &[]).get("temperature").is_none());
+        let t = Target { provider: Provider::Compatible, ..Target::default() };
+        assert!((openai.openai_body(&t, &[])["temperature"].as_f64().unwrap() - 0.2).abs() < 1e-6);
+        assert_eq!(LlmConfig { temperature: Some(f32::NAN), ..LlmConfig::default() }.validated().temperature, None);
+    }
+
+    #[test]
+    fn claude_versions_up_to_4_6_take_sampling() {
+        for m in ["claude-opus-4-6", "claude-opus-4-1-20250805", "claude-haiku-4-5", "claude-3-7-sonnet-latest", "claude-sonnet-4-20250514"] {
+            assert!(claude_takes_sampling(m), "{m}");
+        }
+        for m in ["claude-opus-4-8", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-2", "claude-haiku-5-5", "gpt-5"] {
+            assert!(!claude_takes_sampling(m), "{m}");
+        }
     }
 }

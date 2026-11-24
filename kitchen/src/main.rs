@@ -82,7 +82,11 @@ fn main() -> ExitCode {
             }
             Ok(report) => {
                 print!("{report}");
-                if args.words[0] == "doctor" && report.summary.contains("problem") {
+                let doctor = args.words[0] == "doctor" && report.summary.contains("problem");
+                let check = matches!(args.words[0].as_str(), "features" | "list")
+                    && args.flag("check")
+                    && report.summary.contains("problem(s)");
+                if doctor || check {
                     return ExitCode::FAILURE;
                 }
                 ExitCode::SUCCESS
