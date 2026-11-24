@@ -37,7 +37,7 @@ const FIELDS = [
   ['llm', 'local.gpuLayers', 'Layers on the GPU (0 = CPU only)', 'number', { needs: 'llama', min: 0 }],
   ['llm', 'local.threads', 'CPU threads (0 = one per core)', 'number', { needs: 'llama', min: 0 }],
   ['llm', 'local.keepLoaded', 'Keep the local model in memory', 'bool', { needs: 'llama' }],
-  ['llm', 'temperature', 'Temperature', 'number', { needs: 'ai', step: 0.1, min: 0, max: 2 }],
+  ['llm', 'temperature', 'Temperature (empty = model default; Claude only up to 4.6)', 'optional', { needs: 'ai', step: 0.1, min: 0, max: 2 }],
   ['llm', 'maxTokens', 'Longest answer (tokens)', 'number', { needs: 'ai', min: 1 }],
   ['llm', 'timeoutSecs', 'Timeout (seconds)', 'number', { needs: 'ai', min: 5 }],
   ['llm', 'retries', 'Retries before the next provider', 'number', { needs: 'ai', min: 0, max: 10 }],

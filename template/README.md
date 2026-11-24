@@ -397,7 +397,8 @@ is off by default; values are clamped to safe ranges.
 | `llm.fallbacks` | none | `[{"provider": "openai", "model": "gpt-5-mini"}, {"provider": "ollama"}]`: tried in order when the main provider fails |
 | `llm.dailyTokenBudget`, `llm.monthlyTokenBudget`, `llm.budget.dailyUsd`, `llm.budget.monthlyUsd` | none | token and dollar budgets per UTC day and month |
 | `llm.budget.warnPercent`, `llm.budget.overrideLimits` | 80, off | warn from this share of a budget; keep going over budget |
-| `llm.prices` | current Claude, OpenAI and Gemini list prices | **edit me**: `{"<model or prefix>": {"input": 2, "output": 10, "cachedInput": 0.1, "cacheWrite": 2.5}}`, USD per million tokens |
+| `llm.prices` | current Claude list prices; OpenAI and Gemini rows to verify | **edit me**: `{"<model or prefix>": {"input": 2, "output": 10, "cachedInput": 0.1, "cacheWrite": 2.5}}`, USD per million tokens; optional `longPrompt: {aboveTokens, input, output, ...}` |
+| `llm.temperature` | none | empty = the model's default; Claude gets it only on models up to 4.6 (newer ones refuse it), OpenAI only when set, local servers 0.2 |
 | `llm.promptCache` | on | Anthropic `cache_control` on the system prompt and the sources |
 | `llm.cache.enabled`, `llm.cache.ttlHours`, `llm.cache.maxEntries`, `llm.cache.similarity` | off, 24, 500, 0.95 | answer cache (`answer-cache.jsonl`): same question, or a near-identical one by cosine with embeddings; emptied on ingest, remove and clear |
 {% endif -%}

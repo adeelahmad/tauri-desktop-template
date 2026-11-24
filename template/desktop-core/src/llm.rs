@@ -200,8 +200,10 @@ pub struct LlmConfig {
     pub target: Target,
     /// Tried in order when the main target fails.
     pub fallbacks: Vec<Target>,
-    /// Sampling temperature (0 to 2).
-    pub temperature: f32,
+    /// Sampling temperature (0 to 2). `None` (the default): Claude and OpenAI use their own
+    /// default, and local servers get [`DEFAULT_TEMPERATURE`]. Claude only gets it on models
+    /// up to 4.6 (newer ones refuse sampling settings), OpenAI only when set.
+    pub temperature: Option<f32>,
     /// Longest reply, in tokens.
     pub max_tokens: u32,
     /// Whole-request timeout per attempt.
@@ -298,7 +300,7 @@ impl Default for LlmConfig {
             enabled: false,
             target: Target::default(),
             fallbacks: Vec::new(),
-            temperature: 0.2,
+            temperature: None,
             max_tokens: 1024,
             timeout_secs: 120,
             retries: 2,
@@ -320,7 +322,7 @@ impl Default for LlmConfig {
 impl LlmConfig {
     /// Values clamped into safe ranges (called from `Config::validated`).
     pub fn validated(mut self) -> Self {
-        self.temperature = if self.temperature.is_finite() { self.temperature.clamp(0.0, 2.0) } else { 0.2 };
+        self.temperature = self.temperature.filter(|t| t.is_finite()).map(|t| t.clamp(0.0, 2.0));
         self.max_tokens = self.max_tokens.clamp(1, 200_000);
         self.timeout_secs = self.timeout_secs.clamp(5, 3600);
         self.retries = self.retries.min(10);
@@ -332,7 +334,14 @@ impl LlmConfig {
         self.budget.warn_percent = self.budget.warn_percent.min(100);
         let ok = |v: f64| if v.is_finite() { v.max(0.0) } else { 0.0 };
         for p in self.prices.values_mut() {
-            *p = Price::new(ok(p.input), ok(p.output), ok(p.cached_input), ok(p.cache_write));
+            for v in [&mut p.input, &mut p.output, &mut p.cached_input, &mut p.cache_write] {
+                *v = ok(*v);
+            }
+            if let Some(l) = p.long_prompt.as_mut() {
+                for v in [&mut l.input, &mut l.output, &mut l.cached_input, &mut l.cache_write] {
+                    *v = ok(*v);
+                }
+            }
         }
         self.fallbacks.truncate(8);
         self.local.context = self.local.context.clamp(512, 131_072);
@@ -351,6 +360,46 @@ impl LlmConfig {
             warn_percent: self.budget.warn_percent,
             override_limits: self.budget.override_limits,
         }
+    }
+}
+
+/// The temperature local servers and the built-in model get when none is set.
+pub const DEFAULT_TEMPERATURE: f32 = 0.2;
+
+/// Whether a Claude model still takes sampling settings (`temperature`, `top_p`, `top_k`):
+/// only versions up to 4.6 (and the 3.x family). Newer models answer 400 to them, and an
+/// unrecognised name is treated as new.
+///
+/// ```
+/// use desktop_core::llm::claude_takes_sampling;
+/// assert!(claude_takes_sampling("claude-sonnet-4-5-20250929"));
+/// assert!(claude_takes_sampling("claude-3-5-haiku-latest"));
+/// assert!(!claude_takes_sampling("claude-opus-4-7"));
+/// assert!(!claude_takes_sampling("claude-sonnet-5-5"));
+/// assert!(!claude_takes_sampling("my-proxy-model"));
+/// ```
+pub fn claude_takes_sampling(model: &str) -> bool {
+    let Some(rest) = model.strip_prefix("claude-") else { return false };
+    // The version is the first one or two short numbers (`opus-4-6`, `3-5-haiku`); a date
+    // (`20250929`) or a word after them ends it.
+    let mut version = Vec::new();
+    for part in rest.split(['-', '.', '@']) {
+        if part.chars().all(|c| c.is_ascii_alphabetic()) {
+            if version.is_empty() {
+                continue;
+            }
+            break;
+        }
+        match part.parse::<u32>() {
+            Ok(n) if part.len() <= 2 && version.len() < 2 => version.push(n),
+            _ => break,
+        }
+    }
+    match version.as_slice() {
+        [major, ..] if *major < 4 => true,
+        [4] => true,
+        [4, minor] => *minor <= 6,
+        _ => false,
     }
 }
 
@@ -554,7 +603,7 @@ impl<'a> Client<'a> {
 
     #[cfg(feature = "llama")]
     fn call_local(&self, messages: &[Message], on_token: &mut dyn FnMut(&str)) -> std::result::Result<Reply, Failure> {
-        let mut r = crate::local::chat(&self.cfg.local, &joined(messages), self.cfg.max_tokens, self.cfg.temperature, on_token).map_err(|e| Failure::Fatal(e.to_string()))?;
+        let mut r = crate::local::chat(&self.cfg.local, &joined(messages), self.cfg.max_tokens, self.cfg.temperature.unwrap_or(DEFAULT_TEMPERATURE), on_token).map_err(|e| Failure::Fatal(e.to_string()))?;
         r.provider = Some(Provider::Local);
         Ok(r)
     }
@@ -647,14 +696,20 @@ impl<'a> Client<'a> {
     /// stable, so OpenAI's and Gemini's automatic prompt caching applies.
     fn openai_body(&self, t: &Target, messages: &[Message]) -> Value {
         let messages: Vec<Value> = joined(messages).iter().map(|m| json!({"role": m.role, "content": m.content})).collect();
-        json!({
+        let mut body = json!({
             "model": t.model(),
             "messages": messages,
-            "temperature": self.cfg.temperature,
             "max_tokens": self.cfg.max_tokens,
             "stream": true,
             "stream_options": {"include_usage": true},
-        })
+        });
+        // OpenAI's reasoning models refuse a non-default temperature: send it only when set.
+        // Other servers keep the low default that suits answers from sources.
+        let temperature = if t.provider == Provider::Openai { self.cfg.temperature } else { Some(self.cfg.temperature.unwrap_or(DEFAULT_TEMPERATURE)) };
+        if let Some(temp) = temperature {
+            body["temperature"] = json!(temp);
+        }
+        body
     }
 
     fn ollama_body(&self, t: &Target, messages: &[Message]) -> Value {
@@ -663,13 +718,15 @@ impl<'a> Client<'a> {
             "model": t.model(),
             "messages": messages,
             "stream": true,
-            "options": {"temperature": self.cfg.temperature, "num_predict": self.cfg.max_tokens},
+            "options": {"temperature": self.cfg.temperature.unwrap_or(DEFAULT_TEMPERATURE), "num_predict": self.cfg.max_tokens},
         })
     }
 
     /// Anthropic body: system prompt and [`Message::cached`] blocks get `cache_control`
     /// (at most four breakpoints, the API's limit); consecutive messages of one role
-    /// become one message with several content blocks.
+    /// become one message with several content blocks. `temperature` goes only to models
+    /// up to 4.6 and only when set; `thinking` is never sent, so 5.x models use their
+    /// default (adaptive).
     fn anthropic_body(&self, t: &Target, messages: &[Message]) -> Value {
         const MAX_BREAKPOINTS: usize = 4;
         let mut breakpoints = 0;
@@ -700,10 +757,13 @@ impl<'a> Client<'a> {
         let mut body = json!({
             "model": t.model(),
             "max_tokens": self.cfg.max_tokens,
-            "temperature": self.cfg.temperature,
             "messages": rest,
             "stream": true,
         });
+        // No sampling settings (and no `thinking`) unless asked for and the model takes them.
+        if let Some(temp) = self.cfg.temperature.filter(|_| claude_takes_sampling(t.model())) {
+            body["temperature"] = json!(temp);
+        }
         if let Some(b) = system_block {
             body["system"] = json!([b]);
         }
@@ -1099,5 +1159,38 @@ mod tests {
         assert!(ua.ends_with("Question: one?") && ub.ends_with("Question: two?"));
         assert_eq!(ua.trim_end_matches("Question: one?"), ub.trim_end_matches("Question: two?"));
         assert!(!a.to_string().contains("\"cache\""));
+    }
+
+    #[test]
+    fn claude_gets_no_sampling_settings_unless_set_and_old_enough() {
+        let none = |_| None;
+        let body = |model: &str, temperature: Option<f32>| {
+            let c = LlmConfig { temperature, ..cfg(Provider::Anthropic, "") };
+            let t = Target { provider: Provider::Anthropic, model: model.into(), base_url: String::new() };
+            Client::new(c, &none, None).anthropic_body(&t, &[Message::new(Role::User, "q")])
+        };
+        for model in ["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-7", "claude-haiku-5-5", "claude-fable-5-2"] {
+            let b = body(model, Some(0.7));
+            assert!(b.get("temperature").is_none() && b.get("top_p").is_none() && b.get("top_k").is_none() && b.get("thinking").is_none(), "{model}: {b}");
+        }
+        assert!(body("claude-sonnet-4-6", None).get("temperature").is_none());
+        assert_eq!(body("claude-sonnet-4-6", Some(0.5))["temperature"], json!(0.5));
+        // OpenAI: only when set; local servers: the low default.
+        let openai = Client::new(cfg(Provider::Openai, ""), &none, None);
+        let t = Target { provider: Provider::Openai, ..Target::default() };
+        assert!(openai.openai_body(&t, &[]).get("temperature").is_none());
+        let t = Target { provider: Provider::Compatible, ..Target::default() };
+        assert!((openai.openai_body(&t, &[])["temperature"].as_f64().unwrap() - 0.2).abs() < 1e-6);
+        assert_eq!(LlmConfig { temperature: Some(f32::NAN), ..LlmConfig::default() }.validated().temperature, None);
+    }
+
+    #[test]
+    fn claude_versions_up_to_4_6_take_sampling() {
+        for m in ["claude-opus-4-6", "claude-opus-4-1-20250805", "claude-haiku-4-5", "claude-3-7-sonnet-latest", "claude-sonnet-4-20250514"] {
+            assert!(claude_takes_sampling(m), "{m}");
+        }
+        for m in ["claude-opus-4-8", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-2", "claude-haiku-5-5", "gpt-5"] {
+            assert!(!claude_takes_sampling(m), "{m}");
+        }
     }
 }

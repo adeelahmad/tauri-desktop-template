@@ -53,18 +53,53 @@ pub struct Price {
     pub cached_input: f64,
     /// Prompt tokens written to the prompt cache (Anthropic; 0: same as `input`).
     pub cache_write: f64,
+    /// Prices for a prompt longer than `above_tokens` (the whole call is priced at them).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub long_prompt: Option<LongPrompt>,
+}
+
+/// A higher price for long prompts (USD per million tokens).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LongPrompt {
+    /// Prompts with more input tokens than this use these prices.
+    pub above_tokens: u64,
+    /// Prompt tokens.
+    pub input: f64,
+    /// Reply tokens.
+    pub output: f64,
+    /// Cache reads (0: same as `input`).
+    pub cached_input: f64,
+    /// Cache writes (0: same as `input`).
+    pub cache_write: f64,
 }
 
 impl Price {
-    /// A price with cache reads at `cached` and cache writes at the input price.
+    /// A price: input, output, cache read and cache write, USD per million tokens.
     pub const fn new(input: f64, output: f64, cached: f64, write: f64) -> Self {
-        Self { input, output, cached_input: cached, cache_write: write }
+        Self { input, output, cached_input: cached, cache_write: write, long_prompt: None }
+    }
+
+    /// The same price, with `long` for prompts above `above_tokens`.
+    pub const fn above(mut self, above_tokens: u64, long: Price) -> Self {
+        self.long_prompt = Some(LongPrompt { above_tokens, input: long.input, output: long.output, cached_input: long.cached_input, cache_write: long.cache_write });
+        self
+    }
+
+    /// The prices that apply to a prompt of `input_tokens`.
+    pub fn for_prompt(&self, input_tokens: u64) -> Price {
+        match self.long_prompt {
+            Some(l) if input_tokens > l.above_tokens => Price::new(l.input, l.output, l.cached_input, l.cache_write),
+            _ => Price { long_prompt: None, ..*self },
+        }
     }
 }
 
-/// The built-in price table (USD per million tokens, list prices for the standard tier,
-/// checked November 2026). **Edit me**: copy it into `llm.prices` and correct it when a
-/// provider changes its prices or a new model comes out.
+/// The built-in price table (USD per million tokens, list prices for the standard tier).
+/// Claude rows were checked against Anthropic's pricing in November 2026; the OpenAI and
+/// Gemini rows are marked "verify" and should be checked against their pricing pages.
+/// **Edit me**: copy it into `llm.prices` and correct it when a provider changes its prices
+/// or a new model comes out.
 pub fn default_prices() -> BTreeMap<String, Price> {
     let table: &[(&str, Price)] = &[
         // Anthropic: cache writes (5-minute) cost 1.25x input.
@@ -76,9 +111,10 @@ pub fn default_prices() -> BTreeMap<String, Price> {
         ("claude-sonnet-5-5", Price::new(2.0, 10.0, 0.10, 2.5)),
         ("claude-sonnet-5", Price::new(2.0, 10.0, 0.20, 2.5)),
         ("claude-sonnet-4", Price::new(3.0, 15.0, 0.30, 3.75)),
-        ("claude-haiku-5-5", Price::new(0.10, 0.50, 0.01, 0.125)),
+        // Haiku 5.5: prompts over 100K tokens cost $0.50 / $2.50.
+        ("claude-haiku-5-5", Price::new(0.10, 0.50, 0.01, 0.125).above(100_000, Price::new(0.50, 2.50, 0.05, 0.625))),
         ("claude-haiku-4-5", Price::new(1.0, 5.0, 0.10, 1.25)),
-        // OpenAI: cached input is read automatically; there is no write charge.
+        // OpenAI (verify): cached input is read automatically; there is no write charge.
         ("gpt-5", Price::new(1.25, 10.0, 0.125, 0.0)),
         ("gpt-5-mini", Price::new(0.25, 2.0, 0.025, 0.0)),
         ("gpt-5-nano", Price::new(0.05, 0.40, 0.005, 0.0)),
@@ -86,7 +122,7 @@ pub fn default_prices() -> BTreeMap<String, Price> {
         ("gpt-4.1-mini", Price::new(0.40, 1.60, 0.10, 0.0)),
         ("gpt-4o", Price::new(2.50, 10.0, 1.25, 0.0)),
         ("gpt-4o-mini", Price::new(0.15, 0.60, 0.075, 0.0)),
-        // Google Gemini (prompts up to 200k tokens).
+        // Google Gemini (verify; prompts up to 200k tokens).
         ("gemini-2.5-pro", Price::new(1.25, 10.0, 0.31, 0.0)),
         ("gemini-2.5-flash", Price::new(0.30, 2.50, 0.075, 0.0)),
         ("gemini-2.5-flash-lite", Price::new(0.10, 0.40, 0.025, 0.0)),
@@ -116,6 +152,7 @@ pub struct Usage {
 impl Usage {
     /// What these tokens cost at `price`, in US dollars.
     pub fn cost(&self, price: &Price) -> f64 {
+        let price = &price.for_prompt(self.input_tokens);
         let or = |p: f64| if p > 0.0 { p } else { price.input };
         let fresh = self.input_tokens.saturating_sub(self.cached_tokens + self.cache_write_tokens);
         (fresh as f64 * price.input + self.cached_tokens as f64 * or(price.cached_input) + self.cache_write_tokens as f64 * or(price.cache_write) + self.output_tokens as f64 * price.output) / 1e6
@@ -432,6 +469,12 @@ mod tests {
         let u = Usage { input_tokens: 1_000_000, output_tokens: 0, cached_tokens: 500_000, cache_write_tokens: 100_000 };
         // 400k fresh * 10 + 500k * 1 + 100k * 12.5 = 4 + 0.5 + 1.25
         assert!((u.cost(&price) - 5.75).abs() < 1e-9);
+        // Haiku 5.5 above 100K prompt tokens: the long-prompt prices.
+        let haiku = default_prices()["claude-haiku-5-5"];
+        let short = Usage { input_tokens: 100_000, output_tokens: 1_000_000, ..Usage::default() };
+        assert!((short.cost(&haiku) - (0.01 + 0.5)).abs() < 1e-9);
+        let long = Usage { input_tokens: 200_000, ..short };
+        assert!((long.cost(&haiku) - (0.1 + 2.5)).abs() < 1e-9);
         // No cache prices: cached tokens cost the input price.
         assert!((u.cost(&Price::new(10.0, 0.0, 0.0, 0.0)) - 10.0).abs() < 1e-9);
     }
