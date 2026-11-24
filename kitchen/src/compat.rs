@@ -328,7 +328,7 @@ pub const LICENCES: &[Licence] = &[
     Licence { feature: "daemon", licences: "service-manager, signal-hook, windows-service: MIT OR Apache-2.0", notice: "" },
     Licence { feature: "oauth", licences: "keyring: MIT OR Apache-2.0", notice: "" },
     Licence { feature: "ipc_worker", licences: "interprocess: 0BSD OR Apache-2.0", notice: "" },
-    Licence { feature: "background_jobs", licences: "croner: MIT; chrono: MIT OR Apache-2.0", notice: "" },
+    Licence { feature: "background_jobs", licences: "croner: MIT; jiff: Unlicense OR MIT", notice: "" },
     Licence { feature: "http_api", licences: "axum: MIT; tokio: MIT", notice: "" },
 ];
 

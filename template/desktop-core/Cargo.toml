@@ -57,8 +57,8 @@ mail = ["dep:rustls", "dep:webpki-roots"]
 oauth = ["dep:keyring"]
 {% endif -%}
 {% if background_jobs -%}
-# A persistent background job queue with retries and schedules (croner + chrono for cron).
-jobs-queue = ["dep:croner", "dep:chrono"]
+# A persistent background job queue with retries and schedules (croner + jiff for cron).
+jobs-queue = ["dep:croner", "dep:jiff"]
 {% endif -%}
 {% if plugins -%}
 # Static, compiled-in plugins (desktop_core::plugin): ingest hooks, search sources, methods.
@@ -130,9 +130,10 @@ syn = { version = "2", optional = true, features = ["full", "visit", "parsing", 
 proc-macro2 = { version = "1", optional = true }
 quote = { version = "1", optional = true }
 {% if background_jobs -%}
-# Cron parsing and next-run times (croner), in local time (chrono's clock: no time zone database).
-croner = { version = "5", optional = true, default-features = false, features = ["std", "chrono"] }
-chrono = { version = "0.4.42", optional = true, default-features = false, features = ["std", "clock"] }
+# Cron parsing and next-run times (croner), in local time with DST through jiff (pure Rust; the
+# system time zone database, bundled on Windows only).
+croner = { version = "5", optional = true, default-features = false, features = ["std", "jiff"] }
+jiff = { version = "1.0.1", optional = true }
 {% endif -%}
 {% if email -%}
 # The same rustls and Mozilla roots ureq already uses (no new crates in the build).

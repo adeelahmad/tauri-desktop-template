@@ -41,8 +41,10 @@
 //! `apalis-file-storage`, keeps tasks in a JSON-lines file but has no delayed jobs, no
 //! dead-letter list and no cancel, and apalis needs an async runtime (tokio, tower,
 //! futures, tracing) in a crate that is plain std threads; apalis-cron adds chrono-tz.
-//! So the hard part with real edge cases, cron parsing and next-time computation, comes
-//! from [croner](https://crates.io/crates/croner) (with chrono), and the queue itself is
+//! So the hard part with real edge cases, cron parsing and next-time computation across
+//! daylight saving time, comes from [croner](https://crates.io/crates/croner) with
+//! [jiff](https://crates.io/crates/jiff) (pure Rust, the system's time zone database; no
+//! chrono, which is unmaintained, RUSTSEC-2026-0543), and the queue itself is
 //! this small module on std threads and the crate's atomic-write helper.
 //!
 //! ```
@@ -77,6 +79,8 @@
 
 use crate::governor::ResourceConfig;
 use crate::{Error, Result};
+/// The time zone a cron schedule is read in ([`next_cron_in`]), from [jiff].
+pub use jiff::tz::TimeZone;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -484,8 +488,9 @@ pub struct Run {
     pub retry_at: Option<u64>,
 }
 
-/// A job enqueued again and again: by a cron expression (five fields, minute first, in local
-/// time; `@daily` and the like work too) or every `every_secs` seconds.
+/// A job enqueued again and again: by a cron expression (five fields, minute first, or six
+/// with seconds first, in local time; `@daily` and the like work too; see [`next_cron_in`])
+/// or every `every_secs` seconds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
@@ -547,7 +552,9 @@ impl Schedule {
     }
 }
 
-/// The first time after `after_ms` that the cron expression `expr` names, in local time.
+/// The first time after `after_ms` that the cron expression `expr` names, in the system's
+/// local time zone (UTC when it cannot be found); see [`next_cron_in`] for the syntax and
+/// how daylight saving time is handled.
 ///
 /// ```
 /// // Every five minutes, from 00:01:00 UTC on 1 Jan 2026: 00:05 (whole hours keep whole
@@ -557,11 +564,40 @@ impl Schedule {
 /// assert!(desktop_core::queue::next_cron("not cron", t).is_err());
 /// ```
 pub fn next_cron(expr: &str, after_ms: u64) -> Result<u64> {
-    use chrono::TimeZone;
+    next_cron_in(expr, after_ms, &TimeZone::system())
+}
+
+/// The first time after `after_ms` (ms since the Unix epoch) that the cron expression `expr`
+/// names on the wall clock of `tz`.
+///
+/// `expr` has five fields (minute, hour, day of month, month, day of week) or six with
+/// seconds first, each a `*`, a value, a list (`1,15`), a range (`MON-FRI`), a step (`*/5`,
+/// `10-50/20`) or names (`JAN`, `SUN`); `@hourly`, `@daily`, `@weekly`, `@monthly` and
+/// `@yearly` work too ([croner](https://docs.rs/croner) parses it, [jiff] does the time zone
+/// arithmetic). Daylight saving time: a time the clock skips (02:30 the night it springs
+/// forward) runs at the first instant after the gap; a time it repeats (01:30 the night it
+/// falls back) runs once, at the first of the two; `*` and step fields in the hour run in
+/// both halves of a repeated hour.
+///
+/// ```
+/// use desktop_core::queue::{next_cron_in, TimeZone};
+///
+/// // From midnight UTC on 1 Jan 2026 (a Thursday): weekdays at 09:00 UTC is 09:00 that day,
+/// let t = 1_767_225_600_000;
+/// assert_eq!(next_cron_in("0 9 * * MON-FRI", t, &TimeZone::UTC).unwrap(), t + 9 * 3_600_000);
+/// // and the 1st and 15th of each month at 12:00:30 UTC is 12:00:30 that day.
+/// assert_eq!(next_cron_in("30 0 12 1,15 * *", t, &TimeZone::UTC).unwrap(), t + 12 * 3_600_000 + 30_000);
+/// // A fixed offset shifts the wall clock: 09:00 at UTC+02:00 is 07:00 UTC.
+/// let plus_two = TimeZone::fixed(jiff::tz::offset(2));
+/// assert_eq!(next_cron_in("0 9 * * *", t, &plus_two).unwrap(), t + 7 * 3_600_000);
+/// assert!(next_cron_in("61 * * * *", t, &TimeZone::UTC).is_err());
+/// ```
+pub fn next_cron_in(expr: &str, after_ms: u64, tz: &TimeZone) -> Result<u64> {
     let cron: croner::Cron = expr.trim().parse().map_err(|e| Error::Source(format!("cron {expr:?}: {e}")))?;
-    let after = chrono::Local.timestamp_millis_opt(after_ms as i64).single().ok_or_else(|| Error::Source("time out of range".into()))?;
+    let after_ms = i64::try_from(after_ms).map_err(|_| Error::Source("time out of range".into()))?;
+    let after = jiff::Timestamp::from_millisecond(after_ms).map_err(|_| Error::Source("time out of range".into()))?.to_zoned_datetime(tz.clone());
     let next = cron.find_next_occurrence(&after, false).map_err(|e| Error::Source(format!("cron {expr:?}: {e}")))?;
-    Ok(next.timestamp_millis().max(0) as u64)
+    Ok(next.timestamp().as_millisecond().max(0) as u64)
 }
 
 /// When and how a job runs (each field optional).
@@ -1599,6 +1635,74 @@ mod tests {
         drop(q);
         let q = open(dir.path(), &clock, &calls, 0, false);
         assert_eq!(q.schedules().iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["five"]);
+    }
+
+    /// Ms since the epoch of an RFC 3339 instant.
+    fn ms(rfc3339: &str) -> u64 {
+        rfc3339.parse::<jiff::Timestamp>().unwrap().as_millisecond() as u64
+    }
+
+    #[test]
+    fn cron_syntax_lists_ranges_steps_names_and_seconds() {
+        let utc = &TimeZone::UTC;
+        let t = ms("2026-01-01T00:00:00Z"); // a Thursday
+        assert_eq!(next_cron_in("15,45 * * * *", t, utc).unwrap(), ms("2026-01-01T00:15:00Z"));
+        assert_eq!(next_cron_in("0 22-23/1 * * *", t, utc).unwrap(), ms("2026-01-01T22:00:00Z"));
+        assert_eq!(next_cron_in("10-50/20 6 * * *", t, utc).unwrap(), ms("2026-01-01T06:10:00Z"));
+        assert_eq!(next_cron_in("0 9 * * SAT,SUN", t, utc).unwrap(), ms("2026-01-03T09:00:00Z"));
+        assert_eq!(next_cron_in("0 9 * * mon-fri", ms("2026-01-02T10:00:00Z"), utc).unwrap(), ms("2026-01-05T09:00:00Z"));
+        assert_eq!(next_cron_in("0 0 1 JUL *", t, utc).unwrap(), ms("2026-07-01T00:00:00Z"));
+        assert_eq!(next_cron_in("*/20 * * * * *", t, utc).unwrap(), t + 20_000, "six fields, seconds first");
+        assert_eq!(next_cron_in("@daily", t, utc).unwrap(), t + DAY_MS);
+        assert_eq!(next_cron_in("@hourly", t + 1, utc).unwrap(), t + HOUR_MS);
+        // Strictly after: a time that matches is not its own next run.
+        assert_eq!(next_cron_in("0 0 * * *", t, utc).unwrap(), t + DAY_MS);
+        for bad in ["", "* * *", "60 * * * *", "* 24 * * *", "* * 32 * *", "* * * 13 *", "* * * * FOO", "5-1/x * * * *"] {
+            assert!(next_cron_in(bad, t, utc).is_err(), "{bad:?}");
+        }
+        // The local-time version is the same in the system's zone.
+        assert_eq!(next_cron("0 3 * * *", t).unwrap(), next_cron_in("0 3 * * *", t, &TimeZone::system()).unwrap());
+    }
+
+    #[test]
+    fn cron_next_fire_across_spring_forward() {
+        let ny = &TimeZone::get("America/New_York").unwrap();
+        // 2026-03-08: 02:00 EST (07:00Z) jumps to 03:00 EDT. 02:30 does not exist that night,
+        // so it runs at the first instant after the gap, then at 02:30 EDT the next night.
+        let midnight = ms("2026-03-08T05:00:00Z");
+        assert_eq!(next_cron_in("30 2 * * *", midnight, ny).unwrap(), ms("2026-03-08T07:00:00Z"));
+        assert_eq!(next_cron_in("30 2 * * *", ms("2026-03-08T07:00:00Z"), ny).unwrap(), ms("2026-03-09T06:30:00Z"));
+        // Noon local stays noon: 23 hours apart across the change, 24 in UTC.
+        let noon_est = ms("2026-03-07T17:00:00Z");
+        assert_eq!(next_cron_in("0 12 * * *", noon_est, ny).unwrap(), noon_est + 23 * HOUR_MS);
+        assert_eq!(next_cron_in("0 17 * * *", noon_est, &TimeZone::UTC).unwrap(), noon_est + DAY_MS);
+        // An hourly job just skips the missing hour.
+        assert_eq!(next_cron_in("0 * * * *", ms("2026-03-08T06:00:00Z"), ny).unwrap(), ms("2026-03-08T07:00:00Z"));
+        // Europe moves on another date and at another hour: Stockholm, 2026-03-29 02:00 CET.
+        let sthlm = &TimeZone::get("Europe/Stockholm").unwrap();
+        assert_eq!(next_cron_in("0 2 * * SUN", ms("2026-03-28T23:00:00Z"), sthlm).unwrap(), ms("2026-03-29T01:00:00Z"));
+        assert_eq!(next_cron_in("0 9 * * *", ms("2026-03-28T23:00:00Z"), sthlm).unwrap(), ms("2026-03-29T07:00:00Z"));
+    }
+
+    #[test]
+    fn cron_next_fire_across_fall_back() {
+        let ny = &TimeZone::get("America/New_York").unwrap();
+        // 2026-11-01: 02:00 EDT (06:00Z) goes back to 01:00 EST, so 01:xx comes twice.
+        // A fixed time runs once, in the first half; the next run is the next night.
+        let midnight = ms("2026-11-01T04:00:00Z");
+        assert_eq!(next_cron_in("30 1 * * *", midnight, ny).unwrap(), ms("2026-11-01T05:30:00Z"));
+        assert_eq!(next_cron_in("30 1 * * *", ms("2026-11-01T05:30:00Z"), ny).unwrap(), ms("2026-11-02T06:30:00Z"));
+        // A step in the minutes runs in both halves of the repeated hour.
+        let mut t = ms("2026-11-01T05:00:00Z");
+        let mut runs = vec![];
+        for _ in 0..4 {
+            t = next_cron_in("*/30 * * * *", t, ny).unwrap();
+            runs.push(t);
+        }
+        assert_eq!(runs, ["2026-11-01T05:30:00Z", "2026-11-01T06:00:00Z", "2026-11-01T06:30:00Z", "2026-11-01T07:00:00Z"].map(ms));
+        // Noon local: 25 hours apart across the change.
+        let noon_edt = ms("2026-10-31T16:00:00Z");
+        assert_eq!(next_cron_in("0 12 * * *", noon_edt, ny).unwrap(), noon_edt + 25 * HOUR_MS);
     }
 
     #[test]

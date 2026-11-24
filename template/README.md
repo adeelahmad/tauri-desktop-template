@@ -580,8 +580,9 @@ closed. On iOS and Android jobs run only while the app is in the foreground (no
 `BGTaskScheduler`/`WorkManager`); what came due meanwhile runs when it is back, and a missed
 schedule fires once. Commands: `jobs_list`, `jobs_enqueue` {kind, payload, options},
 `jobs_cancel`, `jobs_retry`, `jobs_schedules`, `jobs_set_schedule`. The queue is built on std
-threads plus [croner](https://crates.io/crates/croner) for cron (apalis was considered; its
-persistent stores need SQL or Redis and an async runtime, see the module docs).
+threads plus [croner](https://crates.io/crates/croner) and [jiff](https://crates.io/crates/jiff)
+for cron in local time, daylight saving time included (apalis was considered; its persistent
+stores need SQL or Redis and an async runtime, see the module docs).
 
 {% endif -%}
 {% if rclone -%}

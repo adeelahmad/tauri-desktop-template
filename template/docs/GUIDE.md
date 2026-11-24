@@ -696,7 +696,7 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `daemon` | service-manager, signal-hook, windows-service: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `oauth` | keyring: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
 | `ipc_worker` | interprocess: 0BSD OR Apache-2.0 | none (MIT / Apache-2.0) |
-| `background_jobs` | croner: MIT; chrono: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
 <!-- /kitchen:feature-dependencies -->
 
