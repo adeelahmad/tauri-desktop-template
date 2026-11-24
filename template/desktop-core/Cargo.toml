@@ -71,6 +71,10 @@ telemetry = []
 # A Model Context Protocol server over stdio (no extra dependencies).
 mcp = []
 {% endif -%}
+{% if tray_menu -%}
+# The action registry for the tray, global shortcuts and the app menu (no extra crates).
+tray-menu = []
+{% endif -%}
 {% if pdf -%}
 # PDF text through docling.rs (text layer; pages without one are OCR'd with tesseract if installed).
 pdf = ["dep:docling", "dep:tempfile"]

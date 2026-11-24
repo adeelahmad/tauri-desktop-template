@@ -85,6 +85,11 @@ type = "bool"
 prompt = "Add official Tauri plugins (dialog, fs, clipboard, notification, opener, store, global shortcut, autostart, deep link, window state, os, process, log)? Asks for each"
 default = false
 
+[placeholders.tray_menu]
+type = "bool"
+prompt = "System tray / macOS menu-bar icon with a menu, global shortcuts and an app menu, all from Settings (desktop)?"
+default = false
+
 [placeholders.stt]
 type = "bool"
 prompt = "Speech to text with Whisper (tiny/base/small, multilingual, MIT; ONNX Runtime, model downloads on first use): dictate questions or transcribe audio files?"
@@ -295,6 +300,9 @@ ignore = ["desktop-core/src/webview.rs", "src-tauri/src/webview.rs", "src-tauri/
 
 [conditional.'!tauri_plugins || !(tauri_global_shortcut || tauri_autostart || tauri_window_state || tauri_process)']
 ignore = ["src-tauri/capabilities/desktop.json"]
+
+[conditional.'!tray_menu']
+ignore = ["desktop-core/src/actions.rs", "src-tauri/src/tray.rs"]
 
 [conditional.'!telemetry']
 ignore = ["desktop-core/src/telemetry.rs"]

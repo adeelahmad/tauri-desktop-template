@@ -75,6 +75,15 @@ pub struct Config {
 {% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
     #[cfg(feature = "webview")]
     pub webview: crate::webview::WebviewConfig,
+{% endif %}{% if tray_menu %}    /// The tray or menu-bar icon and its menu.
+    #[cfg(feature = "tray-menu")]
+    pub tray: crate::actions::TrayConfig,
+    /// Global shortcuts (none by default).
+    #[cfg(feature = "tray-menu")]
+    pub shortcuts: Vec<crate::actions::ShortcutBinding>,
+    /// The app-defined menu in the menu bar.
+    #[cfg(feature = "tray-menu")]
+    pub menu: crate::actions::MenuConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -297,6 +306,12 @@ impl Config {
 {% endif %}{% if webview %}        #[cfg(feature = "webview")]
         {
             self.webview = self.webview.validated();
+        }
+{% endif %}{% if tray_menu %}        #[cfg(feature = "tray-menu")]
+        {
+            self.tray = self.tray.validated();
+            self.menu = self.menu.validated();
+            self.shortcuts = crate::actions::validated_shortcuts(self.shortcuts);
         }
 {% endif %}        // kitchen:validate
         self

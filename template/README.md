@@ -71,6 +71,9 @@ Everything runs on the user's machine.
 {% if webview -%}
 | Embedded web views (desktop): allowlisted remote pages in the app's own windows, with no Tauri IPC for them, cookies kept per profile (or incognito), and an opt-in message bridge. Settings → Web views | `desktop-core/src/webview.rs`, `src-tauri/src/webview.rs` | `webview` |
 {% endif -%}
+{% if tray_menu -%}
+| Tray / macOS menu-bar icon with its own menu, global shortcuts (rebind by pressing keys) and an app-defined menu next to the platform's App/Edit/Window menus; all three run actions through one registry. Settings → Tray & shortcuts | `desktop-core/src/actions.rs`, `src-tauri/src/tray.rs` | `tray-menu` |
+{% endif -%}
 {% if tauri_plugins -%}
 | Official Tauri plugins (see the table below) | `src-tauri/src/lib.rs`, `src-tauri/capabilities/` | |
 {% endif -%}
@@ -327,6 +330,12 @@ is off by default; values are clamped to safe ranges.
 | `rclone.folder`, `rclone.direction` | `backups`, `push` | `data` (up only); `pull`, `mirror` (deletes extras there), `bisync` |
 | `rclone.intervalMinutes`, `rclone.bandwidth` | 0, empty | 0 = only when asked (else at least 5); `--bwlimit`, e.g. `2M` or `10M:1M` |
 {% endif -%}
+{% if tray_menu -%}
+| `tray.enabled`, `tray.items` | off, show/hide · search · clipboard · pause · settings · quit | each item `{id, label, action, shortcutHint?, enabled}`; `action` `separator` draws a line |
+| `tray.leftClickOpens`, `tray.closeToTray`, `tray.showInMenuBarOnly` | on, off, off | left click shows the window; closing hides it; macOS: no Dock icon |
+| `shortcuts` | none | `[{accelerator, action}]`, e.g. `CmdOrCtrl+Shift+K`; an empty accelerator turns off a code default |
+| `menu.title`, `menu.extra` | `Actions`, none | items added after the ones the code defines |
+{% endif -%}
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
 {% endif -%}
@@ -369,6 +378,24 @@ Cloud sync downloads rclone (the version pinned in `desktop-core/src/rclone.rs`,
 SHA-256) into the data folder on first use, through the same network policy. Paste the
 output of `rclone config show` into Settings → Cloud sync: it is kept in an owner-only file
 and never synced. Data-folder sync leaves out keys, passwords, models, logs and Postgres.
+
+{% endif -%}
+{% if tray_menu -%}
+### Tray, shortcuts and menus
+
+The tray (a template image in the macOS menu bar), global shortcuts and the app menu all
+name actions by id and run them through one registry (`desktop_core::actions`):
+`show_hide`, `show`, `hide`, `search` (focus the search box), `ingest_clipboard`,
+`ingest_drop_folder`, `pause_resume` (ingest and folder watching, for this session),
+`settings` and `quit`. The app's own actions emit `app-action` to the window and call the
+backend's `action` method (`src-tauri/src/service.rs`). Add one with
+`kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E`, or
+give an action a default global shortcut with `kitchen generate shortcut search CmdOrCtrl+Alt+F`.
+Changes in Settings apply at once. An unknown action, a bad accelerator, two actions on the
+same keys, or keys another app already holds are listed in Settings, not fatal. On macOS
+the standard App, Edit and Window menus stay (copy and paste keep working); Windows and
+Linux get a menu bar only when the app menu has items. Clipboard text is read with
+`pbpaste`, PowerShell's `Get-Clipboard`, or `wl-paste`/`xclip`/`xsel` on Linux.
 
 {% endif -%}
 {% if tailscale -%}

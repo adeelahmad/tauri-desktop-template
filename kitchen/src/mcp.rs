@@ -41,12 +41,13 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "project": project, "dry_run": dry}, "required": ["name", "value"]}},
         {"name": "upgrade", "description": "Move the app to a newer template commit, keeping its edits.",
          "inputSchema": {"type": "object", "properties": {"rev": {"type": "string"}, "project": project, "dry_run": dry}}},
-        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name) or page (name).",
+        {"name": "generate", "description": "Generate code: kind module (name, config), setting (name = module.key, type, default, label), command (name), page (name), menu (name = action id, label, shortcut) or shortcut (name = action id, shortcut). menu and shortcut need the tray_menu feature.",
          "inputSchema": {"type": "object", "properties": {
-             "kind": {"type": "string", "enum": ["module", "setting", "command", "page"]},
+             "kind": {"type": "string", "enum": ["module", "setting", "command", "page", "menu", "shortcut"]},
              "name": {"type": "string"}, "config": {"type": "boolean"},
              "type": {"type": "string", "enum": ["bool", "int", "float", "text", "list"]},
              "default": {"type": "string"}, "label": {"type": "string"},
+             "shortcut": {"type": "string", "description": "Keys like CmdOrCtrl+Shift+K"},
              "project": project, "dry_run": dry}, "required": ["kind", "name"]}},
         {"name": "doctor", "description": "Check the machine and the app; each problem comes with its fix.",
          "inputSchema": {"type": "object", "properties": {"project": project}}},
@@ -90,7 +91,13 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
         ]
         .concat(),
         "generate" => {
-            let mut v = vec!["generate".into(), need("kind")?, need("name")?];
+            let kind = need("kind")?;
+            let mut v = vec!["generate".into(), kind.clone(), need("name")?];
+            match (kind.as_str(), s("shortcut")) {
+                ("shortcut", k) => v.push(k.ok_or("generate shortcut: `shortcut` is required")?),
+                (_, Some(k)) => v.extend(["--shortcut".into(), k]),
+                _ => {}
+            }
             v.extend(s("type"));
             v.extend(s("default"));
             if let Some(l) = s("label") {
@@ -221,6 +228,19 @@ mod tests {
             argv("generate", &json!({"kind": "setting", "name": "inv.days", "type": "int", "default": "30", "label": "Days"})).unwrap(),
             ["generate", "setting", "inv.days", "int", "30", "--label", "Days"]
         );
+        assert_eq!(
+            argv("generate", &json!({"kind": "menu", "name": "export_csv", "label": "Export", "shortcut": "Ctrl+E"})).unwrap(),
+            ["generate", "menu", "export_csv", "--shortcut", "Ctrl+E", "--label", "Export"]
+        );
+        assert_eq!(
+            argv(
+                "generate",
+                &json!({"kind": "shortcut", "name": "search", "shortcut": "Ctrl+K"})
+            )
+            .unwrap(),
+            ["generate", "shortcut", "search", "Ctrl+K"]
+        );
+        assert!(argv("generate", &json!({"kind": "shortcut", "name": "search"})).is_err());
         assert_eq!(
             argv("new", &json!({"name": "x", "enable": ["a", "b"]})).unwrap(),
             ["new", "x", "--no-git", "--enable", "a,b"]

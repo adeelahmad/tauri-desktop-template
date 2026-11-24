@@ -29,6 +29,8 @@ kitchen generate module invoices --config                     # desktop-core mod
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_csv                           # Tauri command + backend method
 kitchen generate page Reports                                 # React page on the main screen
+kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E   # app action in the app menu (tray_menu)
+kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global shortcut for an action (tray_menu)
 
 kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers
 kitchen dev | kitchen build       # cargo tauri dev / build
@@ -62,7 +64,13 @@ the `// kitchen:…` marker comments in the app (`kitchen doctor` checks they ar
 
 To change what a generator writes, put your own copy of the file template in
 `.kitchen/templates/`. The files are `module.rs`, `module_config.rs`, `command.rs` and
-`page.jsx`; copy the originals from [`templates/`](templates). They use the variables
+`page.jsx`; copy the originals from [`templates/`](templates).
+
+`menu` and `shortcut` need the `tray_menu` feature. `menu` registers the action and its app
+menu item at `// kitchen:actions` in `src-tauri/src/tray.rs` (the `--shortcut` keys become
+its accelerator) and adds a backend arm at `// kitchen:action-methods` in
+`src-tauri/src/service.rs`; `shortcut` adds a default global shortcut at `// kitchen:actions`.
+Users can rebind or clear it in Settings → Tray & shortcuts. They use the variables
 `{{name}}`, `{{Name}}`, `{{camelName}}` and `{{Title}}`.
 
 ## MCP
