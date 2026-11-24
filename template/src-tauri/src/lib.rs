@@ -13,7 +13,8 @@
 //! - `mcp_setup`, `mcp_register_claude`, `mcp_pending` and `mcp_decide` (feature `mcp`).
 //! - `plugins_list` / `plugin_call` (feature `plugins`),
 //! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
-//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`).
+//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`),
+//! - `http_api_info`: the local REST API's URL and token (feature `http_api`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -45,7 +46,7 @@
 //!
 //! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
 //! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
-//! `update`, `single`, `python`, `claude`.
+//! `update`, `single`, `python`, `claude`, `http` (the local REST API).
 //!
 //! # Example
 //!
@@ -78,6 +79,8 @@ mod ipc;
 mod python;
 {% endif %}{% if mcp_server %}#[cfg(all(desktop, feature = "mcp"))]
 mod mcp;
+{% endif %}{% if http_api %}#[cfg(all(desktop, feature = "http_api"))]
+mod http;
 {% endif %}mod guard;
 mod paths;
 mod service;
@@ -138,11 +141,23 @@ fn settings_at(file: &Path) -> Settings {
 
 /// Written to a temporary file and renamed, so a crash never leaves half a settings file.
 fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
-    let file = settings_file(app)?;
+    write_settings(&settings_file(app)?, s)
+}
+
+fn write_settings(file: &Path, s: &Settings) -> Result<(), String> {
     std::fs::create_dir_all(file.parent().ok_or("no config folder")?).map_err(err)?;
     let tmp = file.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(s).map_err(err)?).map_err(err)?;
-    std::fs::rename(&tmp, &file).map_err(err)
+    std::fs::rename(&tmp, file).map_err(err)
+}
+
+/// Save `config` as the settings' `config` part (`PUT /v1/settings` on the HTTP API).
+#[cfg(all(desktop, feature = "http_api"))]
+fn save_config(config: Config) -> Result<(), String> {
+    let file = paths::app_dirs().0.join("settings.json");
+    let mut s = settings_at(&file);
+    s.config = config;
+    write_settings(&file, &s)
 }
 
 /// Which optional parts this build has. On iOS and Android the desktop-only parts
@@ -164,6 +179,7 @@ fn features() -> Value {
         "plugins": cfg!(feature = "plugins"),
         "rclone": cfg!(feature = "rclone"),
         "tailscale": cfg!(feature = "tailscale"),
+        "httpApi": cfg!(all(desktop, feature = "http_api")),
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(all(desktop, feature = "mcp")),
         "pdf": cfg!(feature = "pdf"),
@@ -282,7 +298,11 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         };
         let done = match serde_json::to_value(&opts).map_err(err).and_then(|o| service.call("setup", o, &mut progress)) {
             Ok(status) => match save_settings(&app, &settings) {
-                Ok(()) => Done { ok: true, status: Some(status), error: None },
+                Ok(()) => {
+                    #[cfg(all(desktop, feature = "http_api"))]
+                    http::apply(service.clone(), &settings.config.http_api);
+                    Done { ok: true, status: Some(status), error: None }
+                }
                 Err(e) => Done { ok: false, status: Some(status), error: Some(e) },
             },
             Err(e) => Done { ok: false, status: None, error: Some(e) },
@@ -335,6 +355,8 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
+    #[cfg(all(desktop, feature = "http_api"))]
+    http::apply(state.service.clone(), &applied.http_api);
     Ok(applied)
 }
 
@@ -849,6 +871,8 @@ pub fn run() {
             tailscale_status,
             #[cfg(feature = "tailscale")]
             tailscale_apply,
+            #[cfg(all(desktop, feature = "http_api"))]
+            http::http_api_info,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]
@@ -896,6 +920,8 @@ pub fn run() {
 /// files (the rest is journaled and resumes next time), telemetry is flushed, then the
 /// worker and the database stop. A worker kept by the background agent keeps running.
 fn on_exit(app: &tauri::AppHandle) {
+    #[cfg(all(desktop, feature = "http_api"))]
+    http::stop();
     if let Some(state) = app.try_state::<AppState>() {
         let _ = state.service.call("cancel_ingest", Value::Null, &mut |_| {});
     }

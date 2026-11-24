@@ -95,6 +95,7 @@ kitchen generate module invoices --config                            # desktop-c
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_invoices                             # Tauri command + service method
 kitchen generate page Invoices                                       # React page (ui-react)
+kitchen generate route export_invoices                               # POST /v1/export_invoices on the HTTP API (feature http_api)
 ```
 
 Each generator writes a documented, tested file and wires it in at the `// kitchen:...`
@@ -226,6 +227,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`plugin`](../desktop-core/src/plugin.rs) | `plugins` | Compiled-in plugins: ingest hooks, extra methods and settings |
 | [`rclone`](../desktop-core/src/rclone.rs) | `rclone` | Sync backups (or the data folder) to a cloud with rclone |
 | [`tailscale`](../desktop-core/src/tailscale.rs) | `tailscale` | Tailscale status and `tailscale serve` for one local port |
+| [`http_api`](../desktop-core/src/http_api/mod.rs) | `http_api` | Local REST API (Axum): bearer token, one error shape, validated bodies, pagination |
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 
@@ -284,7 +286,7 @@ answers it was generated with.
 |---|---|
 | `kitchen new <name> --enable email,ai --disable postgres` | Create an app from the template |
 | `kitchen enable <feature>` / `kitchen disable <feature>` | Turn a feature on or off later. Your edits are kept by a three-way merge; `--dry-run` shows what would change |
-| `kitchen generate module\|setting\|command\|page ...` | Generate documented, tested code, wired in at the `// kitchen:...` markers |
+| `kitchen generate module\|setting\|command\|page\|route ...` | Generate documented, tested code, wired in at the `// kitchen:...` markers |
 | `kitchen doctor` | Check the toolchain (Rust, cargo-generate, Tauri CLI, Node, WebKitGTK or Xcode) and the app's markers |
 | `kitchen mcp` | Offer the same commands to AI agents as an MCP server over stdio (`claude mcp add kitchen -- kitchen mcp`) |
 

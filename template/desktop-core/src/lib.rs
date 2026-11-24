@@ -18,7 +18,7 @@
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`]. Feature modules: `embed`,
 //! `pdf`, `pgstore`, `watch`, `llm` (feature `ai`), `local` (feature `llama`), `mcp`,
-//! `tts`, `stt`, `mail`, `telemetry`.
+//! `tts`, `stt`, `mail`, `telemetry`, `http_api` (a local REST API).
 //!
 //! # Example
 //!
@@ -82,6 +82,8 @@ pub mod plugin;
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
+{% endif %}{% if http_api %}#[cfg(feature = "http_api")]
+pub mod http_api;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

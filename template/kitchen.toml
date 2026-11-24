@@ -47,6 +47,7 @@ mobile = {% if mobile %}true{% else %}false{% endif %}
 plugins = {% if plugins %}true{% else %}false{% endif %}
 rclone = {% if rclone %}true{% else %}false{% endif %}
 tailscale = {% if tailscale %}true{% else %}false{% endif %}
+http_api = {% if http_api %}true{% else %}false{% endif %}
 tauri_plugins = {% if tauri_plugins %}true{% else %}false{% endif %}
 tauri_dialog = {% if tauri_dialog %}true{% else %}false{% endif %}
 tauri_fs = {% if tauri_fs %}true{% else %}false{% endif %}

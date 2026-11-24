@@ -29,6 +29,7 @@ Usage:
   kitchen generate setting <module>.<key> <bool|int|float|text|list> [default] [--label <text>]
   kitchen generate command <name>
   kitchen generate page <Name>
+  kitchen generate route <name>        POST /v1/<name> on the HTTP API (feature http_api)
   kitchen doctor [--json]              check this machine and this app
   kitchen dev | build                  cargo tauri dev / build
   kitchen mcp                          serve these commands to AI agents (MCP over stdio)
@@ -186,7 +187,10 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
         "upgrade" => project()?.upgrade(args.value("rev"), &opts),
         "generate" | "g" => {
             let root = project()?.root;
-            let kind = args.word(1, "what to generate (module, setting, command, page)")?;
+            let kind = args.word(
+                1,
+                "what to generate (module, setting, command, page, route)",
+            )?;
             let name = args.word(2, "a name")?;
             match kind {
                 "module" | "mod" => generate::module(&root, name, args.flag("config"), &opts),
@@ -200,8 +204,9 @@ pub fn run(args: &Args, cwd: &Path) -> Result<Report> {
                 ),
                 "command" | "cmd" => generate::command(&root, name, &opts),
                 "page" => generate::page(&root, name, &opts),
+                "route" => generate::route(&root, name, &opts),
                 other => Err(Error::Usage(format!(
-                    "cannot generate {other:?}: module, setting, command or page"
+                    "cannot generate {other:?}: module, setting, command, page or route"
                 ))),
             }
         }

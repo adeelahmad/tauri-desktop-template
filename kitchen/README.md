@@ -29,6 +29,7 @@ kitchen generate module invoices --config                     # desktop-core mod
 kitchen generate setting invoices.due_days int 30 --label "Days until due"
 kitchen generate command export_csv                           # Tauri command + backend method
 kitchen generate page Reports                                 # React page on the main screen
+kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (feature http_api)
 
 kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers
 kitchen dev | kitchen build       # cargo tauri dev / build

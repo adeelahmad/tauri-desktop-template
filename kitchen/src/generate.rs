@@ -7,6 +7,7 @@
 //! | `setting <module>.<key> <type> [default]` | a field in that module's config | the module and the Settings page |
 //! | `command <name>` | `src-tauri/src/<name>.rs` (a Tauri command + backend method) | `src-tauri/src/lib.rs`, `service.rs` |
 //! | `page <Name>` | `ui-react/src/<Name>.jsx` | `ui-react/src/App.jsx` |
+//! | `route <name>` | `POST /v1/<name>` on the HTTP API, calling backend method `<name>` | `desktop-core/src/http_api/routes.rs` (feature `http_api`) |
 //!
 //! Setting types: `bool`, `int`, `float`, `text`, `list` (of text).
 //!
@@ -371,6 +372,39 @@ pub fn command(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     Ok(r)
 }
 
+/// `kitchen generate route <name>`: `POST /v1/<name>` on the local HTTP API (feature
+/// `http_api`), passing the JSON body as the params of backend method `<name>` (one that
+/// `kitchen generate command <name>` makes, or any existing one).
+pub fn route(root: &Path, name: &str, opts: &Options) -> Result<Report> {
+    check_name(name)?;
+    let routes = root.join("desktop-core/src/http_api/routes.rs");
+    if !routes.is_file() {
+        return Err(Error::Usage(
+            "routes need the HTTP API: `kitchen enable http_api`".into(),
+        ));
+    }
+    let path = format!("\"/v1/{name}\"");
+    let src = io(
+        format!("read {}", routes.display()),
+        std::fs::read_to_string(&routes),
+    )?;
+    if src.contains(&path) {
+        return Err(Error::Usage(format!("route /v1/{name} already exists")));
+    }
+    let mut e = Edits::default();
+    e.insert(
+        routes,
+        "// kitchen:routes",
+        &format!("    let r = r.route({path}, method(\"{name}\"));\n"),
+    )?;
+    let mut r = e.finish(root, format!("Generated route POST /v1/{name}"), opts)?;
+    r.next = vec![
+        format!("No backend method {name} yet? kitchen generate command {name}"),
+        format!("curl -H \"Authorization: Bearer $TOKEN\" -d '{{}}' -H 'content-type: application/json' $API/v1/{name}"),
+    ];
+    Ok(r)
+}
+
 /// `kitchen generate page <Name>`: a React component shown on the main screen.
 pub fn page(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     let pascal =
@@ -436,6 +470,10 @@ mod tests {
             "match m {\n            // kitchen:methods (...)\n            other => Err(()),\n}\n",
         );
         w("ui-react/src/App.jsx", "import x from 'x';\n// kitchen:imports (...)\n<main>\n          {/* kitchen:pages */}\n</main>\n");
+        w(
+            "desktop-core/src/http_api/routes.rs",
+            "    let r = Router::new();\n    // kitchen:routes (...)\n    r\n",
+        );
         w("ui-react/src/Settings.jsx", "const FIELDS = [\n  // kitchen:settings (...)\n];\nconst TITLES = {\n  // kitchen:titles\n};\nconst s = [\n    // kitchen:sections\n];\n");
         t
     }
@@ -494,6 +532,19 @@ mod tests {
             .contains("import Reports from './Reports.jsx';\n// kitchen:imports"));
         assert!(read(&t, "ui-react/src/App.jsx")
             .contains("<Reports />\n          {/* kitchen:pages */}"));
+    }
+
+    #[test]
+    fn route_needs_the_http_api_and_is_added_once() {
+        let t = app();
+        let o = Options::default();
+        route(t.path(), "export_csv", &o).unwrap();
+        assert!(read(&t, "desktop-core/src/http_api/routes.rs").contains(
+            "    let r = r.route(\"/v1/export_csv\", method(\"export_csv\"));\n    // kitchen:routes"
+        ));
+        assert!(route(t.path(), "export_csv", &o).is_err(), "exists");
+        std::fs::remove_dir_all(t.path().join("desktop-core/src/http_api")).unwrap();
+        assert!(route(t.path(), "other", &o).is_err(), "no HTTP API");
     }
 
     #[test]
