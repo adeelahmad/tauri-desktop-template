@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 # What you chose when generating; `cargo build --no-default-features --features ...` picks others.
-default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}]
+default = [{% if embeddings %}"embed", {% endif %}{% if postgres %}"postgres", {% if bm25 %}"bm25", {% endif %}{% endif %}{% if pdf %}"pdf", {% endif %}{% if watch_folders %}"watch", {% endif %}{% if ai %}"ai", {% if local_llm %}"llama", {% endif %}{% endif %}{% if mcp_server %}"mcp", {% endif %}{% if tts %}"tts", {% endif %}{% if stt %}"stt", {% endif %}{% if email %}"mail", {% endif %}{% if plugins %}"plugins", {% endif %}{% if rclone %}"rclone", {% endif %}{% if tailscale %}"tailscale", {% endif %}{% if telemetry %}"telemetry", {% endif %}{% if single_instance %}"single-instance", {% endif %}{% if wizard %}"wizard", {% endif %}{% if updater %}"updater", {% endif %}{% if ipc_worker %}"ipc-worker", {% if background_agent %}"background-agent", {% endif %}{% endif %}{% if python_example %}"python-example", {% endif %}{% if claude_mcp %}"claude-mcp", {% endif %}]
 {% if embeddings -%}
 embed = ["desktop-core/embed"]
 {% endif -%}
@@ -48,6 +48,15 @@ mail = ["desktop-core/mail"]
 {% endif -%}
 {% if telemetry -%}
 telemetry = ["desktop-core/telemetry"]
+{% endif -%}
+{% if plugins -%}
+plugins = ["desktop-core/plugins"]
+{% endif -%}
+{% if rclone -%}
+rclone = ["desktop-core/rclone"]
+{% endif -%}
+{% if tailscale -%}
+tailscale = ["desktop-core/tailscale"]
 {% endif -%}
 {% if single_instance -%}
 # A second launch focuses the running window and exits (std only: a file lock and a loopback knock).
@@ -92,4 +101,51 @@ interprocess = { version = "2", optional = true }
 {% endif -%}
 {% if updater -%}
 tauri-plugin-updater = { version = "2", optional = true }
+{% endif -%}
+{% if tauri_plugins -%}
+# Official Tauri plugins chosen when the app was generated (each is wired in lib.rs and capabilities/).
+{% if tauri_dialog -%}
+tauri-plugin-dialog = "2"
+{% endif -%}
+{% if tauri_fs -%}
+tauri-plugin-fs = "2"
+{% endif -%}
+{% if tauri_clipboard -%}
+tauri-plugin-clipboard-manager = "2"
+{% endif -%}
+{% if tauri_notification -%}
+tauri-plugin-notification = "2"
+{% endif -%}
+{% if tauri_opener -%}
+tauri-plugin-opener = "2"
+{% endif -%}
+{% if tauri_store -%}
+tauri-plugin-store = "2"
+{% endif -%}
+{% if tauri_deep_link -%}
+tauri-plugin-deep-link = "2"
+{% endif -%}
+{% if tauri_os -%}
+tauri-plugin-os = "2"
+{% endif -%}
+{% if tauri_log -%}
+tauri-plugin-log = "2"
+{% endif -%}
+{% if tauri_global_shortcut or tauri_autostart or tauri_window_state or tauri_process -%}
+
+# Desktop-only plugins.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+{% if tauri_global_shortcut -%}
+tauri-plugin-global-shortcut = "2"
+{% endif -%}
+{% if tauri_autostart -%}
+tauri-plugin-autostart = "2"
+{% endif -%}
+{% if tauri_window_state -%}
+tauri-plugin-window-state = "2"
+{% endif -%}
+{% if tauri_process -%}
+tauri-plugin-process = "2"
+{% endif -%}
+{% endif -%}
 {% endif -%}

@@ -35,6 +35,15 @@ pub struct Config {
     pub mail: crate::mail::MailConfig,
 {% endif %}{% if telemetry %}    #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
+{% endif %}{% if plugins %}    /// Built-in plugins: on or off, and each one's settings.
+    #[cfg(feature = "plugins")]
+    pub plugins: crate::plugin::PluginsConfig,
+{% endif %}{% if rclone %}    /// Cloud sync of the backups (or data) folder with rclone.
+    #[cfg(feature = "rclone")]
+    pub rclone: crate::rclone::RcloneConfig,
+{% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
+    #[cfg(feature = "tailscale")]
+    pub tailscale: crate::tailscale::TailscaleConfig,
 {% endif %}}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +236,18 @@ impl Config {
 {% endif %}{% if telemetry %}        #[cfg(feature = "telemetry")]
         {
             self.telemetry = self.telemetry.validated();
+        }
+{% endif %}{% if plugins %}        #[cfg(feature = "plugins")]
+        {
+            self.plugins = self.plugins.validated();
+        }
+{% endif %}{% if rclone %}        #[cfg(feature = "rclone")]
+        {
+            self.rclone = self.rclone.validated();
+        }
+{% endif %}{% if tailscale %}        #[cfg(feature = "tailscale")]
+        {
+            self.tailscale = self.tailscale.validated();
         }
 {% endif %}        self
     }

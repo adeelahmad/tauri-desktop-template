@@ -9,7 +9,10 @@
 //! - `check_update` / `install_update` (feature `updater`),
 //! - `agent_status` / `set_agent` (feature `background-agent`),
 //! - `python_call` (feature `python-example`),
-//! - `register_claude` (feature `claude-mcp`).
+//! - `register_claude` (feature `claude-mcp`),
+//! - `plugins_list` / `plugin_call` (feature `plugins`),
+//! - `rclone_status`, `rclone_config`, `rclone_install`, `rclone_sync` (feature `rclone`),
+//! - `tailscale_status` / `tailscale_apply` (feature `tailscale`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -109,6 +112,9 @@ fn features() -> Value {
         "tts": cfg!(feature = "tts"),
         "stt": cfg!(feature = "stt"),
         "mail": cfg!(feature = "mail"),
+        "plugins": cfg!(feature = "plugins"),
+        "rclone": cfg!(feature = "rclone"),
+        "tailscale": cfg!(feature = "tailscale"),
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(feature = "mcp"),
         "pdf": cfg!(feature = "pdf"),
@@ -344,6 +350,66 @@ fn mail_password(state: tauri::State<AppState>, password: Option<String>) -> Res
     call(&state, "mail_password", json!({ "password": password }))
 }
 
+/// The built-in plugins: name, version, methods, settings schema and whether each runs.
+#[cfg(feature = "plugins")]
+#[tauri::command(async)]
+fn plugins_list(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "plugins", Value::Null)
+}
+
+/// Call a plugin's method (`plugin.<name>.<method>` in the backend).
+#[cfg(feature = "plugins")]
+#[tauri::command(async)]
+fn plugin_call(state: tauri::State<AppState>, name: String, method: String, params: Option<Value>) -> Result<Value, String> {
+    call(&state, &format!("plugin.{name}.{method}"), params.unwrap_or(Value::Null))
+}
+
+/// rclone: installed or not, the remotes in its config, and the last sync.
+#[cfg(feature = "rclone")]
+#[tauri::command(async)]
+fn rclone_status(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "rclone_status", Value::Null)
+}
+
+/// Replace the rclone config (kept in an owner-only file; empty removes it).
+#[cfg(feature = "rclone")]
+#[tauri::command(async)]
+fn rclone_config(state: tauri::State<AppState>, text: String) -> Result<Value, String> {
+    call(&state, "rclone_config", json!({ "text": text }))
+}
+
+/// Download the pinned rclone now (`rclone-progress` events).
+#[cfg(feature = "rclone")]
+#[tauri::command(async)]
+fn rclone_install(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+    state.service.call("rclone_install", Value::Null, &mut |p| {
+        let _ = app.emit("rclone-progress", p.to_string());
+    })
+}
+
+/// Sync now; rclone's output arrives as `rclone-progress` events.
+#[cfg(feature = "rclone")]
+#[tauri::command(async)]
+fn rclone_sync(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<Value, String> {
+    state.service.call("rclone_sync", Value::Null, &mut |p| {
+        let _ = app.emit("rclone-progress", p.to_string());
+    })
+}
+
+/// Tailscale: installed or not (with the download link), this machine and what is shared.
+#[cfg(feature = "tailscale")]
+#[tauri::command(async)]
+fn tailscale_status(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "tailscale_status", Value::Null)
+}
+
+/// Start or stop sharing the configured port with the tailnet, as the saved settings say.
+#[cfg(feature = "tailscale")]
+#[tauri::command(async)]
+fn tailscale_apply(state: tauri::State<AppState>) -> Result<Value, String> {
+    call(&state, "tailscale_apply", Value::Null)
+}
+
 /// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
 #[cfg(feature = "tts")]
 #[tauri::command(async)]
@@ -568,9 +634,36 @@ pub fn run() {
     let builder = builder.manage(python::PythonWorker::default());
     #[cfg(feature = "updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    let builder = builder.setup(move |app| {
+{% if tauri_plugins %}    // Official Tauri plugins chosen when the app was generated (see the README's table).
+{% if tauri_log %}    // Frontend logs go to the app's own logger (desktop_core::logging), so no second logger.
+    let builder = builder.plugin(tauri_plugin_log::Builder::new().skip_logger().build());
+{% endif %}{% if tauri_dialog %}    let builder = builder.plugin(tauri_plugin_dialog::init());
+{% endif %}{% if tauri_fs %}    let builder = builder.plugin(tauri_plugin_fs::init());
+{% endif %}{% if tauri_clipboard %}    let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
+{% endif %}{% if tauri_notification %}    let builder = builder.plugin(tauri_plugin_notification::init());
+{% endif %}{% if tauri_opener %}    let builder = builder.plugin(tauri_plugin_opener::init());
+{% endif %}{% if tauri_store %}    let builder = builder.plugin(tauri_plugin_store::Builder::new().build());
+{% endif %}{% if tauri_deep_link %}    let builder = builder.plugin(tauri_plugin_deep_link::init());
+{% endif %}{% if tauri_os %}    let builder = builder.plugin(tauri_plugin_os::init());
+{% endif %}{% if tauri_global_shortcut %}    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+{% endif %}{% if tauri_autostart %}    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
+{% endif %}{% if tauri_window_state %}    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+{% endif %}{% if tauri_process %}    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_process::init());
+{% endif %}{% endif %}    let builder = builder.setup(move |app| {
         let _ = &app;
-        // Panics in the window process are written to <data>/crashes too (sent only if allowed).
+{% if tauri_plugins %}{% if tauri_deep_link %}        // Installers register the URL scheme; this covers development builds on Windows and Linux.
+        #[cfg(any(windows, target_os = "linux"))]
+        {
+            use tauri_plugin_deep_link::DeepLinkExt;
+            if let Err(e) = app.deep_link().register_all() {
+                log::warn!("could not register the deep-link scheme: {e}");
+            }
+        }
+{% endif %}{% endif %}        // Panics in the window process are written to <data>/crashes too (sent only if allowed).
         #[cfg(feature = "telemetry")]
         {
             let dir = paths::app_dirs().1;
@@ -624,6 +717,22 @@ pub fn run() {
             test_mail,
             #[cfg(feature = "mail")]
             mail_password,
+            #[cfg(feature = "plugins")]
+            plugins_list,
+            #[cfg(feature = "plugins")]
+            plugin_call,
+            #[cfg(feature = "rclone")]
+            rclone_status,
+            #[cfg(feature = "rclone")]
+            rclone_config,
+            #[cfg(feature = "rclone")]
+            rclone_install,
+            #[cfg(feature = "rclone")]
+            rclone_sync,
+            #[cfg(feature = "tailscale")]
+            tailscale_status,
+            #[cfg(feature = "tailscale")]
+            tailscale_apply,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]

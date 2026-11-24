@@ -59,6 +59,18 @@ Everything runs on the user's machine.
 {% if email -%}
 | Email over SMTP in Rust (SSL/TLS on 465, STARTTLS on 587, `AUTH PLAIN`/`LOGIN`, HTML, attachments) on the rustls already in the tree; the password stays in an owner-only file. Turn on under Settings → Email | `desktop-core/src/mail.rs` | `mail` |
 {% endif -%}
+{% if plugins -%}
+| Plugin API: compiled-in extensions (`Plugin` trait + registry) with ingest hooks, extra search sources, their own methods (`plugin.<name>.<method>`) and a settings schema; example plugin `glossary`. Turn on under Settings → Plugins | `desktop-core/src/plugin.rs` | `plugins` |
+{% endif -%}
+{% if rclone -%}
+| Cloud sync of the backups (or data) folder to any cloud with rclone: pinned, checksummed binary downloaded on first use; remote config in an owner-only file; schedule, direction, bandwidth limit. Settings → Cloud sync | `desktop-core/src/rclone.rs` | `rclone` |
+{% endif -%}
+{% if tailscale -%}
+| Tailscale: status, and `tailscale serve` to reach a local MCP/HTTP port from your tailnet (never Funnel, never installs anything). Settings → Tailnet | `desktop-core/src/tailscale.rs` | `tailscale` |
+{% endif -%}
+{% if tauri_plugins -%}
+| Official Tauri plugins (see the table below) | `src-tauri/src/lib.rs`, `src-tauri/capabilities/` | |
+{% endif -%}
 {% if telemetry -%}
 | Opt-in telemetry with no SDKs: crash reports to Sentry (always kept locally in `crashes/`), anonymous usage events to PostHog or Aptabase, OpenTelemetry traces over OTLP/HTTP. Off until the user switches it on under Settings → Privacy; keys come from build-time secrets | `desktop-core/src/telemetry.rs` | `telemetry` |
 {% endif -%}
@@ -105,7 +117,56 @@ Everything runs on the user's machine.
 {% endif %}
 The default features are the parts you picked when generating. Turn one off for a build
 with `--no-default-features --features ...`.
+{% if tauri_plugins %}
+### Tauri plugins
 
+Chosen when the app was generated. Each is a crate in `src-tauri/Cargo.toml`, a
+`.plugin(...)` call in `src-tauri/src/lib.rs`, permissions in `src-tauri/capabilities/`
+(`desktop.json` for desktop-only ones){% if frontend == "react" %} and a package in `ui-react/package.json`{% else %}; the plain frontend
+reaches them as `window.__TAURI__.<plugin>`{% endif %}. Widen a permission set only as far as you need.
+
+| Plugin | Rust crate | JS package | Permissions |
+| --- | --- | --- | --- |
+{% if tauri_dialog -%}
+| File and message dialogs | `tauri-plugin-dialog` | `@tauri-apps/plugin-dialog` | `dialog:default` |
+{% endif -%}
+{% if tauri_fs -%}
+| File system (scoped) | `tauri-plugin-fs` | `@tauri-apps/plugin-fs` | `fs:default` (app folders; add scopes for more) |
+{% endif -%}
+{% if tauri_clipboard -%}
+| Clipboard | `tauri-plugin-clipboard-manager` | `@tauri-apps/plugin-clipboard-manager` | read and write text |
+{% endif -%}
+{% if tauri_notification -%}
+| Notifications | `tauri-plugin-notification` | `@tauri-apps/plugin-notification` | `notification:default` |
+{% endif -%}
+{% if tauri_opener -%}
+| Open URLs and files, reveal in folder | `tauri-plugin-opener` | `@tauri-apps/plugin-opener` | `opener:default` (http(s), mailto, tel) |
+{% endif -%}
+{% if tauri_store -%}
+| Key-value store | `tauri-plugin-store` | `@tauri-apps/plugin-store` | `store:default` |
+{% endif -%}
+{% if tauri_global_shortcut -%}
+| Global shortcuts (desktop) | `tauri-plugin-global-shortcut` | `@tauri-apps/plugin-global-shortcut` | register, unregister, is-registered |
+{% endif -%}
+{% if tauri_autostart -%}
+| Start at login (desktop) | `tauri-plugin-autostart` | `@tauri-apps/plugin-autostart` | `autostart:default` |
+{% endif -%}
+{% if tauri_deep_link -%}
+| Deep links (`{{project-name}}://`, set in `tauri.conf.json`) | `tauri-plugin-deep-link` | `@tauri-apps/plugin-deep-link` | `deep-link:default` |
+{% endif -%}
+{% if tauri_window_state -%}
+| Remember window size and position (desktop) | `tauri-plugin-window-state` | `@tauri-apps/plugin-window-state` | `window-state:default` |
+{% endif -%}
+{% if tauri_os -%}
+| OS information | `tauri-plugin-os` | `@tauri-apps/plugin-os` | `os:default` |
+{% endif -%}
+{% if tauri_process -%}
+| Exit and restart (desktop) | `tauri-plugin-process` | `@tauri-apps/plugin-process` | `process:default` |
+{% endif -%}
+{% if tauri_log -%}
+| Frontend logs into the app's log files | `tauri-plugin-log` | `@tauri-apps/plugin-log` | `log:default` |
+{% endif -%}
+{% endif %}
 ## Develop
 
 ```sh
@@ -194,6 +255,17 @@ is off by default; values are clamped to safe ranges.
 | `mail.enabled`, `mail.host`, `mail.port`, `mail.security` | off, empty, 587, `starttls` | SMTP server; `tls` for port 465; `none` only to this computer |
 | `mail.username`, `mail.from`, `mail.maxMb`, `mail.timeoutSecs` | empty, empty, 25, 30 | login (empty = none), sender, largest message, timeout |
 {% endif -%}
+{% if plugins -%}
+| `plugins.enabled`, `plugins.disabled`, `plugins.settings` | off, none, `{}` | run plugins; leave some out; each plugin's settings by name |
+{% endif -%}
+{% if rclone -%}
+| `rclone.enabled`, `rclone.remote`, `rclone.path` | off, empty, empty | remote name in the rclone config, folder on it |
+| `rclone.folder`, `rclone.direction` | `backups`, `push` | `data` (up only); `pull`, `mirror` (deletes extras there), `bisync` |
+| `rclone.intervalMinutes`, `rclone.bandwidth` | 0, empty | 0 = only when asked (else at least 5); `--bwlimit`, e.g. `2M` or `10M:1M` |
+{% endif -%}
+{% if tailscale -%}
+| `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
+{% endif -%}
 | `net.offline` | false | block every request that leaves the computer (a local model server still works) |
 | `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |
 | `net.proxy`, `net.noProxy` | system | empty = `HTTPS_PROXY`/`ALL_PROXY`, `direct`, or an `http://`/`socks5://` URL |
@@ -213,6 +285,29 @@ Email (`desktop_core::mail::send`) speaks SMTP itself: it refuses a password ove
 unencrypted link, checks certificates against the bundled Mozilla roots (or `net.caFiles` and
 `net.pins`), and rejects line breaks in addresses and headers. The `send_mail` command takes
 `{to, cc, bcc, subject, text, html?, attachments: [path]}`; Settings → Email has a test button.
+{% endif -%}
+{% if plugins -%}
+Plugins (`desktop_core::plugin`) are Rust types compiled into the app, never loaded from
+disk. Implement `Plugin` (only `name` and `version` are required), add it to `builtin()`,
+and it can rewrite or drop chunks before they are stored, add results to every search
+(interleaved with the store's), answer `plugin.<name>.<method>` (the `plugin_call`
+command), and describe its settings with a JSON Schema that Settings → Plugins turns into
+a form. The `glossary` example shows each hook.
+
+{% endif -%}
+{% if rclone -%}
+Cloud sync downloads rclone (the version pinned in `desktop-core/src/rclone.rs`, checked by
+SHA-256) into the data folder on first use, through the same network policy. Paste the
+output of `rclone config show` into Settings → Cloud sync: it is kept in an owner-only file
+and never synced. Data-folder sync leaves out keys, passwords, models, logs and Postgres.
+
+{% endif -%}
+{% if tailscale -%}
+Tailscale is never installed by the app: without the `tailscale` CLI, Settings → Tailnet
+links to <https://tailscale.com/download>. With it, **Apply sharing** runs
+`tailscale serve --bg --https=<port> http://127.0.0.1:<local port>`, reachable only inside
+your tailnet; turning it off removes only that mapping.
+
 {% endif -%}
 Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through
 `desktop-core/src/net.rs` and obeys `net`. Child processes (the Python worker, uv) get the

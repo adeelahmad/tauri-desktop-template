@@ -62,7 +62,10 @@ pub struct Engine {
     journal: crate::jobs::Journal,
     /// Set by `cancel_ingest`: workers stop after their current file.
     cancel: AtomicBool,
-}
+{% if plugins %}    /// The plugins built in (they run only when `plugins.enabled`).
+    #[cfg(feature = "plugins")]
+    plugins: crate::plugin::Registry,
+{% endif %}}
 
 /// What `ingest_paths` did.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -104,7 +107,9 @@ impl Engine {
             config: RwLock::new(Config::default()),
             journal: crate::jobs::Journal::new(data_dir),
             cancel: AtomicBool::new(false),
-        };
+{% if plugins %}            #[cfg(feature = "plugins")]
+            plugins: crate::plugin::builtin(),
+{% endif %}        };
         let want = engine.embedder.as_ref().map(|e| e.name());
         if engine.store.embedder()? != want {
             let chunks = engine.store.all()?;
@@ -120,6 +125,33 @@ impl Engine {
 
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
+    }
+
+{% if plugins %}    /// Use these plugins instead of the built-in ones (tests, or an app that builds its list).
+    #[cfg(feature = "plugins")]
+    pub fn with_plugins(mut self, plugins: crate::plugin::Registry) -> Self {
+        self.plugins = plugins;
+        self
+    }
+
+    /// The plugins in this build.
+    #[cfg(feature = "plugins")]
+    pub fn plugins(&self) -> &crate::plugin::Registry {
+        &self.plugins
+    }
+
+    /// Answer `plugin.<name>.<method>` with the current plugin settings.
+    #[cfg(feature = "plugins")]
+    pub fn plugin_call(&self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value> {
+        self.plugins.call(&self.config().plugins, method, params).map_err(Error::Source)
+    }
+
+{% endif %}    /// Run the plugins' ingest hooks (feature `plugins`; nothing without it).
+    fn plugin_hooks(&self, source: &str, chunks: &mut Vec<Chunk>) -> Result<()> {
+{% if plugins %}        #[cfg(feature = "plugins")]
+        self.plugins.on_ingest(&self.config().plugins, source, chunks).map_err(Error::Source)?;
+{% endif %}        let _ = (source, chunks);
+        Ok(())
     }
 
     pub fn status(&self) -> Result<Status> {
@@ -179,6 +211,7 @@ impl Engine {
         let chunking = Chunking::from(&self.config().ingest);
         let mut chunks = chunks_from_text_with(source, text, chunking);
         self.stamp(&mut chunks, None, "direct");
+        self.plugin_hooks(source, &mut chunks)?;
         self.ingest_chunks(source, &chunks)
     }
 
@@ -249,6 +282,7 @@ impl Engine {
             {
                 let mut chunks = crate::pdf::chunks_from_pdf_with(path, chunking)?;
                 self.stamp(&mut chunks, Some((&bytes, &meta)), "pdf-text");
+                self.plugin_hooks(&source, &mut chunks)?;
                 return Ok((source, chunks));
             }
             #[cfg(not(feature = "pdf"))]
@@ -257,6 +291,7 @@ impl Engine {
         let text = String::from_utf8(bytes).map_err(|_| Error::Source(format!("{}: not UTF-8 text", path.display())))?;
         let mut chunks = chunks_from_text_with(&source, &text, chunking);
         self.stamp(&mut chunks, Some((text.as_bytes(), &meta)), "text");
+        self.plugin_hooks(&source, &mut chunks)?;
         Ok((source, chunks))
     }
 
@@ -424,7 +459,10 @@ impl Engine {
             Some(e) if cfg.mode != crate::config::SearchMode::Keyword => Some(e.embed_query(query)?),
             _ => None,
         };
-        self.store.search(query, qv.as_deref(), &cfg)
+        let hits = self.store.search(query, qv.as_deref(), &cfg)?;
+{% if plugins %}        #[cfg(feature = "plugins")]
+        let hits = self.plugins.search(&self.config().plugins, query, cfg.top_k, hits);
+{% endif %}        Ok(hits)
     }
 
 {% if ai %}    /// Answer `question` from the indexed documents with the configured LLM (RAG).

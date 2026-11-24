@@ -47,6 +47,18 @@ stt = ["dep:ort"]
 # SMTP email (TLS, STARTTLS, attachments) on the rustls already in the tree.
 mail = ["dep:rustls", "dep:webpki-roots"]
 {% endif -%}
+{% if plugins -%}
+# Static, compiled-in plugins (desktop_core::plugin): ingest hooks, search sources, methods.
+plugins = []
+{% endif -%}
+{% if rclone -%}
+# Cloud sync with a pinned, checksummed rclone downloaded on first use (zip is already in the tree).
+rclone = ["dep:zip"]
+{% endif -%}
+{% if tailscale -%}
+# Tailscale status and `tailscale serve` through the user's own tailscale CLI (no new crates).
+tailscale = []
+{% endif -%}
 {% if telemetry -%}
 # Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
 telemetry = []
@@ -78,10 +90,12 @@ webpki-roots = { version = "1", optional = true }
 {% if embeddings -%}
 fastembed = { version = "7.8", optional = true, default-features = false, features = ["onnx", "ort-download-binaries-rustls-tls", "hf-hub-rustls-tls", "onig"] }
 {% endif -%}
+{% if postgres or rclone -%}
+zip = { version = "2", optional = true, default-features = false, features = ["deflate"] }
+{% endif -%}
 {% if postgres -%}
 postgresql_embedded = { version = "0.22", optional = true, features = ["blocking"] }
 postgres = { version = "0.19", optional = true }
-zip = { version = "2", optional = true, default-features = false, features = ["deflate"] }
 getrandom = { version = "0.3", optional = true }
 {% endif -%}
 {% if embeddings or tts or stt -%}
