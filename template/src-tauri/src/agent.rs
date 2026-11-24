@@ -135,6 +135,15 @@ mod os {
     pub const KIND: &str = "Windows Run entry";
     const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
+    /// `reg.exe` with no console window: the windowed app has none to share, so each
+    /// call from Settings would flash one.
+    fn reg() -> Command {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("reg");
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
+    }
+
     fn value() -> String {
         format!("{ID}.worker")
     }
@@ -147,7 +156,7 @@ mod os {
     /// Add the Run entry and start the worker now.
     pub fn install() -> Result<(), String> {
         let exe = exe()?;
-        run(Command::new("reg").args(["add", KEY, "/v", &value(), "/t", "REG_SZ", "/d", &format!("\"{exe}\" --worker"), "/f"]))?;
+        run(reg().args(["add", KEY, "/v", &value(), "/t", "REG_SZ", "/d", &format!("\"{exe}\" --worker"), "/f"]))?;
         // Start it now too, not only at the next login.
         Command::new(exe).arg("--worker").spawn().map(|_| ()).map_err(|e| e.to_string())
     }
@@ -155,14 +164,14 @@ mod os {
     /// Remove the Run entry.
     pub fn uninstall() -> Result<(), String> {
         if installed() {
-            run(Command::new("reg").args(["delete", KEY, "/v", &value(), "/f"]))?;
+            run(reg().args(["delete", KEY, "/v", &value(), "/f"]))?;
         }
         Ok(())
     }
 
     /// Whether the Run entry exists.
     pub fn installed() -> bool {
-        Command::new("reg").args(["query", KEY, "/v", &value()]).output().is_ok_and(|o| o.status.success())
+        reg().args(["query", KEY, "/v", &value()]).output().is_ok_and(|o| o.status.success())
     }
 }
 
