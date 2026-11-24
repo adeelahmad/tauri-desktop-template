@@ -82,6 +82,8 @@ pub mod plugin;
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
+{% endif %}{% if tray_menu %}#[cfg(feature = "tray-menu")]
+pub mod actions;
 {% endif %}// kitchen:modules (`kitchen generate module` adds modules above this line)
 
 pub use chunk::{chunks_from_pages, chunks_from_text, Chunk, Chunking};

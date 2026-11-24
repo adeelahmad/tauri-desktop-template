@@ -185,6 +185,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
         )];
     };
     let mut out = Vec::new();
+    let mut tray_menu = false;
     match Manifest::load(&root) {
         Ok(m) => {
             let rev = if m.template.rev.is_empty() {
@@ -195,6 +196,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
                     &m.template.rev[..m.template.rev.len().min(12)]
                 )
             };
+            tray_menu = m.is_on("tray_menu");
             out.push(check(
                 "Kitchen app",
                 Status::Ok,
@@ -223,13 +225,19 @@ fn project_checks(dir: &Path) -> Vec<Check> {
             "fix kitchen.toml, or restore it from git",
         )),
     }
-    let markers = [
+    let mut markers = vec![
         ("desktop-core/src/lib.rs", "kitchen:modules"),
         ("desktop-core/src/config.rs", "kitchen:config"),
         ("src-tauri/src/lib.rs", "kitchen:mods"),
         ("src-tauri/src/lib.rs", "kitchen:handlers"),
         ("src-tauri/src/service.rs", "kitchen:methods"),
     ];
+    if tray_menu {
+        markers.extend([
+            ("src-tauri/src/tray.rs", "kitchen:actions"),
+            ("src-tauri/src/service.rs", "kitchen:action-methods"),
+        ]);
+    }
     let missing: Vec<String> = markers
         .iter()
         .filter(|(f, m)| {
