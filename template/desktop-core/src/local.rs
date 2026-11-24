@@ -4,6 +4,17 @@
 //!
 //! The model stays loaded between questions (`LocalConfig::keep_loaded`) and is unloaded
 //! when another file is picked.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use desktop_core::llm::{LocalConfig, Message, Role};
+//!
+//! let cfg = LocalConfig { model_path: Some("models/Qwen3-0.6B-Q4_K_M.gguf".into()), ..LocalConfig::default() };
+//! let reply = desktop_core::local::chat(&cfg, &[Message::new(Role::User, "Hello")], 64, 0.2, &mut |t| print!("{t}"))?;
+//! println!("\n{} tokens out", reply.output_tokens);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::llm::{LocalConfig, Message, Reply, Role};
 use crate::{Error, Result};

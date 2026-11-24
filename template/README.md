@@ -184,6 +184,8 @@ make help        # everything else (db-up, docker-test, build, …)
 `compose.yaml` has an optional Postgres + pgvector (`make db-up`, then
 `APP_PG_URL=postgres://app:app@localhost:5433/app`) and a Linux build container.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for commits, PRs and releases.
+[docs/GUIDE.md](docs/GUIDE.md) explains the architecture, how to add a feature, how settings
+work, and where each module is documented (`cargo doc --workspace --no-deps --open`).
 
 Linux needs `libwebkit2gtk-4.1-dev librsvg2-dev`.
 {% if frontend == "react" -%}

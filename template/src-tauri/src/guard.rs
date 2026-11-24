@@ -6,6 +6,18 @@
 //!   enabled), and `APP_DEVTOOLS=1` opens them at start in a debug build.
 //!
 //! The content security policy is in `tauri.conf.json` (`app.security.csp`).
+//!
+//! # Example
+//!
+//! The app's own pages are `tauri://localhost` (macOS, Linux) and `http(s)://tauri.localhost`
+//! (Windows); anything else is refused:
+//!
+//! ```
+//! let page = tauri::Url::parse("https://tauri.localhost/#/settings").unwrap();
+//! let other = tauri::Url::parse("https://tauri.localhost.evil.com/").unwrap();
+//! assert_eq!(page.host_str(), Some("tauri.localhost"));
+//! assert_ne!(other.host_str(), Some("tauri.localhost"));
+//! ```
 
 use tauri::{Manager, Runtime};
 
@@ -22,6 +34,7 @@ pub fn allowed(url: &tauri::Url) -> bool {
     }
 }
 
+/// The Tauri plugin that enforces this: register it with `Builder::plugin`.
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("guard")
         .on_navigation(|webview, url| {

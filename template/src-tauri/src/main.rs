@@ -1,3 +1,14 @@
+//! `<app>` and its command-line entry points.
+//!
+//! The executable: the window by default, or one of the other entry points.
+//!
+//! ```text
+//! my-app                          open the window
+//! my-app --worker                 run the backend process (feature ipc-worker)
+//! my-app --mcp                    serve MCP over stdio (feature mcp)
+//! my-app --self-test [out.json]   index and search a sample, print a JSON report
+//! ```
+
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

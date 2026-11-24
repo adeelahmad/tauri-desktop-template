@@ -4,11 +4,23 @@
 //! publishes `latest.json`; the app checks the endpoint in `tauri.conf.json`
 //! (`plugins.updater`), verifies the signature with the public key there, installs and
 //! restarts. Without a public key the check reports that updates are not set up.
+//!
+//! Commands: `check_update` and `install_update` (feature `updater`).
+//!
+//! # Example
+//!
+//! `check_update` returns:
+//!
+//! ```
+//! let info = serde_json::json!({"configured": true, "available": true, "current": "1.0.0", "version": "1.1.0", "notes": "Faster search."});
+//! assert_eq!(info["available"], true);
+//! ```
 
 use serde::Serialize;
 use tauri::Emitter;
 use tauri_plugin_updater::UpdaterExt;
 
+/// What `check_update` found, for the UI.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
@@ -29,6 +41,7 @@ fn configured(app: &tauri::AppHandle) -> bool {
         .is_some_and(|k| !k.trim().is_empty())
 }
 
+/// Tauri command: is there a newer release? Never installs.
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let current = app.package_info().version.to_string();

@@ -13,6 +13,30 @@
 //! the key's id stay readable. Backups in a synced folder are then useless without the
 //! key. Settings shows the key as a recovery key: keep it somewhere safe, because restoring
 //! on another computer (or after losing the data folder) needs it.
+//!
+//! Main items: [`write()`], [`read()`], [`list`], [`prune`], [`due`], [`BackupKey`] and
+//! [`BackupConfig`]. `Engine::backup`, `Engine::restore` and `Engine::backup_if_due` wrap them
+//! for the app.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::backup::{self, BackupKey};
+//! use desktop_core::chunks_from_text;
+//!
+//! # let dir = std::env::temp_dir().join(format!("desktop-core-backup-{}", std::process::id()));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! let key = BackupKey::from_text(&"ab".repeat(32)).expect("64 hex digits");
+//! assert_eq!(BackupKey::from_text(&key.to_text()), Some(key.clone()));
+//!
+//! let chunks = chunks_from_text("notes.md", "Back me up.");
+//! let info = backup::write(&dir, &chunks, "keyword-only", Some(&key))?;
+//! assert!(info.encrypted);
+//! let (manifest, restored) = backup::read(&info.path, &[key])?;
+//! assert_eq!((manifest.chunks, restored[0].text.as_str()), (1, "Back me up."));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), std::io::Error>(())
+//! ```
 
 use crate::chunk::Chunk;
 use serde::{Deserialize, Serialize};
@@ -24,6 +48,7 @@ use std::time::{Duration, SystemTime};
 const FORMAT: &str = "desktop-core-backup";
 const VERSION: u32 = 1;
 
+/// Backup settings (`backup` in settings).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BackupConfig {
@@ -104,6 +129,7 @@ impl BackupKey {
 
 
 impl BackupConfig {
+    /// Interval and count clamped; an empty folder means the default.
     pub fn validated(mut self) -> Self {
         self.interval_hours = self.interval_hours.min(24 * 90);
         self.keep = self.keep.min(1000);
@@ -112,16 +138,21 @@ impl BackupConfig {
     }
 }
 
+/// Line 1 of a backup file: what it holds and how to check it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
+    /// Always `desktop-core-backup`.
     pub format: String,
+    /// The file format version (newer files are refused).
     pub version: u32,
     /// The app version that wrote it.
     pub app_version: String,
     /// RFC 3339, UTC.
     pub created: String,
+    /// Chunks in the file.
     pub chunks: usize,
+    /// Distinct sources (files or names) in the file.
     pub sources: usize,
     /// The embedding model of the store it came from (restores re-embed with the current one).
     pub model: String,
@@ -130,6 +161,7 @@ pub struct Manifest {
     /// The chunks are encrypted with the key whose id is `key_id`.
     #[serde(default)]
     pub encrypted: bool,
+    /// The id of the key that encrypted it (`BackupKey::id`), empty when not encrypted.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub key_id: String,
 }
@@ -138,12 +170,19 @@ pub struct Manifest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupInfo {
+    /// The backup file.
     pub path: PathBuf,
+    /// When it was made (RFC 3339).
     pub created: String,
+    /// Chunks in it.
     pub chunks: usize,
+    /// Distinct sources in it.
     pub sources: usize,
+    /// File size.
     pub bytes: u64,
+    /// The embedding model of the store it came from.
     pub model: String,
+    /// Whether restoring needs the backup key.
     pub encrypted: bool,
 }
 
