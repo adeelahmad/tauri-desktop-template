@@ -59,6 +59,10 @@ rclone = ["dep:zip"]
 # Tailscale status and `tailscale serve` through the user's own tailscale CLI (no new crates).
 tailscale = []
 {% endif -%}
+{% if webview -%}
+# Policy for embedded web views: allowlist, isolation, bridge (no new crates; sha2 is in the tree).
+webview = []
+{% endif -%}
 {% if telemetry -%}
 # Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
 telemetry = []

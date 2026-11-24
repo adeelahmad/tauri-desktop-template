@@ -169,6 +169,26 @@ const FIELDS = [
   ['tailscale', 'serve', 'Share a local port with my tailnet (tailscale serve)', 'bool', { needs: 'tailscale' }],
   ['tailscale', 'port', 'Local port to share (on 127.0.0.1)', 'number', { needs: 'tailscale', min: 0, max: 65535 }],
   ['tailscale', 'httpsPort', 'HTTPS port on the tailnet', 'select', { needs: 'tailscale', options: [443, 8443, 10000], numeric: true }],
+  ['webview', 'enabled', 'Open allowed web pages inside the app', 'bool', { needs: 'webview' }],
+  ['webview', 'allow', 'Allowed hosts (example.com, or *.example.com for subdomains too)', 'list', { needs: 'webview', lines: true }],
+  [
+    'webview',
+    'blocked',
+    'Other pages',
+    'select',
+    { needs: 'webview', options: ['refuse', 'browser'], labels: ['Refuse them', 'Open them in the system browser'] },
+  ],
+  [
+    'webview',
+    'isolation',
+    'Cookies and sign-ins',
+    'select',
+    { needs: 'webview', options: ['profile', 'incognito'], labels: ['Kept, separately for each profile', 'Never kept (incognito)'] },
+  ],
+  ['webview', 'allowHttp', 'Also show plain HTTP pages on allowed hosts', 'bool', { needs: 'webview' }],
+  ['webview', 'maxWindows', 'Most web view windows open at once', 'number', { needs: 'webview', min: 1, max: 64 }],
+  ['webview', 'bridge', 'Message bridge for trusted pages (window.kitchenBridge)', 'bool', { needs: 'webview' }],
+  ['webview', 'bridgeHosts', 'Hosts that may use the bridge (must be allowed above)', 'list', { needs: 'webview', lines: true }],
   ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
@@ -199,6 +219,7 @@ const TITLES = {
   plugins: 'Plugins',
   rclone: 'Cloud sync',
   tailscale: 'Tailnet',
+  webview: 'Web views',
   watch: 'Watch folders',
   // kitchen:titles
 };
@@ -503,6 +524,37 @@ function TailscaleStatus() {
         <span className="hint">{msg || 'Save settings first.'}</span>
       </div>
     </>
+  );
+}
+
+// Embedded web views: open an allowed page in its own window. Remote pages get no commands;
+// bridge messages from trusted pages arrive as 'webview-message' events.
+function WebviewTry() {
+  const [url, setUrl] = useState('https://');
+  const [msg, setMsg] = useState('Save settings first.');
+  useEffect(() => {
+    const off = listen('webview-message', (e) => setMsg(`Message from ${e.payload.host}: ${JSON.stringify(e.payload.data)}`));
+    return () => {
+      off.then((f) => f());
+    };
+  }, []);
+  const open = async () => {
+    try {
+      const label = await invoke('webview_open', { url, name: 'settings' });
+      setMsg(`Opened in ${label}.`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  return (
+    <div className="row">
+      <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Web page to open" />
+      <button onClick={open}>Open</button>
+      <button className="link" onClick={() => invoke('webview_close', { name: 'settings' }).catch((e) => setMsg(String(e)))}>
+        Close
+      </button>
+      <span className="hint">{msg}</span>
+    </div>
   );
 }
 
@@ -926,6 +978,7 @@ export default function Settings({ features }) {
     plugins: 'plugins',
     rclone: 'rclone',
     tailscale: 'tailscale',
+    webview: 'webview',
     telemetry: 'telemetry',
   };
   const sections = [
@@ -940,6 +993,7 @@ export default function Settings({ features }) {
     'rclone',
     'mail',
     'tailscale',
+    'webview',
     'plugins',
     'net',
     'telemetry',
@@ -988,6 +1042,7 @@ export default function Settings({ features }) {
           )}
           {s === 'rclone' && <RcloneSetup />}
           {s === 'tailscale' && <TailscaleStatus />}
+          {s === 'webview' && <WebviewTry />}
         </details>
       ))}
       <div className="row">

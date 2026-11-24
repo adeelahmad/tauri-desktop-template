@@ -72,6 +72,9 @@ pub struct Config {
 {% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
+{% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
+    #[cfg(feature = "webview")]
+    pub webview: crate::webview::WebviewConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
@@ -290,6 +293,10 @@ impl Config {
 {% endif %}{% if tailscale %}        #[cfg(feature = "tailscale")]
         {
             self.tailscale = self.tailscale.validated();
+        }
+{% endif %}{% if webview %}        #[cfg(feature = "webview")]
+        {
+            self.webview = self.webview.validated();
         }
 {% endif %}        // kitchen:validate
         self

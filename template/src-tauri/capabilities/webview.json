@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "webview",
+  "description": "Embedded web views (web-* windows): remote pages get no permissions and no commands. Do not add a `remote` section here.",
+  "windows": ["web-*"],
+  "platforms": ["linux", "macOS", "windows"],
+  "permissions": []
+}

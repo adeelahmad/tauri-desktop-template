@@ -227,6 +227,7 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`rclone`](../desktop-core/src/rclone.rs) | `rclone` | Sync backups (or the data folder) to a cloud with rclone |
 | [`tailscale`](../desktop-core/src/tailscale.rs) | `tailscale` | Tailscale status and `tailscale serve` for one local port |
 | [`mail`](../desktop-core/src/mail.rs) | `mail` | SMTP email with TLS, STARTTLS and attachments |
+| [`webview`](../desktop-core/src/webview.rs) | `webview` | Embedded web view policy: allowlist, isolation, message bridge |
 | [`telemetry`](../desktop-core/src/telemetry.rs) | `telemetry` | Opt-in crash reports, analytics and traces |
 
 A module only exists in your app if its feature was chosen when the app was generated
@@ -248,6 +249,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`single`](../src-tauri/src/single.rs) | `single-instance` | One window at a time |
 | [`python`](../src-tauri/src/python.rs) | `python-example` | A Python child process behind a command |
 | [`claude`](../src-tauri/src/claude.rs) | `claude-mcp` | Register a Python MCP server in Claude Desktop through bundled uv |
+| [`webview`](../src-tauri/src/webview.rs) | `webview` | Remote pages in app windows: allowlist hook, isolation, no IPC, bridge |
 
 ## Docs and checks
 

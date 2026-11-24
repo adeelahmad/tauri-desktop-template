@@ -68,6 +68,9 @@ Everything runs on the user's machine.
 {% if tailscale -%}
 | Tailscale: status, and `tailscale serve` to reach a local MCP/HTTP port from your tailnet (never Funnel, never installs anything). Settings → Tailnet | `desktop-core/src/tailscale.rs` | `tailscale` |
 {% endif -%}
+{% if webview -%}
+| Embedded web views (desktop): allowlisted remote pages in the app's own windows, with no Tauri IPC for them, cookies kept per profile (or incognito), and an opt-in message bridge. Settings → Web views | `desktop-core/src/webview.rs`, `src-tauri/src/webview.rs` | `webview` |
+{% endif -%}
 {% if tauri_plugins -%}
 | Official Tauri plugins (see the table below) | `src-tauri/src/lib.rs`, `src-tauri/capabilities/` | |
 {% endif -%}
@@ -327,6 +330,11 @@ is off by default; values are clamped to safe ranges.
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
 {% endif -%}
+{% if webview -%}
+| `webview.enabled`, `webview.allow`, `webview.blocked` | off, empty, `refuse` | open remote pages in the app; hosts shown (`example.com`, `*.example.com`; never `*`); `browser` hands other pages to the system browser |
+| `webview.isolation`, `webview.allowHttp`, `webview.maxWindows` | `profile`, off, 8 | cookies per profile or `incognito`; plain HTTP on allowed hosts; window limit |
+| `webview.bridge`, `webview.bridgeHosts` | off, empty | `window.kitchenBridge.post(m)` for pages on these (allowed) hosts |
+{% endif -%}
 | `net.offline` | false | block every request that leaves the computer (a local model server still works) |
 | `net.allow`, `net.deny` | empty | host lists; `*.example.com` covers subdomains; every redirect hop is checked |
 | `net.proxy`, `net.noProxy` | system | empty = `HTTPS_PROXY`/`ALL_PROXY`, `direct`, or an `http://`/`socks5://` URL |
@@ -368,6 +376,38 @@ Tailscale is never installed by the app: without the `tailscale` CLI, Settings �
 links to <https://tailscale.com/download>. With it, **Apply sharing** runs
 `tailscale serve --bg --https=<port> http://127.0.0.1:<local port>`, reachable only inside
 your tailnet; turning it off removes only that mapping.
+
+{% endif -%}
+{% if webview -%}
+### Embedded web views
+
+With `webview.enabled` on, the app can show remote pages in its own windows (`web-<name>`).
+Only hosts on `webview.allow` load; every other navigation, `window.open` and (on macOS and
+Linux) frame is refused, or with `webview.blocked = "browser"` opened in the system browser.
+Remote pages get **no Tauri IPC**: `capabilities/webview.json` grants `web-*` windows nothing,
+Tauri's ACL refuses commands from remote origins, and the app refuses any command from a
+`web-*` window before it runs. The app's own window keeps its CSP (`tauri.conf.json`).
+
+```json
+"webview": { "enabled": true, "allow": ["docs.rs", "*.github.com"], "isolation": "profile" }
+```
+
+```js
+const label = await invoke('webview_open', { url: 'https://docs.rs/tauri', name: 'docs', title: 'Docs' });
+await invoke('webview_close', { name: 'docs' });
+```
+
+Cookies and storage: `profile` keeps a separate jar for each app profile (WebView2 user data
+folder on Windows, a WebKitGTK context on Linux, a `WKWebsiteDataStore` per profile on macOS
+14+; macOS 13 shares the system default, so use `incognito` there). `incognito` keeps nothing.
+iOS and Android builds leave web views out.
+
+The bridge is off by default. With `webview.bridge` on, pages on `webview.bridgeHosts` get
+`window.kitchenBridge.post(message)`; the main window receives `webview-message` events
+(`{label, host, data}`), and `invoke('webview_post', { name, message })` answers with a
+`message` event whose `origin` is `"kitchen-app"`. Messages are JSON, at most 64 KB, and
+never reach a command. Child webviews inside the main window need Tauri's `unstable`
+feature, so web views open as separate windows.
 
 {% endif -%}
 Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through
