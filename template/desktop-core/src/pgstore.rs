@@ -11,6 +11,21 @@
 //!   `vchord_bm25` and `pg_tokenizer` are installed there).
 //! - `APP_PG_EXT_DIR`: install the bundle from a local folder (`lib/`, `share/extension/`)
 //!   instead of downloading it, for offline installers.
+//!
+//! # Example
+//!
+//! The first open downloads Postgres and the extensions:
+//!
+//! ```no_run
+//! use desktop_core::pgstore::PostgresStore;
+//! use desktop_core::{chunks_from_text, SearchConfig, Store};
+//!
+//! let store = PostgresStore::open("data".as_ref())?;
+//! store.add(&chunks_from_text("a.md", "Postgres keeps the chunks."), None)?;
+//! println!("{:?}", store.search("chunks", None, &SearchConfig::default())?);
+//! desktop_core::pgstore::shutdown();
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::config::{Config, KeywordEngine, SearchConfig};
 use crate::fuse::{self, Candidate};
@@ -228,6 +243,7 @@ pub fn shutdown() {
     }
 }
 
+/// A [`Store`](crate::Store) in Postgres with pgvector (and BM25 when built in).
 pub struct PostgresStore {
     client: Mutex<postgres::Client>,
     /// The pg_tokenizer tokenizer BM25 uses, once BM25 is set up.
@@ -259,6 +275,8 @@ fn bm25_installable(db: &mut postgres::Client) -> Result<bool> {
 }
 
 impl PostgresStore {
+    /// Start (or reach) the server for `data_dir` and bring its schema up to date.
+    /// The first call downloads Postgres and the extensions.
     pub fn open(data_dir: &Path) -> Result<Self> {
         let mut client = postgres::Client::connect(&server_url(data_dir)?, postgres::NoTls).map_err(pg_err)?;
         migrate(&mut client)?;

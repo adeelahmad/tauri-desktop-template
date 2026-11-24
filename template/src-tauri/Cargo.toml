@@ -87,11 +87,6 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
 log = "0.4"
-{% if mobile -%}{% if ipc_worker or updater -%}
-
-# Desktop only: on iOS and Android the backend runs in this process and updates come from the app stores.
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-{% endif -%}{% endif -%}
 {% if ipc_worker -%}
 interprocess = { version = "2", optional = true }
 {% endif -%}

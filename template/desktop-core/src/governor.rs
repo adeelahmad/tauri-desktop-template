@@ -2,9 +2,25 @@
 //! ingest may use, and whether its threads run at background priority so the window and
 //! the rest of the computer stay responsive. Plain OS calls, no crates:
 //! macOS QoS "utility", Windows background mode (lower CPU and disk priority), Linux nice 10.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::governor::{background_thread, ResourceConfig};
+//!
+//! let half = ResourceConfig { cpu_percent: 50, ..ResourceConfig::default() }.validated();
+//! let workers = half.workers(64);
+//! assert!((1..=64).contains(&workers));
+//! std::thread::spawn(|| {
+//!     background_thread(); // best effort; the work below runs either way
+//! })
+//! .join()
+//! .unwrap();
+//! ```
 
 use serde::{Deserialize, Serialize};
 
+/// How much of the computer background work may use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ResourceConfig {
@@ -23,6 +39,7 @@ impl Default for ResourceConfig {
 }
 
 impl ResourceConfig {
+    /// The share clamped to 10..=100 percent.
     pub fn validated(mut self) -> Self {
         self.cpu_percent = self.cpu_percent.clamp(10, 100);
         self

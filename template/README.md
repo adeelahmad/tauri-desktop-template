@@ -96,9 +96,6 @@ Everything runs on the user's machine.
 {% if claude_mcp -%}
 | Bundled uv + Claude Desktop MCP registration | `src-tauri/src/claude.rs` | `claude-mcp` |
 {% endif -%}
-{% if mobile -%}
-| iOS and Android from the same code (Tauri 2 mobile): file store, backend in the app, store updates; `Mobile` workflow builds an unsigned APK/AAB and an iOS simulator app | `src-tauri/tauri.{android,ios}.conf.json`, `src-tauri/capabilities/mobile.json`, `.github/workflows/mobile.yml` | always |
-{% endif -%}
 | `--self-test` (CI runs it on every installed build) | `self_test` in `src-tauri/src/lib.rs` | always |
 {% if installers -%}
 | Release workflow: unsigned .dmg{% if macos_pkg %}, .pkg{% endif %}, .exe{% if linux %}, .AppImage, .deb{% endif %}, tested after install | `.github/workflows/release.yml` | |
@@ -123,6 +120,8 @@ make help        # everything else (db-up, docker-test, build, …)
 `compose.yaml` has an optional Postgres + pgvector (`make db-up`, then
 `APP_PG_URL=postgres://app:app@localhost:5433/app`) and a Linux build container.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for commits, PRs and releases.
+[docs/GUIDE.md](docs/GUIDE.md) explains the architecture, how to add a feature, how settings
+work, and where each module is documented (`cargo doc --workspace --no-deps --open`).
 
 Linux needs `libwebkit2gtk-4.1-dev librsvg2-dev`.
 {% if frontend == "react" -%}
@@ -132,53 +131,6 @@ before a plain `cargo build`, which embeds `ui-react/dist`.
 {% else -%}
 The UI is plain HTML/JS in `ui/` (no build step); point `build.frontendDist` in
 `src-tauri/tauri.conf.json` at another framework's output to swap it.
-{% endif -%}
-{% if mobile %}
-## Mobile (iOS and Android)
-
-The app crate is also a library (`staticlib`, `cdylib`, `rlib`) whose `run` is the
-mobile entry point, so the same Rust and the same UI ship to phones and tablets.
-Parts that need a desktop are compiled out there with `cfg(desktop)`: the worker process
-and background agent (the backend runs inside the app), the updater (the App Store and
-Google Play update the app), single instance, the stdio MCP server, Python, Claude
-Desktop, folder watching and embedded Postgres (the file store is used; a saved Postgres
-choice falls back to it). `app_info` reports `features.mobile`, and the UI hides what is
-not there. Everything is kept in the app's private folder.
-
-Once, install the Android SDK and NDK (Android Studio; set `ANDROID_HOME` and `NDK_HOME`)
-and Java 17, or Xcode on a Mac, then the Rust targets and the native projects:
-
-```sh
-rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-cargo tauri android init      # makes src-tauri/gen/android
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
-cargo tauri ios init          # macOS only: makes src-tauri/gen/apple
-```
-
-Run on an emulator, simulator or a connected device with hot reload (the dev server
-listens on your computer's address, `TAURI_DEV_HOST`):
-
-```sh
-cargo tauri android dev
-cargo tauri ios dev           # add --open to work in Xcode
-```
-
-Build for the stores:
-
-```sh
-cargo tauri android build --aab           # Google Play (an .apk too with --apk)
-cargo tauri ios build --export-method app-store-connect   # an .ipa for App Store Connect
-```
-
-Store builds must be signed: an upload keystore for Android
-([guide](https://v2.tauri.app/distribute/sign/android/)) and a certificate with a
-provisioning profile, or automatic signing with `APPLE_DEVELOPMENT_TEAM`, for iOS
-([guide](https://v2.tauri.app/distribute/sign/ios/)). The **Mobile** workflow
-(`.github/workflows/mobile.yml`, by hand and on tags) builds them unsigned and says where
-the signing secrets go. Android package names cannot contain `-`, so
-`tauri.android.conf.json` uses `{{identifier | replace: "-", "_"}}`. The ONNX parts
-(embeddings, speech) and llama.cpp need native libraries built for each phone target;
-check them on a device before turning them on in a mobile release.
 {% endif -%}
 {% if ipc_worker %}
 ## Processes

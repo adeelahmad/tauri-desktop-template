@@ -10,11 +10,33 @@
 //! (a WAV as base64), `download_voice`; with feature `stt`: `transcribe` {pcm16 | wav (base64)
 //! | path} (16-bit 16 kHz mono PCM, or any PCM/float WAV), `download_stt` {model?}; with feature
 //! `telemetry`: `telemetry_status`; with feature `mail`: `send_mail` {to, cc, bcc, subject, text,
-//! html?, attachments: [path]}, `test_mail` {to?}, `mail_password` {password?} (every other call is timed for opt-in traces/analytics).
+//! html?, attachments: \[path\]}, `test_mail` {to?}, `mail_password` {password?} (every other call is timed for opt-in traces/analytics).
 //!
-//! Folder watching (feature `watch`, desktop only) starts with `setup` or `configure` when
+//! Folder watching (feature `watch`) starts with `setup` or `configure` when
 //! `config.watch.enabled`; `watch_status` returns the folders and recent events, which
 //! the UI polls (the same in this process and in the worker).
+//!
+//! To add a backend method: add a `"name" => ...` arm to `Local::dispatch` (behind its
+//! feature's `#[cfg]`), list it above, and call it from a Tauri command with
+//! `call(&state, "name", json!({...}))`. Nothing else changes for the worker process.
+//!
+//! # Example
+//!
+//! A call is a method name and a JSON object; this is what goes to the service, and over the
+//! socket to the worker:
+//!
+//! ```
+//! use serde_json::json;
+//!
+//! let params = json!({"query": "heart", "k": 3});
+//! let request = json!({"method": "search", "params": params});
+//! assert_eq!(request["params"]["k"], 3);
+//! // The reply is the engine's value as JSON, here a list of `desktop_core::Hit`.
+//! let reply = json!([{"source": "notes.md", "page": null, "text": "The heart pumps blood.", "score": 1.2}]);
+//! let hits: Vec<desktop_core::Hit> = serde_json::from_value(reply)?;
+//! assert_eq!(hits[0].source, "notes.md");
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use desktop_core::{Config, Engine, EngineOptions, SearchConfig};
 use serde::de::DeserializeOwned;
@@ -22,6 +44,8 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+/// The backend, wherever it runs: [`Local`] in this process, or `ipc::Remote` in the
+/// worker process. Commands, the MCP server and the self-test only use this.
 pub trait Service: Send + Sync {
     /// Run `method`; `progress` gets human-readable lines while it works.
     fn call(&self, method: &str, params: Value, progress: &mut dyn FnMut(&str)) -> Result<Value, String>;
@@ -32,7 +56,7 @@ pub trait Service: Send + Sync {
 pub struct Local {
     engine: Mutex<Option<Arc<Engine>>>,
     app_name: Mutex<Option<String>>,
-    #[cfg(all(desktop, feature = "watch"))]
+    #[cfg(feature = "watch")]
     watcher: Mutex<Option<desktop_core::watch::Watcher>>,
     /// The voice model, loaded on first use.
     #[cfg(feature = "tts")]
@@ -52,6 +76,15 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Download progress as "12 of 40 MB" (or "12 MB" when the size is unknown).
+#[cfg(any(feature = "llama", feature = "tts", feature = "stt"))]
+fn megabytes(done: u64, total: Option<u64>) -> String {
+    match total {
+        Some(t) => format!("{} of {} MB", done >> 20, t >> 20),
+        None => format!("{} MB", done >> 20),
+    }
+}
+
 fn to<T: serde::Serialize>(v: Result<T, desktop_core::Error>) -> Result<Value, String> {
     v.map_err(err).and_then(|v| serde_json::to_value(v).map_err(err))
 }
@@ -62,7 +95,7 @@ impl Local {
     }
 
     /// Start, restart or stop the folder watcher to match the engine's config.
-    #[cfg(all(desktop, feature = "watch"))]
+    #[cfg(feature = "watch")]
     fn rewatch(&self) -> Result<(), String> {
         let engine = self.engine()?;
         let mut slot = self.watcher.lock().map_err(err)?;
@@ -88,18 +121,18 @@ impl Local {
         Ok(())
     }
 
-    #[cfg(not(all(desktop, feature = "watch")))]
+    #[cfg(not(feature = "watch"))]
     fn rewatch(&self) -> Result<(), String> {
         Ok(())
     }
 
     fn watch_status(&self) -> Result<Value, String> {
-        #[cfg(all(desktop, feature = "watch"))]
+        #[cfg(feature = "watch")]
         let folders = self.watcher.lock().map_err(err)?.as_ref().map(|w| w.folders.clone()).unwrap_or_default();
-        #[cfg(not(all(desktop, feature = "watch")))]
+        #[cfg(not(feature = "watch"))]
         let folders: Vec<std::path::PathBuf> = Vec::new();
         let events: Vec<Value> = self.events.lock().map_err(err)?.iter().cloned().collect();
-        Ok(json!({"built": cfg!(all(desktop, feature = "watch")), "folders": folders, "events": events}))
+        Ok(json!({"built": cfg!(feature = "watch"), "folders": folders, "events": events}))
     }
 }
 
@@ -238,10 +271,7 @@ impl Local {
             "download_model" => {
                 let url = arg::<Option<String>>(&params, "url")?;
                 let path = self.engine()?.download_model(url.as_deref(), &mut |done, total| {
-                    progress(&match total {
-                        Some(t) => format!("{} of {} MB", done >> 20, t >> 20),
-                        None => format!("{} MB", done >> 20),
-                    })
+                    progress(&megabytes(done, total))
                 });
                 to(path)
             }
@@ -307,10 +337,7 @@ impl Local {
             "download_voice" => {
                 let dir = desktop_core::tts::model_dir(self.engine()?.data_dir());
                 desktop_core::tts::download(&dir, &mut |name, done, total| {
-                    progress(&match total {
-                        Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
-                        None => format!("{name}: {} MB", done >> 20),
-                    })
+                    progress(&format!("{name}: {}", megabytes(done, total)))
                 })
                 .map_err(err)?;
                 Ok(json!(dir))
@@ -358,10 +385,7 @@ impl Local {
                 let model = params.get("model").and_then(Value::as_str).map(String::from).unwrap_or(e.config().stt.model);
                 let dir = desktop_core::stt::model_dir(e.data_dir(), &model);
                 desktop_core::stt::download(&dir, &model, &mut |name, done, total| {
-                    progress(&match total {
-                        Some(t) => format!("{name}: {} of {} MB", done >> 20, t >> 20),
-                        None => format!("{name}: {} MB", done >> 20),
-                    })
+                    progress(&format!("{name}: {}", megabytes(done, total)))
                 })
                 .map_err(err)?;
                 Ok(json!(dir))

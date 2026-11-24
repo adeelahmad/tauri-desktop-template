@@ -1,4 +1,28 @@
 //! The one object the app talks to: a store plus (optionally) an embedder.
+//!
+//! [`Engine`] ties the parts together: it opens the store ([`Backend`]), loads the embedder
+//! when there is one, keeps the live [`Config`], and offers ingest (text, files, folders, with
+//! a crash-safe journal and a cancel switch), search, AI answers (feature `ai`), backups and
+//! restores. The Tauri service and the worker process call nothing else in this crate for
+//! documents. Every method takes `&self`, so one `Arc<Engine>` serves every thread.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::{Backend, Config, Engine, EngineOptions};
+//!
+//! # let dir = std::env::temp_dir().join(format!("desktop-core-engine-{}", std::process::id()));
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! let opts = EngineOptions { data_dir: dir.clone(), backend: Backend::File, embeddings: false, config: Config::default(), app_name: None };
+//! let engine = Engine::open(&opts, &mut |step| println!("{step}"))?;
+//! engine.ingest_text("cats.md", "The cat sat on the mat.")?;
+//! assert_eq!(engine.status()?.chunks, 1);
+//! assert_eq!(engine.search("cat", 5)?[0].source, "cats.md");
+//! engine.remove_source("cats.md")?;
+//! assert_eq!(engine.status()?.chunks, 0);
+//! # let _ = std::fs::remove_dir_all(&dir);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::chunk::{chunks_from_text_with, Chunking};
 use crate::config::{Config, SearchConfig};
@@ -13,22 +37,29 @@ use std::sync::{Mutex, RwLock};
 #[cfg(feature = "ai")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Answer {
+    /// The model's reply, with the provider, model and token counts.
     pub reply: crate::llm::Reply,
+    /// The passages the model was given, numbered as it cites them (`[1]` is the first).
     pub sources: Vec<Hit>,
 }
 
-{% endif %}#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+{% endif %}/// Where chunks are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
+    /// One JSON file in the data folder (`FileStore`); no setup, fine for tens of thousands of chunks.
     #[default]
     File,
+    /// Embedded Postgres with pgvector (feature `postgres`).
     Postgres,
 }
 
+/// What [`Engine::open`] needs: the data folder, the store, the model switch and the config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineOptions {
     /// Private folder for the store, the database and the model cache.
     pub data_dir: PathBuf,
+    /// The store to open.
     #[serde(default)]
     pub backend: Backend,
     /// Use the local model when it is built in (feature `embed`).
@@ -46,14 +77,22 @@ fn yes() -> bool {
     true
 }
 
+/// A snapshot of the engine for the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
+    /// `file` or `postgres`.
     pub backend: String,
+    /// The embedding model in use, or `None` for keyword-only search.
     pub embedder: Option<String>,
+    /// Chunks in the store.
     pub chunks: usize,
+    /// The data folder, for display.
     pub data_dir: String,
 }
 
+/// The store, the optional embedder and the live config, behind one thread-safe object.
+///
+/// Share it with `Arc<Engine>`: every method takes `&self`.
 pub struct Engine {
     store: Box<dyn Store>,
     embedder: Option<Box<dyn Embedder>>,
@@ -67,9 +106,13 @@ pub struct Engine {
 /// What `ingest_paths` did.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IngestReport {
+    /// Files ingested.
     pub files: usize,
+    /// Chunks added.
     pub chunks: usize,
+    /// Files left out, with the reason (type, size).
     pub skipped: Vec<String>,
+    /// Files that failed, with the error.
     pub errors: Vec<String>,
     /// Stopped by `cancel_ingest` (the rest stays in the journal for the next start).
     #[serde(default)]
@@ -118,10 +161,12 @@ impl Engine {
         Ok(engine)
     }
 
+    /// The private data folder the engine was opened on.
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
 
+    /// Store kind, model and chunk count.
     pub fn status(&self) -> Result<Status> {
         Ok(Status {
             backend: self.store.kind().into(),
@@ -140,6 +185,7 @@ impl Engine {
         Ok(())
     }
 
+    /// A copy of the config in force.
     pub fn config(&self) -> Config {
         self.config.read().map(|c| c.clone()).unwrap_or_default()
     }
@@ -175,6 +221,8 @@ impl Engine {
         self.add(chunks)
     }
 
+    /// Chunk `text`, embed it and store it under `source`, replacing what `source` had.
+    /// Returns the number of chunks added.
     pub fn ingest_text(&self, source: &str, text: &str) -> Result<usize> {
         let chunking = Chunking::from(&self.config().ingest);
         let mut chunks = chunks_from_text_with(source, text, chunking);
@@ -454,10 +502,12 @@ impl Engine {
         Ok(dest)
     }
 
-{% endif %}    pub fn remove_source(&self, source: &str) -> Result<usize> {
+{% endif %}    /// Remove every chunk of `source`; returns how many went.
+    pub fn remove_source(&self, source: &str) -> Result<usize> {
         self.store.remove_source(source)
     }
 
+    /// Remove every chunk (the model choice stays).
     pub fn clear(&self) -> Result<()> {
         self.store.clear()
     }

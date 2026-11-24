@@ -5,15 +5,37 @@
 //! optional behaviour is off by default: search is plain vector (or keyword) search,
 //! ingest uses one worker, and no folder is watched. Unknown or missing keys fall back to
 //! the defaults, and `validated` clamps values into safe ranges.
+//!
+//! To add a setting: add the field with a doc comment (it becomes the camelCase key), give it
+//! a default in the `Default` impl, clamp it in `validated` when it is a number, and add a row
+//! to the Settings screen.
+//!
+//! # Example
+//!
+//! ```
+//! use desktop_core::{Config, SearchMode};
+//!
+//! let cfg: Config = serde_json::from_str(r#"{"search": {"mode": "hybrid", "topK": 5000}}"#)?;
+//! let cfg = cfg.validated();
+//! assert_eq!(cfg.search.mode, SearchMode::Hybrid);
+//! assert_eq!(cfg.search.top_k, 1000); // clamped
+//! assert!(!cfg.watch.enabled); // every optional part is off by default
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// All engine settings: search, ingest, watching, resources, logs, network, backups
+/// and each built-in feature's own section.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
+    /// How search ranks and filters results.
     pub search: SearchConfig,
+    /// How files are read, chunked and embedded.
     pub ingest: IngestConfig,
+    /// Folders watched for new files (feature `watch`).
     pub watch: WatchConfig,
     /// CPU share and priority for background work, and resuming interrupted ingests.
     pub resources: crate::governor::ResourceConfig,
@@ -23,28 +45,37 @@ pub struct Config {
     pub net: crate::net::NetConfig,
     /// Scheduled backups: how often, how many to keep, and where.
     pub backup: crate::backup::BackupConfig,
-{% if ai %}    #[cfg(feature = "ai")]
+{% if ai %}    /// AI chat: provider, model, fallbacks and budgets.
+    #[cfg(feature = "ai")]
     pub llm: crate::llm::LlmConfig,
-{% endif %}{% if mcp_server %}    #[cfg(feature = "mcp")]
+{% endif %}{% if mcp_server %}    /// The MCP server's policy: on or off, write tools, allowlist, audit log.
+    #[cfg(feature = "mcp")]
     pub mcp: crate::mcp::McpConfig,
-{% endif %}{% if tts %}    #[cfg(feature = "tts")]
+{% endif %}{% if tts %}    /// Text to speech: voice, speed and pitch.
+    #[cfg(feature = "tts")]
     pub tts: crate::tts::TtsConfig,
-{% endif %}{% if stt %}    #[cfg(feature = "stt")]
+{% endif %}{% if stt %}    /// Speech to text: Whisper model size, language, translation.
+    #[cfg(feature = "stt")]
     pub stt: crate::stt::SttConfig,
-{% endif %}{% if email %}    #[cfg(feature = "mail")]
+{% endif %}{% if email %}    /// SMTP server and sender (the password is kept apart).
+    #[cfg(feature = "mail")]
     pub mail: crate::mail::MailConfig,
-{% endif %}{% if telemetry %}    #[cfg(feature = "telemetry")]
+{% endif %}{% if telemetry %}    /// Opt-in crash reports, analytics and traces.
+    #[cfg(feature = "telemetry")]
     pub telemetry: crate::telemetry::TelemetryConfig,
 {% endif %}    // kitchen:config (`kitchen generate module --config` adds sections above this line)
 }
 
+/// Which lists a search uses.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
     /// Vector search when a model is loaded, keyword search otherwise.
     #[default]
     Auto,
+    /// Nearest vectors by cosine similarity (keywords when no model is loaded).
     Vector,
+    /// Keyword ranking only (BM25 or full text, by store).
     Keyword,
     /// Vector and keyword results fused with weighted reciprocal rank fusion.
     Hybrid,
@@ -57,14 +88,17 @@ pub enum KeywordEngine {
     /// BM25 (VectorChord-BM25) when it is built in and installed, else full text.
     #[default]
     Auto,
+    /// BM25 through VectorChord-BM25 (feature `bm25`).
     Bm25,
     /// Postgres full-text search (`ts_rank_cd`).
     Fulltext,
 }
 
+/// Search settings: mode, result count, thresholds and fusion weights.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SearchConfig {
+    /// Vector, keyword, hybrid, or auto (vector when a model is loaded).
     pub mode: SearchMode,
     /// Results returned.
     pub top_k: usize,
@@ -78,8 +112,11 @@ pub struct SearchConfig {
     pub min_score: Option<f32>,
     /// The `k` of reciprocal rank fusion: higher flattens the rank curve.
     pub rrf_k: f32,
+    /// Weight of the vector list in hybrid fusion (0 ignores it).
     pub vector_weight: f32,
+    /// Weight of the keyword list in hybrid fusion (0 ignores it).
     pub keyword_weight: f32,
+    /// How the Postgres store ranks keywords (the file store always uses BM25).
     pub keyword_engine: KeywordEngine,
     /// pg_tokenizer model for BM25 (`bert_base_uncased`, `llmlingua2`, `gemma2b`, ...).
     pub bm25_tokenizer: String,
@@ -106,6 +143,7 @@ impl Default for SearchConfig {
     }
 }
 
+/// Ingest settings: workers, chunk size and overlap, batch size, file limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct IngestConfig {
@@ -136,9 +174,11 @@ impl Default for IngestConfig {
     }
 }
 
+/// Folder watching settings (used with feature `watch`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct WatchConfig {
+    /// Watch at all (off by default).
     pub enabled: bool,
     /// Watch the built-in drop folder.
     pub drop_folder: bool,
@@ -146,6 +186,7 @@ pub struct WatchConfig {
     pub drop_folder_path: Option<PathBuf>,
     /// More folders to watch.
     pub paths: Vec<PathBuf>,
+    /// Include subfolders.
     pub recursive: bool,
     /// Wait this long after the last change to a file before ingesting it.
     pub debounce_ms: u64,

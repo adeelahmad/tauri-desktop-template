@@ -7,6 +7,18 @@
 //! `<config>/profiles/<id>/` and `<data>/profiles/<id>/`. `profiles.json` in the config
 //! folder lists them and names the active one; `APP_PROFILE` picks one for a single run
 //! (the window passes it to the worker, and the MCP entry carries it).
+//!
+//! # Example
+//!
+//! `profiles.json`, as [`Profiles`] reads and writes it:
+//!
+//! ```
+//! let text = r#"{"active": "work", "profiles": [{"id": "default", "name": "Default"}, {"id": "work", "name": "Work"}]}"#;
+//! let v: serde_json::Value = serde_json::from_str(text)?;
+//! assert_eq!(v["profiles"][1]["id"], v["active"]);
+//! // Profile "work" keeps its files in <config>/profiles/work and <data>/profiles/work.
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -14,6 +26,7 @@ use std::sync::OnceLock;
 
 const IDENTIFIER: &str = env!("APP_IDENTIFIER");
 
+/// The user's home folder (`HOME`, or `USERPROFILE` on Windows).
 pub fn home() -> PathBuf {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap_or_default()
 }
@@ -27,25 +40,10 @@ pub fn app_dirs() -> (PathBuf, PathBuf) {
     }
 }
 
-/// iOS and Android: the app's private folder, from Tauri's path resolver at start.
-#[cfg(mobile)]
-static MOBILE_ROOT: OnceLock<PathBuf> = OnceLock::new();
-
-/// iOS and Android: set the app's private folder (once, before anything reads a path).
-/// There is no home folder to build paths from there, and only this folder is writable.
-#[cfg(mobile)]
-pub fn set_mobile_root(dir: PathBuf) {
-    let _ = MOBILE_ROOT.set(dir);
-}
-
 /// The app's own folders, before any profile.
 pub fn base_dirs() -> (PathBuf, PathBuf) {
     #[cfg(test)]
     if let Some(root) = tests::ROOT.with(|r| r.borrow().clone()) {
-        return (root.join("config"), root.join("data"));
-    }
-    #[cfg(mobile)]
-    if let Some(root) = MOBILE_ROOT.get() {
         return (root.join("config"), root.join("data"));
     }
     let env_dir = |k: &str| std::env::var_os(k).map(PathBuf::from).filter(|p| p.is_absolute());
@@ -61,18 +59,24 @@ pub fn base_dirs() -> (PathBuf, PathBuf) {
     (config.join(IDENTIFIER), data.join(IDENTIFIER))
 }
 
+/// The id of the profile that uses the app folders themselves.
 pub const DEFAULT: &str = "default";
 
+/// One profile: a folder id and the name the user sees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
+    /// Folder name (see [`valid_id`]).
     pub id: String,
+    /// The name shown in the profile menu.
     pub name: String,
 }
 
+/// The contents of `profiles.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Profiles {
     /// The profile the next start opens.
     pub active: String,
+    /// Every profile, the default first.
     pub profiles: Vec<Profile>,
 }
 

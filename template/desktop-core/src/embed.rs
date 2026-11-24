@@ -3,6 +3,21 @@
 //! The model is chosen at build time (`APP_EMBED_MODEL` in `.cargo/config.toml`) and can be
 //! overridden at run time with the same environment variable. Each model gets its task
 //! prefixes; Nomic v1.5 is cut to `APP_EMBED_DIM` (default 256) Matryoshka dimensions.
+//!
+//! # Example
+//!
+//! The first run downloads the model into the cache folder:
+//!
+//! ```no_run
+//! use desktop_core::embed::LocalEmbedder;
+//! use desktop_core::{cosine, Embedder};
+//!
+//! let embedder = LocalEmbedder::new("models".as_ref())?;
+//! let docs = embedder.embed_documents(&["Cats purr.".into(), "Stocks fell.".into()])?;
+//! let query = embedder.embed_query("kittens")?;
+//! assert!(cosine(&query, &docs[0]) > cosine(&query, &docs[1]));
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::{normalise, Embedder, Error, Result};
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
@@ -13,6 +28,7 @@ use std::sync::Mutex;
 pub const MAX_CHARS: usize = 800;
 const BATCH: usize = 16;
 
+/// The models this build can load (`APP_EMBED_MODEL`); the first is the default.
 pub const MODELS: &[&str] = &["nomic-embed-text-v1.5", "bge-small-en-v1.5", "all-MiniLM-L6-v2", "multilingual-e5-small"];
 
 struct Spec {
@@ -46,6 +62,7 @@ pub fn model_name() -> String {
         .unwrap_or_else(|| MODELS[0].into())
 }
 
+/// An [`Embedder`](crate::Embedder) running a fastembed ONNX model on this computer.
 pub struct LocalEmbedder {
     name: String,
     spec: Spec,

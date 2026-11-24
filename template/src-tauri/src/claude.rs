@@ -4,12 +4,24 @@
 //! entry keeps working when the app moves), adds `mcpServers.<APP_MCP_NAME>` to
 //! `claude_desktop_config.json` (backing up an existing file first) and runs the server's
 //! package once so Python and its wheels are cached before the first chat.
+//!
+//! # Example
+//!
+//! The entry it writes runs the Python server through uv:
+//!
+//! ```
+//! use serde_json::json;
+//!
+//! let entry = json!({"command": "/data/bin/uv", "args": ["tool", "run", "--python", "3.13", "--from", "demo-server", "demo"]});
+//! assert_eq!(entry["args"][0], "tool");
+//! ```
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+/// The server's name in `mcpServers` and its console script (`APP_MCP_NAME`).
 pub const SERVER: &str = env!("APP_MCP_NAME");
 /// What `uv tool run --from` installs: a PyPI name or `name @ https://.../archive.zip`.
 /// `APP_MCP_PACKAGE` at run time overrides it (handy for testing a branch).
@@ -34,6 +46,7 @@ pub fn config_dir() -> PathBuf {
     }
 }
 
+/// `claude_desktop_config.json` in Claude Desktop's config folder.
 pub fn config_file() -> PathBuf {
     config_dir().join("claude_desktop_config.json")
 }
@@ -55,6 +68,7 @@ pub fn bundled_uv() -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(exe("uv"))).find(|c| c.is_file()))
 }
 
+/// `uv --version` of the bundled uv, when there is one.
 pub fn uv_version() -> Option<String> {
     let out = std::process::Command::new(bundled_uv()?).arg("--version").output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -78,6 +92,7 @@ fn install_uv(data_dir: &Path) -> Result<PathBuf, String> {
     Ok(dst)
 }
 
+/// The `uv` arguments that run the server: `tool run --python <PYTHON> --from <package> <SERVER>`.
 pub fn server_args(extra: &[&str]) -> Vec<String> {
     let mut args: Vec<String> = ["tool", "run", "--python", PYTHON, "--from"].iter().map(|s| s.to_string()).collect();
     args.push(package());
@@ -86,14 +101,19 @@ pub fn server_args(extra: &[&str]) -> Vec<String> {
     args
 }
 
+/// The `mcpServers` entry for the server, run with `uv`.
 pub fn entry(uv: &Path) -> Value {
     json!({"command": uv.to_string_lossy(), "args": server_args(&[])})
 }
 
+/// What `register` did, for the UI.
 #[derive(Debug, Serialize)]
 pub struct Registration {
+    /// The config file written.
     pub file: String,
+    /// `added`, `replaced` or `unchanged`.
     pub status: &'static str,
+    /// Where the old file was copied, when it was changed.
     pub backup: Option<String>,
 }
 

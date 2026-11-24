@@ -6,6 +6,41 @@
 //! backoff, then the next entry of `fallbacks` is tried. Token use is counted against
 //! optional daily and monthly budgets. API keys come from the caller (the app keeps them
 //! in the OS keychain), never from this config.
+//!
+//! Main items: [`LlmConfig`] and [`Target`] (who answers), [`Client`] (sends chats),
+//! [`KeyFile`] (API keys), [`rag_messages`] (a question with numbered sources).
+//! `Engine::ask` puts search and chat together.
+//!
+//! # Examples
+//!
+//! ```
+//! use desktop_core::llm::{rag_messages, LlmConfig, Provider, Role, Target};
+//! use desktop_core::Hit;
+//!
+//! let cfg = LlmConfig { enabled: true, target: Target { provider: Provider::Ollama, ..Target::default() }, ..LlmConfig::default() };
+//! let cfg = cfg.validated();
+//! assert_eq!(cfg.target.model(), "llama3.2");
+//! assert_eq!(cfg.target.base_url(), "http://127.0.0.1:11434");
+//! assert!(!Provider::Ollama.needs_key());
+//!
+//! let hit = Hit { source: "sky.md".into(), page: None, text: "The sky is blue.".into(), score: 1.0, vector_score: None, keyword_score: None, prov: None };
+//! let messages = rag_messages(None, "What colour is the sky?", &[hit]);
+//! assert_eq!(messages[0].role, Role::System);
+//! assert!(messages[1].content.contains("[1] (sky.md)"));
+//! ```
+//!
+//! Chatting needs a provider (here Claude, with `ANTHROPIC_API_KEY` set):
+//!
+//! ```no_run
+//! use desktop_core::llm::{Client, LlmConfig, Message, Provider, Role};
+//!
+//! let cfg = LlmConfig { enabled: true, ..LlmConfig::default() };
+//! let keys = |p: Provider| p.key_env().and_then(|v| std::env::var(v).ok());
+//! let client = Client::new(cfg, &keys, None);
+//! let reply = client.chat(&[Message::new(Role::User, "Say hello")], &mut |t| print!("{t}"))?;
+//! println!("\n{} tokens", reply.input_tokens + reply.output_tokens);
+//! # Ok::<(), desktop_core::Error>(())
+//! ```
 
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -14,13 +49,18 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Who answers: a cloud API, a local server, or the model built into the app.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
+    /// Claude through Anthropic's Messages API (`ANTHROPIC_API_KEY`).
     #[default]
     Anthropic,
+    /// OpenAI's chat completions API (`OPENAI_API_KEY`).
     Openai,
+    /// Google Gemini through its OpenAI-compatible endpoint (`GEMINI_API_KEY`).
     Gemini,
+    /// A local Ollama server (no key).
     Ollama,
     /// Any server that speaks OpenAI's `/v1/chat/completions` (needs `base_url`).
     Compatible,
@@ -29,6 +69,7 @@ pub enum Provider {
 }
 
 impl Provider {
+    /// Every provider, in the order Settings lists them.
     pub const ALL: [Provider; 6] = [Provider::Anthropic, Provider::Openai, Provider::Gemini, Provider::Ollama, Provider::Compatible, Provider::Local];
 
     /// The name used in settings and the key file.
@@ -43,6 +84,7 @@ impl Provider {
         }
     }
 
+    /// Where the provider's API lives when `base_url` is empty.
     pub fn default_base_url(self) -> &'static str {
         match self {
             Provider::Anthropic => "https://api.anthropic.com",
@@ -54,6 +96,7 @@ impl Provider {
         }
     }
 
+    /// The model used when `model` is empty.
     pub fn default_model(self) -> &'static str {
         match self {
             Provider::Anthropic => "claude-sonnet-5-5",
@@ -74,6 +117,7 @@ impl Provider {
         }
     }
 
+    /// Whether calls need an API key (cloud providers).
     pub fn needs_key(self) -> bool {
         self.key_env().is_some()
     }
@@ -83,6 +127,7 @@ impl Provider {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Target {
+    /// Who answers.
     pub provider: Provider,
     /// Empty: the provider's default model.
     pub model: String,
@@ -97,6 +142,7 @@ impl Default for Target {
 }
 
 impl Target {
+    /// The model to ask: `model`, or the provider's default.
     pub fn model(&self) -> &str {
         if self.model.is_empty() {
             self.provider.default_model()
@@ -105,22 +151,29 @@ impl Target {
         }
     }
 
+    /// The API URL without a trailing slash: `base_url`, or the provider's default.
     pub fn base_url(&self) -> String {
         let b = if self.base_url.is_empty() { self.provider.default_base_url() } else { &self.base_url };
         b.trim_end_matches('/').to_string()
     }
 }
 
+/// AI settings (`llm` in settings). Off by default; keys are not here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct LlmConfig {
+    /// Allow calls at all.
     pub enabled: bool,
+    /// The main provider and model.
     #[serde(flatten)]
     pub target: Target,
     /// Tried in order when the main target fails.
     pub fallbacks: Vec<Target>,
+    /// Sampling temperature (0 to 2).
     pub temperature: f32,
+    /// Longest reply, in tokens.
     pub max_tokens: u32,
+    /// Whole-request timeout per attempt.
     pub timeout_secs: u64,
     /// Retries per target (with exponential backoff) before falling back.
     pub retries: u32,
@@ -128,6 +181,7 @@ pub struct LlmConfig {
     pub system_prompt: Option<String>,
     /// Stop calling once this many tokens (in + out) were used today / this month.
     pub daily_token_budget: Option<u64>,
+    /// Like `daily_token_budget`, per calendar month.
     pub monthly_token_budget: Option<u64>,
     /// Plain-HTTP URLs are allowed only for these hosts (local servers).
     pub http_hosts: Vec<String>,
@@ -151,6 +205,7 @@ pub struct LocalConfig {
     pub gpu_layers: u32,
     /// CPU threads; 0 = one per core.
     pub threads: u32,
+    /// Sampling seed, so the same question gives the same answer.
     pub seed: u32,
     /// Keep the model in memory between questions (faster, uses RAM).
     pub keep_loaded: bool,
@@ -204,38 +259,53 @@ impl LlmConfig {
     }
 }
 
+/// Who wrote a chat message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
+    /// Instructions for the model.
     System,
+    /// The person asking.
     User,
+    /// The model's earlier replies.
     Assistant,
 }
 
+/// One chat message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
+    /// Who wrote it.
     pub role: Role,
+    /// What it says.
     pub content: String,
 }
 
 impl Message {
+    /// A message from `role`.
     pub fn new(role: Role, content: impl Into<String>) -> Self {
         Self { role, content: content.into() }
     }
 }
 
+/// A finished reply and what it cost.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Reply {
+    /// The whole reply text.
     pub text: String,
+    /// Who answered (a fallback, when the main target failed).
     pub provider: Option<Provider>,
+    /// The model that answered.
     pub model: String,
+    /// Prompt tokens, as the provider counted them.
     pub input_tokens: u64,
+    /// Reply tokens, as the provider counted them.
     pub output_tokens: u64,
 }
 
 /// Looks up the API key for a provider (the app: `KeyFile::get`).
 pub type KeyLookup<'a> = &'a dyn Fn(Provider) -> Option<String>;
 
+/// Sends chats per an [`LlmConfig`]: retries, fallbacks, budgets and the network policy.
 pub struct Client<'a> {
     cfg: LlmConfig,
     keys: KeyLookup<'a>,
@@ -538,6 +608,7 @@ never output links or images that are not in the sources.";
 pub struct KeyFile(PathBuf);
 
 impl KeyFile {
+    /// The key file at `path` (it need not exist yet).
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
     }
@@ -546,6 +617,7 @@ impl KeyFile {
         std::fs::read(&self.0).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
+    /// The key for `p`: its environment variable, else the file.
     pub fn get(&self, p: Provider) -> Option<String> {
         if let Some(v) = p.key_env().and_then(|e| std::env::var(e).ok()).filter(|v| !v.trim().is_empty()) {
             return Some(v);
