@@ -368,6 +368,7 @@ impl Local {
             }
             #[cfg(feature = "telemetry")]
             "telemetry_status" => Ok(desktop_core::telemetry::status()),
+            // kitchen:methods (`kitchen generate command` adds methods above this line)
             other => Err(format!("unknown method {other:?}")),
         }
     }

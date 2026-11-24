@@ -40,6 +40,7 @@ mod mcp;
 {% endif %}mod guard;
 mod paths;
 mod service;
+// kitchen:mods (`kitchen generate command` adds modules above this line)
 {% if single_instance %}#[cfg(all(desktop, feature = "single-instance"))]
 mod single;
 {% endif %}{% if updater %}#[cfg(all(desktop, feature = "updater"))]
@@ -688,6 +689,7 @@ pub fn run() {
             python::python_call,
             #[cfg(all(desktop, feature = "claude-mcp"))]
             claude::register_claude,
+            // kitchen:handlers
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

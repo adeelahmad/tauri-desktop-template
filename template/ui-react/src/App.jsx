@@ -9,6 +9,7 @@ import Settings from './Settings.jsx';
 import Ask from './Ask.jsx';
 import Dictate from './Dictate.jsx';
 import { provenance } from './provenance.js';
+// kitchen:imports (`kitchen generate page` adds imports above this line)
 
 function describe(info, status) {
   if (!info) return '';
@@ -375,6 +376,7 @@ export default function App() {
           {f.backgroundAgent && <BackgroundAgent />}
           {f.pythonExample && <PythonExample />}
           {f.claudeMcp && <ClaudeDesktop />}
+          {/* kitchen:pages */}
         </main>
       )}
       <footer>
