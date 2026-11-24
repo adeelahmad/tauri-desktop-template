@@ -195,6 +195,12 @@ const FIELDS = [
   ['webview', 'maxWindows', 'Most web view windows open at once', 'number', { needs: 'webview', min: 1, max: 64 }],
   ['webview', 'bridge', 'Message bridge for trusted pages (window.kitchenBridge)', 'bool', { needs: 'webview' }],
   ['webview', 'bridgeHosts', 'Hosts that may use the bridge (must be allowed above)', 'list', { needs: 'webview', lines: true }],
+  ['httpApi', 'enabled', 'Serve the local HTTP API', 'bool', { needs: 'httpApi' }],
+  ['httpApi', 'host', 'Listen on (127.0.0.1 = this computer only)', 'text', { needs: 'httpApi' }],
+  ['httpApi', 'port', 'Port (0 = any free port)', 'number', { needs: 'httpApi', min: 0, max: 65535 }],
+  ['httpApi', 'corsOrigins', 'Browser origins allowed (CORS)', 'list', { needs: 'httpApi', lines: true }],
+  ['httpApi', 'maxBodyKb', 'Largest request (KB)', 'number', { needs: 'httpApi', min: 1 }],
+  ['httpApi', 'timeoutSecs', 'Request timeout (seconds)', 'number', { needs: 'httpApi', min: 1, max: 3600 }],
   ['telemetry', 'otlpHeaders', 'OTLP headers (key=value, comma separated)', 'text', { needs: 'telemetry' }],
   ['telemetry', 'environment', 'Environment name', 'text', { needs: 'telemetry' }],
   ['watch', 'enabled', 'Watch folders and ingest new files', 'bool', { needs: 'watch' }],
@@ -230,6 +236,7 @@ const TITLES = {
   jobs: 'Jobs',
   rclone: 'Cloud sync',
   tailscale: 'Tailnet',
+  httpApi: 'HTTP API',
   webview: 'Web views',
   watch: 'Watch folders',
   tray: 'Tray & shortcuts',
@@ -670,6 +677,48 @@ function WebviewTry() {
       </button>
       <span className="hint">{msg}</span>
     </div>
+  );
+}
+
+// The local REST API: where it listens and the token scripts send (Authorization: Bearer).
+function HttpApiInfo() {
+  const [r, setR] = useState(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    invoke('http_api_info').then(setR, (e) => setMsg(String(e)));
+  }, []);
+  const copy = async (text, what) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setMsg(`${what} copied.`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  if (!r) return <div className="hint">{msg}</div>;
+  return (
+    <>
+      <div className="hint">
+        {r.running ? `Listening on ${r.url}.` : r.error ? `Not running: ${r.error}` : 'Not running. Turn it on and save settings.'}
+      </div>
+      {r.url && (
+        <div className="row">
+          <code>{r.url}</code>
+          <button className="link" onClick={() => copy(r.url, 'URL')}>
+            Copy URL
+          </button>
+        </div>
+      )}
+      {r.token && (
+        <div className="row">
+          <code>{`${r.token.slice(0, 8)}…`}</code>
+          <button className="link" onClick={() => copy(r.token, 'Token')}>
+            Copy token
+          </button>
+        </div>
+      )}
+      <span className="hint">{msg || 'Send the token as Authorization: Bearer <token>. Keep it secret.'}</span>
+    </>
   );
 }
 
@@ -1269,6 +1318,7 @@ export default function Settings({ features }) {
     jobs: 'jobs',
     rclone: 'rclone',
     tailscale: 'tailscale',
+    httpApi: 'httpApi',
     webview: 'webview',
     telemetry: 'telemetry',
     tray: 'trayMenu',
@@ -1286,6 +1336,7 @@ export default function Settings({ features }) {
     'rclone',
     'mail',
     'tailscale',
+    'httpApi',
     'webview',
     'plugins',
     'net',
@@ -1337,6 +1388,7 @@ export default function Settings({ features }) {
           {s === 'jobs' && <JobsPanel />}
           {s === 'rclone' && <RcloneSetup />}
           {s === 'tailscale' && <TailscaleStatus />}
+          {s === 'httpApi' && <HttpApiInfo />}
           {s === 'webview' && <WebviewTry />}
           {s === 'tray' && <TrayShortcuts cfg={cfg} setCfg={setCfg} />}
         </details>

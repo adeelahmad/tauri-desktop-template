@@ -18,7 +18,7 @@
 //! [`chunk`], [`store`], [`fuse`], [`jobs`] (crash-safe ingest), [`backup`], [`logging`],
 //! [`net`], [`governor`] (CPU share and priority), [`audio`]. Feature modules: `embed`,
 //! `pdf`, `pgstore`, `watch`, `llm` (feature `ai`), `local` (feature `llama`), `mcp`,
-//! `tts`, `stt`, `mail`, `telemetry`, `webview`.
+//! `tts`, `stt`, `mail`, `telemetry`, `webview`, `http_api` (a local REST API, feature `http-api`).
 //!
 //! # Example
 //!
@@ -86,6 +86,8 @@ pub mod plugin;
 pub mod rclone;
 {% endif %}{% if tailscale %}#[cfg(feature = "tailscale")]
 pub mod tailscale;
+{% endif %}{% if http_api %}#[cfg(feature = "http-api")]
+pub mod http_api;
 {% endif %}{% if webview %}#[cfg(feature = "webview")]
 pub mod webview;
 {% endif %}{% if tray_menu %}#[cfg(feature = "tray-menu")]

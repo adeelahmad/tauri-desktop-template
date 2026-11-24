@@ -32,6 +32,7 @@ kitchen generate page Reports                                 # React page on th
 kitchen generate job send_digest                              # background job type (needs background_jobs)
 kitchen generate menu export_csv --label "Export CSV" --shortcut CmdOrCtrl+Shift+E   # app action in the app menu (tray_menu)
 kitchen generate shortcut search CmdOrCtrl+Alt+F              # default global shortcut for an action (tray_menu)
+kitchen generate route export_csv                             # POST /v1/export_csv on the HTTP API (http_api)
 
 kitchen doctor                    # Rust, cargo-generate, Tauri CLI, Node, WebKitGTK/Xcode, the app's markers and AGENTS.md
 kitchen dev | kitchen build       # cargo tauri dev / build

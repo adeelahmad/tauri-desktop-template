@@ -17,7 +17,8 @@
 //! - `webview_open`, `webview_close`, `webview_post` (feature `webview`, desktop only),
 //! - `jobs_list`, `jobs_enqueue`, `jobs_cancel`, `jobs_retry`, `jobs_schedules` and
 //!   `jobs_set_schedule` (feature `jobs-queue`),
-//! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu).
+//! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu),
+//! - `http_api_info`: the local REST API's URL and token (feature `http-api`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
 //! separate worker process over a local socket with feature `ipc-worker`.
@@ -49,7 +50,7 @@
 //!
 //! Modules: `service` (the backend), `paths` (folders and profiles), `guard` (window
 //! security), and per feature `ipc` + `agent` (worker process and login agent), `mcp`,
-//! `update`, `single`, `python`, `claude`, `webview`.
+//! `update`, `single`, `python`, `claude`, `webview`, `http` (the local REST API).
 //!
 //! # Example
 //!
@@ -84,6 +85,8 @@ mod python;
 mod mcp;
 {% endif %}{% if webview %}#[cfg(all(desktop, feature = "webview"))]
 mod webview;
+{% endif %}{% if http_api %}#[cfg(all(desktop, feature = "http-api"))]
+mod http;
 {% endif %}mod guard;
 mod paths;
 mod service;
@@ -146,11 +149,23 @@ fn settings_at(file: &Path) -> Settings {
 
 /// Written to a temporary file and renamed, so a crash never leaves half a settings file.
 fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
-    let file = settings_file(app)?;
+    write_settings(&settings_file(app)?, s)
+}
+
+fn write_settings(file: &Path, s: &Settings) -> Result<(), String> {
     std::fs::create_dir_all(file.parent().ok_or("no config folder")?).map_err(err)?;
     let tmp = file.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(s).map_err(err)?).map_err(err)?;
-    std::fs::rename(&tmp, &file).map_err(err)
+    std::fs::rename(&tmp, file).map_err(err)
+}
+
+/// Save `config` as the settings' `config` part (`PUT /v1/settings` on the HTTP API).
+#[cfg(all(desktop, feature = "http-api"))]
+fn save_config(config: Config) -> Result<(), String> {
+    let file = paths::app_dirs().0.join("settings.json");
+    let mut s = settings_at(&file);
+    s.config = config;
+    write_settings(&file, &s)
 }
 
 /// Which optional parts this build has. On iOS and Android the desktop-only parts
@@ -174,6 +189,7 @@ fn features() -> Value {
         "rclone": cfg!(feature = "rclone"),
         "tailscale": cfg!(feature = "tailscale"),
         "webview": cfg!(all(desktop, feature = "webview")),
+        "httpApi": cfg!(all(desktop, feature = "http-api")),
         "telemetry": cfg!(feature = "telemetry"),
         "mcp": cfg!(all(desktop, feature = "mcp")),
         "pdf": cfg!(feature = "pdf"),
@@ -293,7 +309,11 @@ fn run_setup(app: tauri::AppHandle, state: tauri::State<AppState>, backend: Opti
         };
         let done = match serde_json::to_value(&opts).map_err(err).and_then(|o| service.call("setup", o, &mut progress)) {
             Ok(status) => match save_settings(&app, &settings) {
-                Ok(()) => Done { ok: true, status: Some(status), error: None },
+                Ok(()) => {
+                    #[cfg(all(desktop, feature = "http-api"))]
+                    http::apply(service.clone(), &settings.config.http_api);
+                    Done { ok: true, status: Some(status), error: None }
+                }
                 Err(e) => Done { ok: false, status: Some(status), error: Some(e) },
             },
             Err(e) => Done { ok: false, status: None, error: Some(e) },
@@ -346,6 +366,8 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     let mut s = load_settings(&app);
     s.config = applied.clone();
     save_settings(&app, &s)?;
+    #[cfg(all(desktop, feature = "http-api"))]
+    http::apply(state.service.clone(), &applied.http_api);
     // The tray, the menus and the shortcuts change at once.
     #[cfg(all(desktop, feature = "tray-menu"))]
     tray::apply(&app, &applied);
@@ -956,6 +978,8 @@ pub fn run() {
             tailscale_status,
             #[cfg(feature = "tailscale")]
             tailscale_apply,
+            #[cfg(all(desktop, feature = "http-api"))]
+            http::http_api_info,
             #[cfg(feature = "jobs-queue")]
             jobs_list,
             #[cfg(feature = "jobs-queue")]
@@ -1038,6 +1062,8 @@ fn guarded(handler: fn(tauri::ipc::Invoke) -> bool) -> fn(tauri::ipc::Invoke) ->
 /// files (the rest is journaled and resumes next time), telemetry is flushed, then the
 /// worker and the database stop. A worker kept by the background agent keeps running.
 fn on_exit(app: &tauri::AppHandle) {
+    #[cfg(all(desktop, feature = "http-api"))]
+    http::stop();
     if let Some(state) = app.try_state::<AppState>() {
         let _ = state.service.call("cancel_ingest", Value::Null, &mut |_| {});
     }

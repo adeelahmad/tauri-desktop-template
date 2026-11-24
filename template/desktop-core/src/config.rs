@@ -75,6 +75,9 @@ pub struct Config {
 {% endif %}{% if tailscale %}    /// Sharing a local endpoint with your tailnet.
     #[cfg(feature = "tailscale")]
     pub tailscale: crate::tailscale::TailscaleConfig,
+{% endif %}{% if http_api %}    /// The local REST API: on or off, host and port, CORS origins, limits.
+    #[cfg(feature = "http-api")]
+    pub http_api: crate::http_api::HttpApiConfig,
 {% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
     #[cfg(feature = "webview")]
     pub webview: crate::webview::WebviewConfig,
@@ -309,6 +312,10 @@ impl Config {
 {% endif %}{% if tailscale %}        #[cfg(feature = "tailscale")]
         {
             self.tailscale = self.tailscale.validated();
+        }
+{% endif %}{% if http_api %}        #[cfg(feature = "http-api")]
+        {
+            self.http_api = self.http_api.validated();
         }
 {% endif %}{% if webview %}        #[cfg(feature = "webview")]
         {

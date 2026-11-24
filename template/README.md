@@ -71,6 +71,9 @@ Everything runs on the user's machine.
 {% if tailscale -%}
 | Tailscale: status, and `tailscale serve` to reach a local MCP/HTTP port from your tailnet (never Funnel, never installs anything). Settings → Tailnet | `desktop-core/src/tailscale.rs` | `tailscale` |
 {% endif -%}
+{% if http_api -%}
+| Local REST API (Axum): health, features, status, search, settings, documents{% if ai %}, ask{% endif %}{% if background_jobs %}, jobs{% endif %} over HTTP for scripts, agents and browser UIs; 127.0.0.1 only, bearer token (owner-only file), no CORS until you list origins, request IDs, timeout, body limit. Turn on under Settings → HTTP API | `desktop-core/src/http_api/` | `http-api` |
+{% endif -%}
 {% if webview -%}
 | Embedded web views (desktop): allowlisted remote pages in the app's own windows, with no Tauri IPC for them, cookies kept per profile (or incognito), and an opt-in message bridge. Settings → Web views | `desktop-core/src/webview.rs`, `src-tauri/src/webview.rs` | `webview` |
 {% endif -%}
@@ -350,6 +353,10 @@ is off by default; values are clamped to safe ranges.
 {% if tailscale -%}
 | `tailscale.enabled`, `tailscale.serve`, `tailscale.port`, `tailscale.httpsPort` | off, off, 0, 443 | share `127.0.0.1:<port>` at `https://<machine>.<tailnet>.ts.net` |
 {% endif -%}
+{% if http_api -%}
+| `httpApi.enabled`, `httpApi.host`, `httpApi.port` | off, `127.0.0.1`, 0 | the local REST API; port 0 = any free port (Settings shows the URL) |
+| `httpApi.corsOrigins`, `httpApi.maxBodyKb`, `httpApi.timeoutSecs` | none, 1024, 30 | browser origins allowed (`https://app.example.com`), largest body, request timeout |
+{% endif -%}
 {% if webview -%}
 | `webview.enabled`, `webview.allow`, `webview.blocked` | off, empty, `refuse` | open remote pages in the app; hosts shown (`example.com`, `*.example.com`; never `*`); `browser` hands other pages to the system browser |
 | `webview.isolation`, `webview.allowHttp`, `webview.maxWindows` | `profile`, off, 8 | cookies per profile or `incognito`; plain HTTP on allowed hosts; window limit |
@@ -431,6 +438,45 @@ Tailscale is never installed by the app: without the `tailscale` CLI, Settings �
 links to <https://tailscale.com/download>. With it, **Apply sharing** runs
 `tailscale serve --bg --https=<port> http://127.0.0.1:<local port>`, reachable only inside
 your tailnet; turning it off removes only that mapping.
+
+{% endif -%}
+{% if http_api -%}
+### HTTP API
+
+Turn it on under Settings → HTTP API, which shows the URL and the token (with copy buttons).
+The token is made on first use and kept owner-only in `<data>/api-token`; every request
+needs it, and a release build refuses to start the API without one. It listens on
+`127.0.0.1` only unless you change `httpApi.host`, and browsers can call it only from the
+origins listed in `httpApi.corsOrigins`. Errors always have one shape:
+`{"error": {"code", "message", "requestId", "fields"?}}`, and `requestId` matches the
+`x-request-id` header and the log lines.
+
+```sh
+API=http://127.0.0.1:<port>; TOKEN=$(cat "<data folder>/api-token")
+curl -H "Authorization: Bearer $TOKEN" $API/health
+curl -H "Authorization: Bearer $TOKEN" $API/v1/features
+curl -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"source": "notes.md", "text": "The heart pumps blood."}' $API/v1/documents
+curl -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"query": "heart", "page": 1, "perPage": 5}' $API/v1/search
+curl -H "Authorization: Bearer $TOKEN" $API/v1/settings > settings.json   # edit, then:
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     --data @settings.json $API/v1/settings
+curl -X DELETE -H "Authorization: Bearer $TOKEN" "$API/v1/documents?source=notes.md"
+{% if ai -%}
+curl -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"question": "What does the heart do?"}' $API/v1/ask
+{% endif -%}
+{% if background_jobs -%}
+curl -H "Authorization: Bearer $TOKEN" $API/v1/jobs
+curl -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"kind": "<job type>", "payload": {}}' $API/v1/jobs
+curl -X POST -H "Authorization: Bearer $TOKEN" $API/v1/jobs/<id>/cancel     # or /retry
+{% endif -%}
+```
+
+`kitchen generate route <name>` adds `POST /v1/<name>` for a backend method (one made with
+`kitchen generate command <name>`, for example). Routes live in `desktop-core/src/http_api/routes.rs`.
 
 {% endif -%}
 {% if webview -%}
