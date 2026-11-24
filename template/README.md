@@ -227,6 +227,7 @@ make setup       # once: Tauri CLI + pre-commit hooks
 make dev         # run the app with hot reload
 make test        # tests (no downloads)
 make lint        # fmt, clippy, linters, pre-commit hooks
+make check-windows  # clippy the Windows build from Linux or macOS (cargo-xwin)
 make self-test   # what CI checks on every installer
 make help        # everything else (db-up, docker-test, build, …)
 ```

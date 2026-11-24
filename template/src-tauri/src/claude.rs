@@ -68,9 +68,19 @@ pub fn bundled_uv() -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(exe("uv"))).find(|c| c.is_file()))
 }
 
+/// `uv` as a command with no console window (the windowed app has none to share, so
+/// Windows would open one for it).
+fn uv_command(uv: &Path) -> std::process::Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut c = std::process::Command::new(uv);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000); // CREATE_NO_WINDOW
+    c
+}
+
 /// `uv --version` of the bundled uv, when there is one.
 pub fn uv_version() -> Option<String> {
-    let out = std::process::Command::new(bundled_uv()?).arg("--version").output().ok()?;
+    let out = uv_command(&bundled_uv()?).arg("--version").output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
@@ -170,7 +180,7 @@ pub fn register_claude(app: tauri::AppHandle) -> Result<Registration, String> {
     let uv = install_uv(&app.path().app_data_dir().map_err(|e| e.to_string())?)?;
     let reg = register(&config_file(), entry(&uv))?;
     std::thread::spawn(move || {
-        let ok = desktop_core::net::apply_env(&mut std::process::Command::new(&uv))
+        let ok = desktop_core::net::apply_env(&mut uv_command(&uv))
             .args(server_args(&["--help"]))
             .stdin(std::process::Stdio::null())
             .output()

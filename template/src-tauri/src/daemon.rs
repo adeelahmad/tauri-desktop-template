@@ -80,7 +80,7 @@ use crate::service::{Local, Service};
 use desktop_core::daemon::{backoff, elevated_command, now_secs, Health, Level, RunAs, ServiceSpec, HEARTBEAT_SECS, STABLE_SECS};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -520,8 +520,9 @@ pub fn spec(level: Level) -> Result<ServiceSpec, String> {
 }
 
 /// Create `dir` and the missing folders above it, owned by `user` (a system service
-/// writes its log there as that user).
-fn create_owned(dir: &Path, user: Option<&str>) -> Result<(), String> {
+/// writes its log there as that user). Not on Windows, where the service runs as LocalSystem.
+#[cfg(not(windows))]
+fn create_owned(dir: &std::path::Path, user: Option<&str>) -> Result<(), String> {
     let mut missing = Vec::new();
     let mut d = Some(dir);
     while let Some(p) = d.filter(|p| !p.exists()) {
@@ -707,8 +708,17 @@ mod manager {
         ServiceLabel { qualifier: None, organization: None, application: label() }
     }
 
+    /// `reg.exe` with no console window: the Settings page calls it from the windowed app,
+    /// which has no console to share, so each call would flash one.
+    fn reg_cmd() -> Command {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("reg");
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
+    }
+
     fn reg(args: &[&str]) -> Result<(), String> {
-        let out = Command::new("reg").args(args).output().map_err(|e| format!("reg: {e}"))?;
+        let out = reg_cmd().args(args).output().map_err(|e| format!("reg: {e}"))?;
         if out.status.success() {
             Ok(())
         } else {
@@ -799,7 +809,7 @@ mod manager {
     pub fn state(level: Level) -> (bool, bool) {
         match level {
             Level::User => {
-                let installed = Command::new("reg").args(["query", RUN_KEY, "/v", &label()]).output().is_ok_and(|o| o.status.success());
+                let installed = reg_cmd().args(["query", RUN_KEY, "/v", &label()]).output().is_ok_and(|o| o.status.success());
                 (installed, super::ping_daemon().is_some())
             }
             Level::System => match ScServiceManager::system().status(ServiceStatusCtx { label: sm_label() }) {
