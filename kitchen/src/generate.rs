@@ -63,6 +63,28 @@ fn to_title(name: &str) -> String {
     s[..1].to_uppercase() + &s[1..]
 }
 
+/// The built-in file templates. An app can replace any of them with its own copy in
+/// `.kitchen/templates/<file>` (copy one from the `kitchen` repo and edit it).
+const BUILT_IN: &[(&str, &str)] = &[
+    ("module.rs", include_str!("../templates/module.rs")),
+    ("module_config.rs", include_str!("../templates/module_config.rs")),
+    ("command.rs", include_str!("../templates/command.rs")),
+    ("page.jsx", include_str!("../templates/page.jsx")),
+];
+
+/// Fill a file template: `{{name}}` style variables, from the app's override if it has one.
+fn body(root: &Path, file: &str, vars: &[(&str, String)]) -> Result<String> {
+    let custom = root.join(".kitchen/templates").join(file);
+    let mut text = match std::fs::read_to_string(&custom) {
+        Ok(t) => t,
+        Err(_) => BUILT_IN.iter().find(|(n, _)| *n == file).map(|(_, t)| t.to_string()).ok_or_else(|| Error::Usage(format!("no template {file}")))?,
+    };
+    for (k, v) in vars {
+        text = text.replace(&format!("{{{{{k}}}}}"), v);
+    }
+    Ok(text)
+}
+
 /// Files a generator writes, kept in memory until all of them are ready, so a failure
 /// leaves the app untouched.
 #[derive(Default)]
@@ -112,86 +134,9 @@ impl Edits {
 pub fn module(root: &Path, name: &str, config: bool, opts: &Options) -> Result<Report> {
     check_name(name)?;
     let (p, camel, title) = (to_pascal(name), to_camel(name), to_title(name));
+    let vars = [("name", name.to_string()), ("Name", p.clone()), ("camelName", camel.clone()), ("Title", title.clone())];
     let mut e = Edits::default();
-    let body = if config {
-        format!(
-            r#"//! {title}: say in one line what this module does.
-//!
-//! Its settings are `{camel}` in the app's settings (Settings → {title}).
-//!
-//! ```
-//! use desktop_core::{name}::{{{p}Config, greet}};
-//!
-//! let config = {p}Config {{ enabled: true, ..{p}Config::default() }};
-//! assert_eq!(greet(&config, "world"), Some("Hello, world!".to_string()));
-//! ```
-
-use serde::{{Deserialize, Serialize}};
-
-/// Settings for this module.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct {p}Config {{
-    /// Turn the module on.
-    pub enabled: bool,
-    // kitchen:fields (`kitchen generate setting {name}.<key> <type>` adds fields above this line)
-}}
-
-impl Default for {p}Config {{
-    fn default() -> Self {{
-        Self {{
-            enabled: false,
-            // kitchen:defaults
-        }}
-    }}
-}}
-
-impl {p}Config {{
-    /// Clamp values into safe ranges (called whenever settings are loaded or changed).
-    pub fn validated(self) -> Self {{
-        self
-    }}
-}}
-
-/// An example to replace: a greeting when the module is on.
-pub fn greet(config: &{p}Config, who: &str) -> Option<String> {{
-    config.enabled.then(|| format!("Hello, {{who}}!"))
-}}
-
-#[cfg(test)]
-mod tests {{
-    use super::*;
-
-    #[test]
-    fn off_by_default() {{
-        assert_eq!(greet(&{p}Config::default(), "x"), None);
-    }}
-}}
-"#
-        )
-    } else {
-        format!(
-            r#"//! {title}: say in one line what this module does.
-//!
-//! ```
-//! assert_eq!(desktop_core::{name}::greet("world"), "Hello, world!");
-//! ```
-
-/// An example to replace.
-pub fn greet(who: &str) -> String {{
-    format!("Hello, {{who}}!")
-}}
-
-#[cfg(test)]
-mod tests {{
-    #[test]
-    fn greets() {{
-        assert_eq!(super::greet("x"), "Hello, x!");
-    }}
-}}
-"#
-        )
-    };
+    let body = body(root, if config { "module_config.rs" } else { "module.rs" }, &vars)?;
     let core = root.join("desktop-core/src");
     e.create(core.join(format!("{name}.rs")), body)?;
     e.insert(core.join("lib.rs"), "// kitchen:modules", &format!("pub mod {name};\n"))?;
@@ -248,50 +193,15 @@ pub fn setting(root: &Path, path: &str, kind: &str, default: Option<&str>, label
 pub fn command(root: &Path, name: &str, opts: &Options) -> Result<Report> {
     check_name(name)?;
     let src = root.join("src-tauri/src");
+    let vars = [("name", name.to_string())];
     let mut e = Edits::default();
     e.create(
         src.join(format!("{name}.rs")),
-        format!(
-            r#"//! The `{name}` command. From the UI:
-//!
-//! ```js
-//! const reply = await invoke('{name}', {{ input: {{ text: 'hello' }} }});
-//! ```
-
-use serde_json::{{json, Value}};
-
-/// The work itself, kept free of Tauri so it is easy to test.
-pub fn handle(input: &Value) -> Result<Value, String> {{
-    Ok(json!({{ "echo": input }}))
-}}
-
-/// Runs in the backend (this process or the worker), with the engine at hand.
-pub fn run(engine: &desktop_core::Engine, input: Value) -> Result<Value, String> {{
-    let _ = engine; // search, ingest, config ... are all on the engine
-    handle(&input)
-}}
-
-/// The command the UI invokes.
-#[tauri::command(async)]
-pub fn {name}(state: tauri::State<crate::AppState>, input: Value) -> Result<Value, String> {{
-    crate::call(&state, "{name}", input)
-}}
-
-#[cfg(test)]
-mod tests {{
-    use super::*;
-
-    #[test]
-    fn echoes() {{
-        assert_eq!(handle(&json!(1)).unwrap(), json!({{ "echo": 1 }}));
-    }}
-}}
-"#
-        ),
+        body(root, "command.rs", &vars)?,
     )?;
     e.insert(src.join("lib.rs"), "// kitchen:mods", &format!("mod {name};\n"))?;
     e.insert(src.join("lib.rs"), "// kitchen:handlers", &format!("            {name}::{name},\n"))?;
-    e.insert(src.join("service.rs"), "// kitchen:methods", &format!("            \"{name}\" => crate::{name}::run(&self.engine()?, params),\n"))?;
+    e.insert(src.join("service.rs"), "// kitchen:methods", &format!("            \"{name}\" => crate::{name}::run(self.engine()?.as_ref(), params),\n"))?;
     let mut r = e.finish(root, format!("Generated command {name}"), opts)?;
     r.next = vec![format!("Edit src-tauri/src/{name}.rs, then call invoke('{name}', {{ input }}) from the UI")];
     Ok(r)
@@ -308,35 +218,11 @@ pub fn page(root: &Path, name: &str, opts: &Options) -> Result<Report> {
         return Err(Error::Usage("pages need the React frontend: `kitchen set frontend=react`".into()));
     }
     let title = to_title(&pascal);
+    let vars = [("Name", pascal.clone()), ("Title", title)];
     let mut e = Edits::default();
     e.create(
         ui.join(format!("{pascal}.jsx")),
-        format!(
-            r#"// The {title} page. Talk to the backend with invoke('<command>', {{ ... }});
-// `kitchen generate command <name>` makes a new command.
-import {{ useState }} from 'react';
-import {{ invoke }} from '@tauri-apps/api/core';
-
-export default function {pascal}() {{
-  const [text, setText] = useState('');
-  const load = async () => {{
-    try {{
-      const info = await invoke('app_info');
-      setText(`${{info.name}} ${{info.version}}`);
-    }} catch (e) {{
-      setText(String(e));
-    }}
-  }};
-  return (
-    <section>
-      <h2>{title}</h2>
-      <button onClick={{load}}>Load</button>
-      <p className="hint">{{text || 'Edit ui-react/src/{pascal}.jsx.'}}</p>
-    </section>
-  );
-}}
-"#
-        ),
+        body(root, "page.jsx", &vars)?,
     )?;
     e.insert(ui.join("App.jsx"), "// kitchen:imports", &format!("import {pascal} from './{pascal}.jsx';\n"))?;
     e.insert(ui.join("App.jsx"), "{/* kitchen:pages */}", &format!("          <{pascal} />\n"))?;
@@ -394,7 +280,7 @@ mod tests {
         command(t.path(), "export_csv", &o).unwrap();
         assert!(read(&t, "src-tauri/src/lib.rs").contains("mod export_csv;\n// kitchen:mods"));
         assert!(read(&t, "src-tauri/src/lib.rs").contains("            export_csv::export_csv,\n            // kitchen:handlers"));
-        assert!(read(&t, "src-tauri/src/service.rs").contains("\"export_csv\" => crate::export_csv::run(&self.engine()?, params),"));
+        assert!(read(&t, "src-tauri/src/service.rs").contains("\"export_csv\" => crate::export_csv::run(self.engine()?.as_ref(), params),"));
         page(t.path(), "reports", &o).unwrap();
         assert!(read(&t, "ui-react/src/App.jsx").contains("import Reports from './Reports.jsx';\n// kitchen:imports"));
         assert!(read(&t, "ui-react/src/App.jsx").contains("<Reports />\n          {/* kitchen:pages */}"));
