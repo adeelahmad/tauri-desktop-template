@@ -37,7 +37,15 @@ fn engine_backend(engine: Arc<Engine>) -> impl Fn(&str, Value) -> Result<Value, 
                 cfg.top_k = p["k"].as_u64().unwrap_or(10) as usize;
                 to(e.search_with(&text("query"), &cfg).map(|h| json!(h)))
             }
-            other => Err(format!("unknown method {other:?}")),
+{% if kv %}            #[cfg(feature = "kv")]
+            "kv_get" => to(e.kv_exposed(&text("ns")).and_then(|ns| ns.get_json::<Value>(&text("key"))).map(|v| json!(v))),
+            #[cfg(feature = "kv")]
+            "kv_set" => to(e.kv_exposed(&text("ns")).and_then(|ns| ns.set_json(&text("key"), &p["value"])).map(|()| Value::Null)),
+            #[cfg(feature = "kv")]
+            "kv_delete" => to(e.kv_exposed(&text("ns")).and_then(|ns| ns.delete(&text("key"))).map(|d| json!(d))),
+            #[cfg(feature = "kv")]
+            "kv_list" => to(e.kv_exposed(&text("ns")).and_then(|ns| ns.entries(&text("prefix"))).map(|l| json!(l))),
+{% endif %}            other => Err(format!("unknown method {other:?}")),
         }
     }
 }
@@ -216,5 +224,27 @@ fn jobs_routes_call_the_queue_methods() {
     let (_, _, b) = api.send("POST", "/v1/jobs/j-1/retry", None);
     assert_eq!(b, json!({"method": "jobs_retry", "params": {"id": "j-1"}}));
     assert_eq!(api.send("POST", "/v1/jobs/j-1/cancel", None).2["method"], "jobs_cancel");
+}
+{% endif %}
+{% if kv %}
+#[cfg(feature = "kv")]
+#[test]
+fn kv_routes_reach_only_the_ui_namespaces() {
+    let api = start();
+    let (s, _, _) = api.send("PUT", "/v1/kv/ui/theme", Some(json!({"value": {"mode": "dark"}})));
+    assert_eq!(s, 200);
+    let (s, _, b) = api.send("GET", "/v1/kv/ui/theme", None);
+    assert_eq!((s, b), (200, json!({"key": "theme", "value": {"mode": "dark"}})));
+    let (_, _, b) = api.send("GET", "/v1/kv/ui?prefix=th", None);
+    assert_eq!(b[0]["key"], "theme");
+    let (s, h, b) = api.send("GET", "/v1/kv/secrets/token", None);
+    assert_error(s, &h, &b, 403, "forbidden");
+    let (s, h, b) = api.send("PUT", "/v1/kv/secrets/token", Some(json!({"value": 1})));
+    assert_error(s, &h, &b, 403, "forbidden");
+    let (s, h, b) = api.send("PUT", "/v1/kv/ui/x", Some(json!({"value": 1, "ttlSecs": 0})));
+    assert_error(s, &h, &b, 422, "validation");
+    assert_eq!(api.send("DELETE", "/v1/kv/ui/theme", None).2, json!({"deleted": true}));
+    let (s, h, b) = api.send("GET", "/v1/kv/ui/theme", None);
+    assert_error(s, &h, &b, 404, "not_found");
 }
 {% endif %}

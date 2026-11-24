@@ -23,6 +23,8 @@ feature afterwards.
 | `single_instance` | A second launch brings the running window to the front and exits, so two copies never share the index or embedded Postgres. Standard library only (file lock + loopback knock). Default off |
 | `mcp_server` | A Model Context Protocol server written in Rust (stdio, `app --mcp`), so Claude Desktop, Claude Code and other MCP clients can search the documents. Read-only tools by default; write tools, a tool allowlist and an audit log are settings. One click adds it to Claude Desktop. No extra dependencies. Default off |
 | `evals` | Search and RAG evals in Rust: recall@k, MRR, nDCG@k and p50/p95 latency for keyword, vector and hybrid search on a JSONL dataset, an optional AI answer path with an LLM faithfulness judge, and a saved baseline that fails on regressions (`<app> --eval`, `kitchen eval`, `make eval`). Default off |
+| `kv` | A built-in key-value store in pure Rust (redb: one ACID, crash-safe file): namespaces, typed JSON values, a TTL per key, compare-and-swap, counters and multi-key transactions, size caps, optional ChaCha20-Poly1305 encryption per namespace, included in backups. The window, HTTP API and MCP tools reach only the namespaces you list (default `ui`). No Postgres needed. Default off |
+| `cache` | A built-in in-memory cache (moka, W-TinyLFU): TTL and time to idle, a size cap in bytes, hit/miss stats, single-flight loading, optionally persisted to `kv`. Settings shows its stats with a Clear button. Default off |
 | `pdf` | PDF text via docling.rs, tesseract OCR for pages without a text layer |
 | `ipc_worker` | Backend in its own process (`app --worker`) over a Unix socket / named pipe |
 | `background_agent` | Starts the worker at login: macOS launchd LaunchAgent, Windows Run entry, Linux systemd user unit |
@@ -106,6 +108,8 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
 | `i18n` | fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
+| `kv` | redb: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `cache` | moka: (MIT OR Apache-2.0) AND Apache-2.0 | none (MIT / Apache-2.0) |
 <!-- /kitchen:feature-dependencies -->
 
 ## Use

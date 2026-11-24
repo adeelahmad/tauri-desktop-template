@@ -118,6 +118,12 @@ pub struct Engine {
 {% endif %}{% if ai %}    /// Answers to `ask` (`llm.cache`), emptied whenever the index changes.
     #[cfg(feature = "ai")]
     answers: crate::cache::SemanticCache,
+{% endif %}{% if kv %}    /// The key-value store (feature `kv`), opened on first use.
+    #[cfg(feature = "kv")]
+    kv: crate::kv::Lazy,
+{% endif %}{% if cache %}    /// The app's in-memory cache (feature `cache`).
+    #[cfg(feature = "cache")]
+    cache: crate::cache::AppCache,
 {% endif %}}
 
 /// What `ingest_paths` did.
@@ -169,6 +175,10 @@ impl Engine {
             plugins: crate::plugin::builtin(),
 {% endif %}{% if ai %}            #[cfg(feature = "ai")]
             answers: crate::cache::SemanticCache::new(data_dir.join("answer-cache.jsonl")),
+{% endif %}{% if kv %}            #[cfg(feature = "kv")]
+            kv: crate::kv::Lazy::new(data_dir),
+{% endif %}{% if cache %}            #[cfg(feature = "cache")]
+            cache: crate::cache::AppCache::new(),
 {% endif %}        };
         let want = engine.embedder.as_ref().map(|e| e.name());
         if engine.store.embedder()? != want {
@@ -242,7 +252,45 @@ impl Engine {
     pub fn config(&self) -> Config {
         self.config.read().map(|c| c.clone()).unwrap_or_default()
     }
+{% if kv %}
+    /// The key-value store in `<data>/kv.redb` (feature `kv`), opened on first use with the
+    /// `kv` settings. Any namespace works here; the UI, the HTTP API and MCP tools go through
+    /// [`Engine::kv_exposed`].
+    #[cfg(feature = "kv")]
+    pub fn kv(&self) -> Result<crate::kv::Kv> {
+        self.kv.get(&self.config().kv)
+    }
 
+    /// Namespace `ns`, if `kv.uiNamespaces` lists it (for callers outside Rust).
+    #[cfg(feature = "kv")]
+    pub fn kv_exposed(&self, ns: &str) -> Result<crate::kv::Namespace> {
+        let cfg = self.config().kv;
+        cfg.check_exposed(ns)?;
+        self.kv.get(&cfg)?.ns(ns)
+    }
+
+    /// The store's file, size and namespaces, for Settings.
+    #[cfg(feature = "kv")]
+    pub fn kv_info(&self) -> Result<crate::kv::KvInfo> {
+        self.kv.info(&self.config().kv)
+    }
+{% endif %}{% if cache %}
+    /// The app's in-memory cache (feature `cache`), sized by `cache` in the settings (a new,
+    /// empty one after they change). With `cache.persist` and feature `kv`, entries are also
+    /// kept in kv namespace `cache`.
+    #[cfg(feature = "cache")]
+    pub fn cache(&self) -> std::sync::Arc<crate::cache::JsonCache> {
+        let cfg = self.config();
+        self.cache.get(&cfg.cache, || {
+{% if kv %}            #[cfg(feature = "kv")]
+            match self.kv.get(&cfg.kv).and_then(|kv| kv.ns("cache")) {
+                Ok(ns) => return Some(std::sync::Arc::new(ns)),
+                Err(e) => log::warn!("the cache is not persisted: {e}"),
+            }
+{% endif %}            None
+        })
+    }
+{% endif %}
     /// The index changed: cached answers no longer hold.
     fn changed(&self) {
 {% if ai %}        #[cfg(feature = "ai")]
@@ -663,7 +711,9 @@ impl Engine {
         let key = if self.config().backup.encrypt { Some(self.backup_key()?) } else { None };
         let info = crate::backup::write(&dir, &self.store.all()?, &self.model_name(), key.as_ref())
             .map_err(|e| Error::Store(format!("backup to {}: {e}", dir.display())))?;
-        let pruned = crate::backup::prune(&dir, self.config().backup.keep);
+{% if kv %}        #[cfg(feature = "kv")]
+        self.backup_kv(&info.path, key.as_ref())?;
+{% endif %}        let pruned = crate::backup::prune(&dir, self.config().backup.keep);
         log::info!("backup written: {} chunks, {} bytes ({pruned} old backups removed)", info.chunks, info.bytes);
         Ok(info)
     }
@@ -697,7 +747,10 @@ impl Engine {
         let local = if key_file.exists() { Some(self.backup_key()?) } else { None };
         let keys: Vec<_> = given.iter().chain(local.iter()).cloned().collect();
         let (manifest, chunks) = crate::backup::read(path, &keys).map_err(|e| Error::Store(format!("{}: {e}", path.display())))?;
-        if let (Some(k), None) = (&given, &local) {
+{% if kv %}        // The key-value store's part is checked too before anything is replaced.
+        #[cfg(feature = "kv")]
+        let kv_dump = crate::backup::read_part(path, "kv", &keys).map_err(|e| Error::Store(format!("key-value store in the backup: {e}")))?;
+{% endif %}        if let (Some(k), None) = (&given, &local) {
             if manifest.encrypted {
                 k.save(&self.data_dir)?;
             }
@@ -707,10 +760,29 @@ impl Engine {
         }
         self.store.clear()?;
         let restored = self.add(&chunks)?;
+{% if kv %}        #[cfg(feature = "kv")]
+        if let Some(dump) = kv_dump {
+            let n = self.kv()?.import(&dump)?;
+            log::info!("restored {n} keys of the key-value store");
+        }
+{% endif %}
         log::info!("restored {restored} chunks from a backup made {} by version {}", manifest.created, manifest.app_version);
         Ok(restored)
     }
-}
+{% if kv %}
+    /// The key-value store as part `kv` of `backup`, when `kv.backup` is on and the store has
+    /// been used (an app that never opened it has nothing to save).
+    #[cfg(feature = "kv")]
+    fn backup_kv(&self, backup: &Path, key: Option<&crate::backup::BackupKey>) -> Result<()> {
+        let cfg = self.config().kv;
+        if !cfg.backup || !(self.kv.is_open() || self.kv.path().exists()) {
+            return Ok(());
+        }
+        let dump = self.kv.get(&cfg)?.export()?;
+        crate::backup::write_part(backup, "kv", &dump, key).map_err(|e| Error::Store(format!("backup of the key-value store: {e}")))?;
+        Ok(())
+    }
+{% endif %}}
 
 fn open_store(opts: &EngineOptions, _progress: &mut dyn FnMut(&str)) -> Result<Box<dyn Store>> {
     match opts.backend {

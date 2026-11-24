@@ -15,6 +15,12 @@
 //! | `GET /v1/jobs` (feature `jobs-queue`) | `jobs_list` | the queue, dead letters, recent runs, job types |
 //! | `POST /v1/jobs` (feature `jobs-queue`) | `jobs_enqueue` | `{kind, payload?, delaySecs?, runAt?, maxAttempts?, timeoutSecs?}` (`201`) |
 //! | `POST /v1/jobs/{id}/cancel`, `.../retry` (feature `jobs-queue`) | `jobs_cancel`, `jobs_retry` | |
+//! | `GET /v1/kv/{ns}?prefix=` (feature `kv`) | `kv_list` | the keys with their values and expiry |
+//! | `GET /v1/kv/{ns}/{key}` (feature `kv`) | `kv_get` | `{key, value}`, `404` when missing or expired |
+//! | `PUT /v1/kv/{ns}/{key}` (feature `kv`) | `kv_set` | `{value, ttlSecs?}` |
+//! | `DELETE /v1/kv/{ns}/{key}` (feature `kv`) | `kv_delete` | `{deleted}` |
+//!
+//! The key-value routes reach only the namespaces in `kv.uiNamespaces` (`403` for others).
 //!
 //! To add a route for a backend method, run `kitchen generate route <name>` (it adds
 //! `POST /v1/<name>` at the `kitchen:routes` marker), or write a handler like the ones here.
@@ -36,7 +42,7 @@
 use super::{middleware, ApiError, Context, FieldErrors, Page, Paginated, Validate, ValidJson, ValidQuery};
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
-{% if background_jobs %}#[cfg(feature = "jobs-queue")]
+{% if background_jobs or kv %}#[cfg(any(feature = "jobs-queue", feature = "kv"))]
 use axum::extract::{rejection::PathRejection, Path};
 {% endif %}use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
@@ -73,6 +79,8 @@ pub fn routes() -> Router<Context> {
     let r = r.route("/v1/ask", post(ask));
 {% endif %}{% if background_jobs %}    #[cfg(feature = "jobs-queue")]
     let r = r.route("/v1/jobs", get(jobs_list).post(jobs_enqueue)).route("/v1/jobs/{id}/cancel", post(jobs_cancel)).route("/v1/jobs/{id}/retry", post(jobs_retry));
+{% endif %}{% if kv %}    #[cfg(feature = "kv")]
+    let r = r.route("/v1/kv/{ns}", get(kv_list)).route("/v1/kv/{ns}/{key}", get(kv_get).put(kv_set).delete(kv_delete));
 {% endif %}    // kitchen:routes (`kitchen generate route` adds routes above this line)
     r
 }
@@ -270,6 +278,74 @@ async fn jobs_cancel(State(ctx): State<Context>, id: Result<Path<String>, PathRe
 async fn jobs_retry(State(ctx): State<Context>, id: Result<Path<String>, PathRejection>) -> Reply {
     let Path(id) = id?;
     ctx.call("jobs_retry", json!({ "id": id })).await.map(Json)
+}
+{% endif %}{% if kv %}
+/// `GET /v1/kv/{ns}?prefix=` (feature `kv`).
+#[cfg(feature = "kv")]
+#[derive(Debug, Default, Deserialize)]
+pub struct KvListQuery {
+    /// Only keys that start with this.
+    #[serde(default)]
+    pub prefix: String,
+}
+
+#[cfg(feature = "kv")]
+impl Validate for KvListQuery {
+    fn validate(&self) -> Result<(), FieldErrors> {
+        let mut e = FieldErrors::default();
+        e.check(self.prefix.len() <= crate::untrusted::limits::KV_KEY_BYTES, "prefix", "is too long");
+        e.into_result()
+    }
+}
+
+#[cfg(feature = "kv")]
+async fn kv_list(State(ctx): State<Context>, ns: Result<Path<String>, PathRejection>, ValidQuery(q): ValidQuery<KvListQuery>) -> Reply {
+    let Path(ns) = ns?;
+    ctx.call("kv_list", json!({"ns": ns, "prefix": q.prefix})).await.map(Json)
+}
+
+#[cfg(feature = "kv")]
+async fn kv_get(State(ctx): State<Context>, path: Result<Path<(String, String)>, PathRejection>) -> Reply {
+    let Path((ns, key)) = path?;
+    match ctx.call("kv_get", json!({"ns": ns, "key": key})).await? {
+        Value::Null => Err(ApiError::new(StatusCode::NOT_FOUND, "not_found", format!("no key {key:?} in {ns:?}"))),
+        value => Ok(Json(json!({"key": key, "value": value}))),
+    }
+}
+
+/// `PUT /v1/kv/{ns}/{key}` (feature `kv`).
+#[cfg(feature = "kv")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KvSetRequest {
+    /// Any JSON value.
+    pub value: Value,
+    /// Seconds until it expires (none: never).
+    #[serde(default)]
+    pub ttl_secs: Option<u64>,
+}
+
+#[cfg(feature = "kv")]
+impl Validate for KvSetRequest {
+    fn validate(&self) -> Result<(), FieldErrors> {
+        let mut e = FieldErrors::default();
+        e.check(self.ttl_secs != Some(0), "ttlSecs", "must be at least 1");
+        e.into_result()
+    }
+}
+
+#[cfg(feature = "kv")]
+async fn kv_set(State(ctx): State<Context>, path: Result<Path<(String, String)>, PathRejection>, ValidJson(req): ValidJson<KvSetRequest>) -> Reply {
+    let Path((ns, key)) = path?;
+    ctx.call("kv_set", json!({"ns": ns, "key": key, "value": req.value, "ttlSecs": req.ttl_secs})).await?;
+    Ok(Json(json!({"key": key})))
+}
+
+#[cfg(feature = "kv")]
+async fn kv_delete(State(ctx): State<Context>, path: Result<Path<(String, String)>, PathRejection>) -> Reply {
+    let Path((ns, key)) = path?;
+    let deleted = ctx.call("kv_delete", json!({"ns": ns, "key": key})).await?;
+    Ok(Json(json!({ "deleted": deleted })))
 }
 {% endif %}
 #[cfg(test)]

@@ -25,7 +25,8 @@
 //! `notices` (licence notices, feature `supply-chain`), `release` (update channels, feature
 //! `release-channels`), `bindings` (typed IPC: TypeScript types for the Tauri commands; feature
 //! `ts`, tests only), `eval` (search and RAG evals, feature `evals`), `i18n` (translations: Fluent messages, plurals,
-//! numbers, dates and the OS language; feature `i18n`).
+//! numbers, dates and the OS language; feature `i18n`), `kv` (a key-value store,
+//! feature `kv`), `cache` (an in-memory cache, feature `cache`; with `ai` also the answer cache).
 //!
 //! # Example
 //!
@@ -76,9 +77,11 @@ pub mod pgstore;
 pub mod pgupgrade;
 {% endif %}{% if watch_folders %}{% if mobile %}#[cfg(all(feature = "watch", not(any(target_os = "android", target_os = "ios"))))]{% else %}#[cfg(feature = "watch")]{% endif %}
 pub mod watch;
-{% endif %}{% if ai %}#[cfg(feature = "ai")]
+{% endif %}{% if ai or cache %}#[cfg(any(feature = "ai", feature = "cache"))]
 pub mod cache;
-#[cfg(feature = "ai")]
+{% endif %}{% if kv %}#[cfg(feature = "kv")]
+pub mod kv;
+{% endif %}{% if ai %}#[cfg(feature = "ai")]
 pub mod llm;
 #[cfg(feature = "ai")]
 pub mod meter;

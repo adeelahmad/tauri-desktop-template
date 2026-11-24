@@ -112,6 +112,14 @@ supply-chain = []
 # Update channels, staged rollout buckets and rollback bookkeeping (sha2 and ring are in the tree).
 release-channels = []
 {% endif -%}
+{% if kv -%}
+# A built-in key-value store (desktop_core::kv) on redb: one file, ACID, pure Rust (libc only).
+kv = ["dep:redb"]
+{% endif -%}
+{% if cache -%}
+# A built-in in-memory cache (desktop_core::cache::Cache) on moka (W-TinyLFU, TTL, weights).
+cache = ["dep:moka"]
+{% endif -%}
 {% if evals -%}
 # Search and RAG evals (desktop_core::eval): metrics, baselines, an optional LLM judge. No new crates.
 evals = []
@@ -165,6 +173,15 @@ webpki-roots = { version = "1", optional = true }
 # (pure-Rust D-Bus and RustCrypto: no libdbus, no OpenSSL). HTTP, PKCE and JWT checks use
 # the ureq, sha2 and ring already in the tree.
 keyring = { version = "3.6", optional = true, default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
+{% endif -%}
+{% if kv -%}
+# Embedded key-value database: ACID, crash safe, one file, MIT OR Apache-2.0, no deps but libc.
+redb = { version = "2.6", optional = true }
+{% endif -%}
+{% if cache -%}
+# Concurrent cache with W-TinyLFU eviction, TTL/TTI, weights and single-flight `entry` loads;
+# its crossbeam, parking_lot and smallvec are already in the tree through Tauri.
+moka = { version = "0.12", optional = true, default-features = false, features = ["sync"] }
 {% endif -%}
 {% if http_api -%}
 # Tokio is already in every app through Tauri; axum adds hyper and tower (HTTP/1 only, no tracing).

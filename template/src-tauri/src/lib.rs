@@ -24,6 +24,8 @@
 //!   `jobs_set_schedule` (feature `jobs-queue`),
 //! - `tray_status` / `run_action` (feature `tray-menu`: the tray, global shortcuts and the app menu),
 //! - `http_api_info`: the local REST API's URL and token (feature `http-api`).
+//! - `kv_get`, `kv_set`, `kv_delete`, `kv_list`, `kv_info` (feature `kv`: the key-value store,
+//!   namespaces in `kv.uiNamespaces` only), `cache_stats` / `cache_clear` (feature `cache`).
 //! - `open_settings`, `get_appearance` (feature `app-shell`: the Settings window and themes; see `shell`).
 //!
 //! The backend sits behind `service::Service`: in this process by default, or in a
@@ -271,6 +273,10 @@ struct Features {
     evals: bool,
     /// Translations and the language setting (`i18n`).
     i18n: bool,
+    /// The built-in key-value store (`kv`).
+    kv: bool,
+    /// The built-in in-memory cache (`cache`).
+    cache: bool,
 }
 
 fn features() -> Features {
@@ -309,6 +315,8 @@ fn features() -> Features {
         release_channels: cfg!(all(desktop, feature = "release-channels")),
         evals: cfg!(feature = "evals"),
         i18n: cfg!(feature = "i18n"),
+        kv: cfg!(feature = "kv"),
+        cache: cfg!(feature = "cache"),
     }
 }
 
@@ -811,6 +819,56 @@ pub(crate) fn jobs_autostart(local: &Arc<service::Local>) {
     if let Err(e) = started {
         log::warn!("worker: could not start background jobs: {e}");
     }
+}
+
+{% endif %}{% if kv %}/// The JSON value of `key` in key-value namespace `ns` (`null` when missing or expired).
+/// Only namespaces in `kv.uiNamespaces` (default `ui`); others are refused with `denied`.
+#[cfg(feature = "kv")]
+#[tauri::command(async)]
+fn kv_get(state: tauri::State<AppState>, ns: String, key: String) -> Result<Option<Value>, CommandError> {
+    typed(call(&state, "kv_get", json!({ "ns": ns, "key": key })))
+}
+
+/// Set `key` in namespace `ns` to a JSON value, expiring after `ttlSecs` when given.
+#[cfg(feature = "kv")]
+#[tauri::command(async)]
+fn kv_set(state: tauri::State<AppState>, ns: String, key: String, value: Value, ttl_secs: Option<u64>) -> Result<(), CommandError> {
+    call(&state, "kv_set", json!({ "ns": ns, "key": key, "value": value, "ttlSecs": ttl_secs })).map(|_| ())
+}
+
+/// Delete `key` from namespace `ns`; whether it was there.
+#[cfg(feature = "kv")]
+#[tauri::command(async)]
+fn kv_delete(state: tauri::State<AppState>, ns: String, key: String) -> Result<bool, CommandError> {
+    typed(call(&state, "kv_delete", json!({ "ns": ns, "key": key })))
+}
+
+/// The keys of namespace `ns` that start with `prefix`, with their values.
+#[cfg(feature = "kv")]
+#[tauri::command(async)]
+fn kv_list(state: tauri::State<AppState>, ns: String, prefix: Option<String>) -> Result<Vec<desktop_core::kv::KvEntry>, CommandError> {
+    typed(call(&state, "kv_list", json!({ "ns": ns, "prefix": prefix })))
+}
+
+/// The store's file, size and namespaces, for Settings.
+#[cfg(feature = "kv")]
+#[tauri::command(async)]
+fn kv_info(state: tauri::State<AppState>) -> Result<desktop_core::kv::KvInfo, CommandError> {
+    typed(call(&state, "kv_info", Value::Null))
+}
+
+{% endif %}{% if cache %}/// The app cache's hits, misses, entries and size (feature `cache`).
+#[cfg(feature = "cache")]
+#[tauri::command(async)]
+fn cache_stats(state: tauri::State<AppState>) -> Result<desktop_core::cache::CacheStats, CommandError> {
+    typed(call(&state, "cache_stats", Value::Null))
+}
+
+/// Empty the app cache; returns the stats after.
+#[cfg(feature = "cache")]
+#[tauri::command(async)]
+fn cache_clear(state: tauri::State<AppState>) -> Result<desktop_core::cache::CacheStats, CommandError> {
+    typed(call(&state, "cache_clear", Value::Null))
 }
 
 {% endif %}/// Read text aloud with tiny-voca: `{wav: base64, seconds}`.
@@ -1371,6 +1429,20 @@ pub fn run() {
             jobs_schedules,
             #[cfg(feature = "jobs-queue")]
             jobs_set_schedule,
+            #[cfg(feature = "kv")]
+            kv_get,
+            #[cfg(feature = "kv")]
+            kv_set,
+            #[cfg(feature = "kv")]
+            kv_delete,
+            #[cfg(feature = "kv")]
+            kv_list,
+            #[cfg(feature = "kv")]
+            kv_info,
+            #[cfg(feature = "cache")]
+            cache_stats,
+            #[cfg(feature = "cache")]
+            cache_clear,
             #[cfg(feature = "tts")]
             speak,
             #[cfg(feature = "tts")]
@@ -1534,6 +1606,10 @@ mod tests {
         b.add::<update::ChannelStatus>("update::ChannelStatus");
 {% endif %}{% endif %}{% if i18n %}        #[cfg(feature = "i18n")]
         b.add::<desktop_core::i18n::Bundle>("desktop_core::i18n::Bundle");
+{% endif %}{% if kv %}        #[cfg(feature = "kv")]
+        b.add::<desktop_core::kv::KvEntry>("desktop_core::kv::KvEntry").add::<desktop_core::kv::KvInfo>("desktop_core::kv::KvInfo");
+{% endif %}{% if cache %}        #[cfg(feature = "cache")]
+        b.add::<desktop_core::cache::CacheStats>("desktop_core::cache::CacheStats");
 {% endif %}        // kitchen:bindings (types of generated commands go above this line)
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let module = |m: &str| {
@@ -1568,7 +1644,7 @@ mod tests {
             "feature" => features!(
                 "embed", "postgres", "bm25", "watch", "ai", "llama", "mcp", "tts", "stt", "mail", "oauth", "telemetry", "plugins", "jobs-queue", "rclone", "tailscale",
                 "http-api", "webview", "single-instance", "pdf", "wizard", "updater", "ipc-worker", "background-agent", "daemon", "python-example", "claude-mcp",
-                "tray-menu", "app-shell", "supply-chain", "release-channels", "ts", "i18n",
+                "tray-menu", "app-shell", "supply-chain", "release-channels", "ts", "i18n", "kv", "cache",
             ),
             _ => None,
         }

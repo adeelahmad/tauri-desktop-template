@@ -89,6 +89,8 @@ impl ApiError {
         let message = message.into();
         if message.starts_with("Still starting") {
             Self::new(StatusCode::SERVICE_UNAVAILABLE, "not_ready", message)
+        } else if message.starts_with("Not allowed") {
+            Self::new(StatusCode::FORBIDDEN, "forbidden", message)
         } else if message.starts_with("unknown method") {
             Self::new(StatusCode::NOT_IMPLEMENTED, "not_implemented", message)
         } else {

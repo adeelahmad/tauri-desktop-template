@@ -65,6 +65,12 @@ Everything runs on the user's machine.
 {% if evals -%}
 | Search and RAG evals: recall@k, MRR, nDCG@k and p50/p95 latency for keyword (BM25), vector and hybrid search, an optional AI answer path with an LLM faithfulness judge (skipped without an API key), and a baseline check that fails on a regression. `<app> --eval [dataset] [--baseline file]`, `kitchen eval`, `make eval`; sample data in `evals/` (see [docs/GUIDE.md](docs/GUIDE.md#search-evals)) | `desktop-core/src/eval.rs`, `src-tauri/src/eval.rs` | `evals` |
 {% endif -%}
+{% if kv -%}
+| Key-value store (redb, one file in the data folder): namespaces, JSON values, a TTL per key, compare-and-swap, counters, transactions, size caps and optional encryption per namespace; backed up with the index. The window, HTTP API and MCP tools reach only `kv.uiNamespaces`. Settings → Key-value store | `desktop-core/src/kv.rs` | `kv` |
+{% endif -%}
+{% if cache -%}
+| In-memory cache (moka): TTL, time to idle, size cap, hit/miss stats, single-flight loading{% if kv %}, optionally persisted to the key-value store{% endif %}. Settings → Cache shows the stats and clears it | `desktop-core/src/cache/memory.rs` | `cache` |
+{% endif -%}
 {% if oauth -%}
 | Sign-in with OAuth 2 / OpenID Connect: Google, GitHub, Microsoft or any OIDC provider (discovery). Authorization code + PKCE in the system browser, back through a loopback server on `127.0.0.1` (random port) or the app's deep link; `state`, `nonce` and the ID token's signature checked; tokens refreshed before they expire, revoked on sign-out; tokens and client secrets in the OS keychain only. Settings → Sign-in (see [Sign-in](#sign-in-oauth)) | `desktop-core/src/oauth.rs` | `oauth` |
 {% endif -%}
@@ -470,6 +476,13 @@ is off by default; values are clamped to safe ranges.
 | `appearance.mode`, `appearance.theme` | `system`, `kitchen` | `light`, `dark`; `nord`, `solarized`, `forest`, `rose`, `contrast` (add one in `shell.css` and `THEMES`) |
 | `appearance.uiFont`, `appearance.monoFont`, `appearance.fontSize` | system, system, 15 | a preset (`humanist`, `rounded`, `serif`; `cascadia`, `jetbrains`, `fira`) or any installed or bundled family; 10–24 px |
 {% endif -%}
+{% if kv -%}
+| `kv.uiNamespaces`, `kv.encryptedNamespaces`, `kv.keySource` | `ui`, none, `file` | namespaces the window, HTTP API and MCP tools may use; namespaces encrypted at rest; key in `<data>/kv.key` or the OS keychain (with `oauth`) |
+| `kv.maxSizeMb`, `kv.maxValueKb`, `kv.sweepMinutes`, `kv.backup` | 1024, 1024, 10, on | file and value caps, how often expired keys are deleted, include the store in backups |
+{% endif -%}
+{% if cache -%}
+| `cache.maxMb`, `cache.ttlSecs`, `cache.ttiSecs`, `cache.persist` | 64, 3600, 0, off | memory cap, time to live and to idle (0 = none), keep entries in the key-value store (needs `kv`) |
+{% endif -%}
 {% if http_api -%}
 | `httpApi.enabled`, `httpApi.host`, `httpApi.port` | off, `127.0.0.1`, 0 | the local REST API; port 0 = any free port (Settings shows the URL) |
 | `httpApi.corsOrigins`, `httpApi.maxBodyKb`, `httpApi.timeoutSecs` | none, 1024, 30 | browser origins allowed (`https://app.example.com`), largest body, request timeout |
@@ -633,6 +646,22 @@ Tailscale is never installed by the app: without the `tailscale` CLI, Settings �
 links to <https://tailscale.com/download>. With it, **Apply sharing** runs
 `tailscale serve --bg --https=<port> http://127.0.0.1:<local port>`, reachable only inside
 your tailnet; turning it off removes only that mapping.
+
+{% endif -%}
+{% if kv or cache -%}
+### Key-value store and cache
+
+{% if kv -%}
+`desktop_core::kv` is a small embedded database for settings, state and small data
+(`Engine::kv()` in Rust, `kv_get`/`kv_set`/`kv_delete`/`kv_list` from the UI{% if http_api %},
+`/v1/kv/{ns}/{key}` over HTTP{% endif %}{% if mcp_server %}, `kv_get`/`kv_set`/`kv_list` MCP tools when named in `mcp.tools` or `mcp.policies`{% endif %}).
+Callers outside Rust reach only the namespaces in `kv.uiNamespaces` (default `ui`); keep
+secrets in another namespace and list it in `kv.encryptedNamespaces`.
+{% endif -%}
+{% if cache -%}
+`Engine::cache()` is the app's in-memory cache; `desktop_core::cache::Cache` makes more.
+{% endif -%}
+See docs/GUIDE.md, "Key-value store and cache".
 
 {% endif -%}
 {% if http_api -%}

@@ -14,8 +14,13 @@
 //! key. Settings shows the key as a recovery key: keep it somewhere safe, because restoring
 //! on another computer (or after losing the data folder) needs it.
 //!
-//! Main items: [`write()`], [`read()`], [`list`], [`prune`], [`due`], [`BackupKey`] and
-//! [`BackupConfig`]. `Engine::backup`, `Engine::restore` and `Engine::backup_if_due` wrap them
+//! Other stores ride along as **parts**: [`write_part`] puts a file next to a backup
+//! (`backup-<time>.jsonl.<name>`, sealed with the same key when one is given), [`read_part`]
+//! verifies and reads it, and [`prune`] deletes a backup's parts with it. The key-value
+//! store (feature `kv`) is backed up this way.
+//!
+//! Main items: [`write()`], [`read()`], [`list`], [`prune`], [`due`], [`write_part`],
+//! [`read_part`], [`BackupKey`] and [`BackupConfig`]. `Engine::backup`, `Engine::restore` and `Engine::backup_if_due` wrap them
 //! for the app.
 //!
 //! # Example
@@ -299,6 +304,96 @@ pub fn read(path: &Path, keys: &[BackupKey]) -> std::io::Result<(Manifest, Vec<C
     Ok((m, chunks))
 }
 
+/// Line 1 of a backup part: which part, and how to check it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PartHeader {
+    format: String,
+    version: u32,
+    name: String,
+    sha256: String,
+    #[serde(default)]
+    encrypted: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    key_id: String,
+}
+
+const PART_FORMAT: &str = "desktop-core-backup-part";
+
+/// The file of part `name` of `backup`: `<backup file name>.<name>`.
+pub fn part_path(backup: &Path, name: &str) -> PathBuf {
+    let mut file = backup.as_os_str().to_owned();
+    file.push(format!(".{name}"));
+    PathBuf::from(file)
+}
+
+/// Write `data` as part `name` of `backup` (sealed with `key` when given, as the backup is).
+pub fn write_part(backup: &Path, name: &str, data: &[u8], key: Option<&BackupKey>) -> std::io::Result<PathBuf> {
+    let header = PartHeader {
+        format: PART_FORMAT.into(),
+        version: VERSION,
+        name: name.into(),
+        sha256: format!("{:x}", Sha256::digest(data)),
+        encrypted: key.is_some(),
+        key_id: key.map(BackupKey::id).unwrap_or_default(),
+    };
+    let mut head = serde_json::to_vec(&header).map_err(bad)?;
+    head.push(b'\n');
+    let mut body = data.to_vec();
+    if let Some(key) = key {
+        let mut nonce = [0u8; 12];
+        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce).map_err(|_| bad("no secure random numbers"))?;
+        key.sealing()
+            .seal_in_place_append_tag(ring::aead::Nonce::assume_unique_for_key(nonce), ring::aead::Aad::from(&head), &mut body)
+            .map_err(|_| bad("encryption failed"))?;
+        body = [nonce.as_slice(), &body].concat();
+    }
+    let path = part_path(backup, name);
+    let tmp = part_path(backup, &format!("{name}.part"));
+    {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        f.write_all(&head)?;
+        f.write_all(&body)?;
+        f.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+    }
+    std::fs::rename(&tmp, &path)?;
+    Ok(path)
+}
+
+/// Read and verify part `name` of `backup` (`None` when the backup has no such part).
+/// `keys` are tried as in [`read()`].
+pub fn read_part(backup: &Path, name: &str, keys: &[BackupKey]) -> std::io::Result<Option<Vec<u8>>> {
+    let path = part_path(backup, name);
+    let mut raw = match std::fs::read(&path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let start = raw.iter().take(crate::untrusted::limits::BACKUP_HEADER_BYTES).position(|&b| b == b'\n').map(|i| i + 1).ok_or_else(|| bad("not a backup part"))?;
+    let (head, rest) = raw.split_at_mut(start);
+    let h: PartHeader = serde_json::from_slice(head).map_err(|e| bad(format!("not a backup part ({e})")))?;
+    if h.format != PART_FORMAT || h.name != name || h.version > VERSION {
+        return Err(bad("not a backup part of this app (or from a newer version)"));
+    }
+    let body: &[u8] = if h.encrypted {
+        let key = keys.iter().find(|k| k.id() == h.key_id).ok_or_else(|| bad(format!("this backup part is encrypted with key {}", h.key_id)))?;
+        if rest.len() < 12 + ring::aead::CHACHA20_POLY1305.tag_len() {
+            return Err(bad("the backup part is damaged (too short)"));
+        }
+        let (nonce, sealed) = rest.split_at_mut(12);
+        let nonce = ring::aead::Nonce::try_assume_unique_for_key(nonce).map_err(|_| bad("the backup part is damaged"))?;
+        key.sealing()
+            .open_in_place(nonce, ring::aead::Aad::from(&*head), sealed)
+            .map_err(|_| bad("the backup part is damaged or was changed (it does not decrypt)"))?
+    } else {
+        rest
+    };
+    if format!("{:x}", Sha256::digest(body)) != h.sha256 {
+        return Err(bad("the backup part is damaged (checksum mismatch)"));
+    }
+    Ok(Some(body.to_vec()))
+}
+
 /// Backups in `dir`, newest first. Files that are not backups are left out.
 pub fn list(dir: &Path) -> Vec<BackupInfo> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
@@ -323,7 +418,25 @@ pub fn prune(dir: &Path, keep: u32) -> usize {
     if keep == 0 {
         return 0;
     }
-    list(dir).into_iter().skip(keep as usize).filter(|b| std::fs::remove_file(&b.path).is_ok()).count()
+    list(dir)
+        .into_iter()
+        .skip(keep as usize)
+        .filter(|b| {
+            remove_parts(&b.path);
+            std::fs::remove_file(&b.path).is_ok()
+        })
+        .count()
+}
+
+/// Delete the parts of `backup` (files named `<backup file name>.<part>`).
+fn remove_parts(backup: &Path) {
+    let (Some(dir), Some(name)) = (backup.parent(), backup.file_name()) else { return };
+    let prefix = format!("{}.", name.to_string_lossy());
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with(&prefix) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 /// Whether a scheduled backup is due: on, and the newest is older than the interval.
@@ -416,6 +529,31 @@ mod tests {
         std::fs::write(&info.path, &tampered).unwrap();
         assert!(read(&info.path, &[key]).unwrap_err().to_string().contains("decrypt"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parts_ride_along_sealed_and_go_with_their_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = BackupKey([3; 32]);
+        let chunks = vec![chunk("a.md", "a")];
+        let old = write(dir.path(), &chunks, "m", Some(&key)).unwrap();
+        let part = write_part(&old.path, "kv", b"secret kv bytes", Some(&key)).unwrap();
+        assert!(part.to_string_lossy().ends_with(".enc.kv"));
+        assert!(!String::from_utf8_lossy(&std::fs::read(&part).unwrap()).contains("secret kv"));
+        assert_eq!(list(dir.path()).len(), 1, "a part is not listed as a backup");
+        assert_eq!(read_part(&old.path, "kv", std::slice::from_ref(&key)).unwrap().as_deref(), Some(&b"secret kv bytes"[..]));
+        assert!(read_part(&old.path, "kv", &[BackupKey([4; 32])]).is_err(), "the wrong key fails");
+        assert_eq!(read_part(&old.path, "other", &[]).unwrap(), None);
+        let plain = write(dir.path(), &chunks, "m", None).unwrap();
+        write_part(&plain.path, "kv", b"plain", None).unwrap();
+        let mut raw = std::fs::read(part_path(&plain.path, "kv")).unwrap();
+        let last = raw.len() - 1;
+        raw[last] ^= 1;
+        std::fs::write(part_path(&plain.path, "kv"), raw).unwrap();
+        assert!(read_part(&plain.path, "kv", &[]).unwrap_err().to_string().contains("checksum"));
+        // Pruning the older backup removes its part too.
+        assert_eq!(prune(dir.path(), 1), 1);
+        assert!(!part.exists());
     }
 
     #[test]

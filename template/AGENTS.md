@@ -85,6 +85,12 @@ This build has:
 {% if evals -%}
 - `evals` (cargo feature `evals`): search and RAG evals, `desktop-core/src/eval.rs`; run `make eval` (or `kitchen eval`) after changing search, and refresh `evals/baseline.json` only on purpose.
 {% endif -%}
+{% if kv -%}
+- `kv` (cargo feature `kv`): embedded key-value store, `desktop-core/src/kv.rs` (`Engine::kv`). Use it for small state that must survive a restart (preferences, drafts, flags, counters); use `cache` for values you can rebuild, and Postgres or the document store for queries, search and large data. Secrets go in a namespace that is in `kv.encryptedNamespaces` and not in `kv.uiNamespaces`.
+{% endif -%}
+{% if cache -%}
+- `cache` (cargo feature `cache`): in-memory cache, `desktop-core/src/cache/memory.rs` (`Engine::cache`). Only for values you can rebuild; never the only copy of anything.
+{% endif -%}
 {% if mcp_server -%}
 - `mcp_server` (cargo feature `mcp`): this app as an MCP server (`<app> --mcp`), `desktop-core/src/mcp.rs`, `src-tauri/src/mcp.rs`.
 {% endif -%}

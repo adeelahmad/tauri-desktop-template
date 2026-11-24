@@ -32,6 +32,7 @@ The pages land in `target/doc/desktop_core/` and `target/doc/app_lib/`.
 - [Search evals](#search-evals)
 - [Postgres upgrades](#postgres-upgrades)
 - [Bundling models](#bundling-models)
+- [Key-value store and cache](#key-value-store-and-cache)
 - [Module index](#module-index)
 - [Docs and checks](#docs-and-checks)
 - [Feature dependencies](#feature-dependencies)
@@ -48,6 +49,8 @@ If you have built a web app, you already know how this one works. Here is how th
 | a route / controller | a Tauri command in `src-tauri/src/lib.rs` (`kitchen generate command export_csv`) |
 | your backend service | `desktop_core`: a plain Rust library with no Tauri in it, tested with `cargo test` |
 | `.env` / `config/*.json` | `config/` (build-time, per environment and OS) and the user's `settings.json` (run time) |
+| `localStorage` / IndexedDB, Redis as a store | `kitchen enable kv`: `desktop_core::kv`, one file, namespaces, TTLs ([Key-value store and cache](#key-value-store-and-cache)) |
+| Redis as a cache, `lru-cache` | `kitchen enable cache`: `desktop_core::cache::Cache`, in memory, TTL, single-flight |
 | Postgres, embeddings, email, background jobs | one `kitchen enable postgres` / `embeddings` / `email` / `background_jobs` each; nothing to install or host |
 | `npm run dev` / `npm test` / deploy | `kitchen start` / `kitchen test` / `kitchen package` + `kitchen publish` |
 | Vite, ESLint, Prettier | the same, in `ui-react/`; `kitchen eject vite` shows where |
@@ -851,6 +854,55 @@ Things to know before you ship:
 - **Licences.** Bundling redistributes the models: ship each model's licence (above) with
   the app, as you do for code. `kitchen features --check` lists them.
 
+## Key-value store and cache
+
+Two features, both off by default: `kitchen enable kv` and `kitchen enable cache`.
+
+**Which one?**
+
+| You need | Use |
+|---|---|
+| Small state that must survive a restart: UI preferences, drafts, flags, tokens, counters, "last synced" marks | `kv` |
+| A faster answer for something you can always rebuild: a slow call, a parsed file, a remote lookup | `cache` |
+| Queries over many records, joins, full text or vector search, large data | Postgres (`postgres`) or the document store |
+| Big files | plain files in the data folder |
+
+Web-dev mapping: `localStorage` (and Redis used as a store) → `kv`; Redis used as a cache
+(or `lru-cache` with a TTL) → `cache`.
+
+**kv** (`desktop_core::kv`) keeps everything in `<data>/kv.redb`, opened on first use by
+`Engine::kv()`. Values are bytes or JSON in namespaces (`kv.ns("settings")`), each key can
+have a TTL (expired keys read as missing at once and are swept every `kv.sweepMinutes`), and
+`compare_and_swap`, `incr` and `transaction` change several keys atomically. Values are
+capped (`kv.maxValueKb`), and so is the file (`kv.maxSizeMb`). Namespaces in
+`kv.encryptedNamespaces` are sealed with ChaCha20-Poly1305 under a key in `<data>/kv.key`
+(owner-only) or, with `kv.keySource = keychain` and the `oauth` feature, the OS keychain. A
+backup copies the store next to the backup file (`<backup>.kv`, sealed with the backup key
+when backups are encrypted); restoring brings it back.
+
+```rust
+let settings = engine.kv()?.ns("settings")?;
+settings.set_json_ttl("draft", &draft, std::time::Duration::from_secs(3600))?;
+let n = settings.incr("launches", 1)?;
+```
+
+From the UI: `api.kv_set({ ns: 'ui', key: 'theme', value: 'dark' })`, `api.kv_get`,
+`api.kv_list`, `api.kv_delete`. The window, the HTTP API (`GET/PUT/DELETE /v1/kv/{ns}/{key}`,
+`GET /v1/kv/{ns}`) and the MCP tools (`kv_get`, `kv_set`, `kv_list`, offered only when named
+in `mcp.tools` or `mcp.policies`) reach only the namespaces in `kv.uiNamespaces` (default
+`ui`); anything else is refused with `denied` (403 over HTTP). Rust code can use any
+namespace. The file is opened by one process at a time: with `ipc_worker` the window, MCP
+and HTTP share the worker's; without it, `<app> --mcp` cannot use the store while the
+window has it open.
+
+**cache** (`desktop_core::cache::Cache`) wraps moka: W-TinyLFU eviction by weight, TTL and
+time to idle, hit and miss counts, and `get_or_insert_with`, which runs the loader once
+however many threads ask for the same key. `Engine::cache()` is the app's own JSON cache,
+sized by `cache.maxMb`; with `cache.persist` (and `kv`) it is written through to kv
+namespace `cache`. Settings → Cache shows the stats and clears it (`cache_stats`,
+`cache_clear`). The AI answer cache (`llm.cache`) is separate: it finds answers by question
+similarity, which a key lookup cannot do.
+
 ## Module index
 
 Paths are relative to this file. The rustdoc page of `desktop_core::X` is
@@ -884,7 +936,8 @@ Paths are relative to this file. The rustdoc page of `desktop_core::X` is
 | [`watch`](../desktop-core/src/watch.rs) | `watch` | Drop folder and watched folders |
 | [`llm`](../desktop-core/src/llm.rs) | `ai` | Chat client for cloud and local models: retries, fallback chain, budgets, prompt caching; API keys; RAG prompt |
 | [`meter`](../desktop-core/src/meter.rs) | `ai` | AI cost meter: price table, per-day and per-month usage, budgets |
-| [`cache`](../desktop-core/src/cache.rs) | `ai` | Semantic answer cache for `Engine::ask` |
+| [`cache`](../desktop-core/src/cache.rs) | `ai`, `cache` | [`semantic`](../desktop-core/src/cache/semantic.rs) (`ai`): the answer cache of `Engine::ask`; [`memory`](../desktop-core/src/cache/memory.rs) (`cache`): the in-memory cache ([Key-value store and cache](#key-value-store-and-cache)) |
+| [`kv`](../desktop-core/src/kv.rs) | `kv` | Embedded key-value store (redb): namespaces, TTLs, CAS, transactions, encryption per namespace |
 | [`local`](../desktop-core/src/local.rs) | `llama` | llama.cpp built in (GGUF) |
 | [`mcp`](../desktop-core/src/mcp.rs) | `mcp` | MCP protocol, tool policy and audit log |
 | [`tts`](../desktop-core/src/tts.rs) | `tts` | Text to speech (tiny-voca) |
@@ -999,6 +1052,8 @@ Licences checked for each feature (the pre-hook prints a notice for anything bey
 | `background_jobs` | croner: MIT; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
 | `http_api` | axum: MIT; tokio: MIT | none (MIT / Apache-2.0) |
 | `i18n` | fluent-bundle, fluent-syntax, intl-memoizer, unic-langid, sys-locale: MIT OR Apache-2.0; @fluent/bundle (React UI): Apache-2.0; jiff: Unlicense OR MIT | none (MIT / Apache-2.0) |
+| `kv` | redb: MIT OR Apache-2.0 | none (MIT / Apache-2.0) |
+| `cache` | moka: (MIT OR Apache-2.0) AND Apache-2.0 | none (MIT / Apache-2.0) |
 <!-- /kitchen:feature-dependencies -->
 
 ## Kitchen CLI

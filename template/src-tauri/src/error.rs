@@ -227,6 +227,8 @@ impl From<desktop_core::Error> for CommandError {
             E::Json(_) => Self::new(codes::BAD_DATA, message),
             E::Embed(_) => Self::new(codes::EMBEDDING, message),
             E::Store(_) => Self::new(codes::STORE, message),
+            // A key-value namespace that is not open to the UI (`KvConfig::check_exposed`).
+            E::Source(_) if message.starts_with("Not allowed") => Self::new(codes::DENIED, message),
             E::Source(_) => Self::new(codes::SOURCE, message),
             E::Llm(_) => Self::new(codes::AI, message),
             E::NotBuilt(part) => Self::new(codes::NOT_BUILT, message).with_details(json!({ "part": part })),
