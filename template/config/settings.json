@@ -10,5 +10,24 @@
   "ui": {
     "showEnvBadge": false,
     "shortcutModifier": "Ctrl"
-  }
+  }{% if web_wrapper %},
+  "wrapper": {
+    "url": "{{web_url}}",
+    "insecureTls": {{web_insecure_tls}},
+    "pinnedSha256": "{{web_cert_sha256}}",
+    "captureKeys": {{capture_keys}},
+    "startCaptured": false,
+    "releaseShortcut": "{{release_shortcut}}",
+    "zoom": 1.0,
+    "microphone": {{web_microphone}},
+    "camera": {{web_camera}},
+    "screen": {{web_screen}},
+    "muted": {{web_muted}},
+    "userAgent": "",
+    "features": { "webrtc": true, "serviceWorkers": true, "wasm": true },
+    "headers": [],
+    "autofill": [],
+    "fillOnLoad": false,
+    "proxy": "auto"
+  }{% endif %}
 }

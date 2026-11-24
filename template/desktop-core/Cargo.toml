@@ -76,9 +76,15 @@ tailscale = []
 # A local REST API (Axum on the tokio Tauri already uses), bearer token, 127.0.0.1 by default.
 http-api = ["dep:axum", "dep:tokio"]
 {% endif -%}
-{% if webview -%}
+{% if webview or web_wrapper -%}
 # Policy for embedded web views: allowlist, isolation, bridge (no new crates; sha2 is in the tree).
 webview = []
+{% endif -%}
+{% if web_wrapper -%}
+# One remote site as a desktop app (desktop_core::wrapper, keymap): URL guard, certificate
+# pinning, header and auto-fill rules, the loopback proxy. rustls, webpki-roots and regex are
+# already in the tree through ureq and Tauri; keyring keeps auto-fill secrets in the OS keychain.
+web-wrapper = ["webview", "dep:rustls", "dep:webpki-roots", "dep:regex", "dep:keyring"]
 {% endif -%}
 {% if telemetry -%}
 # Opt-in crash reports (Sentry), analytics (PostHog / Aptabase) and traces (OTLP), no SDKs.
@@ -163,16 +169,19 @@ intl-memoizer = { version = "0.5", optional = true }
 unic-langid = { version = "0.9", optional = true }
 sys-locale = { version = "0.3", optional = true }
 {% endif -%}
-{% if email -%}
+{% if email or web_wrapper -%}
 # The same rustls and Mozilla roots ureq already uses (no new crates in the build).
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = { version = "1", optional = true }
 {% endif -%}
-{% if oauth -%}
+{% if oauth or web_wrapper -%}
 # The OS keychain: macOS/iOS Keychain, Windows Credential Manager, Secret Service on Linux
 # (pure-Rust D-Bus and RustCrypto: no libdbus, no OpenSSL). HTTP, PKCE and JWT checks use
 # the ureq, sha2 and ring already in the tree.
 keyring = { version = "3.6", optional = true, default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
+{% endif -%}
+{% if web_wrapper -%}
+regex = { version = "1", optional = true, default-features = false, features = ["std", "perf", "unicode-perl"] }
 {% endif -%}
 {% if kv -%}
 # Embedded key-value database: ACID, crash safe, one file, MIT OR Apache-2.0, no deps but libc.

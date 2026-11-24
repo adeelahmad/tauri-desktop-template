@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Merged into the app's Info.plist by Tauri (feature `stt`): macOS asks before the microphone is used. -->
+<!-- Merged into the app's Info.plist by Tauri: macOS shows these when it asks before the microphone or camera is used. -->
 <plist version="1.0">
 <dict>
+{%- if stt %}
   <key>NSMicrophoneUsageDescription</key>
   <string>Dictation turns your voice into text on this computer. Nothing is sent anywhere.</string>
+{%- elsif web_wrapper and web_microphone %}
+  <key>NSMicrophoneUsageDescription</key>
+  <string>{{app_name}} lets the site you opened use the microphone, as you allowed in Preferences.</string>
+{%- endif %}
+{%- if web_wrapper and web_camera %}
+  <key>NSCameraUsageDescription</key>
+  <string>{{app_name}} lets the site you opened use the camera, as you allowed in Preferences.</string>
+{%- endif %}
 </dict>
 </plist>

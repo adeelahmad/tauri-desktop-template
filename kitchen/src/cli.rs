@@ -13,7 +13,8 @@
 use crate::lifecycle::{self, Io, Platform, TestKinds};
 use crate::project::{self, NewApp, Project};
 use crate::{
-    audit, doctor, eval, generate, hooks, i18n, models, service, Error, Options, Report, Result,
+    audit, doctor, eval, generate, hooks, i18n, models, service, web, Error, Options, Report,
+    Result,
 };
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,17 @@ Usage:
   kitchen new <name> [--enable a,b] [--disable c] [--set key=value] [--dir <parent>]
                      [--source <git url or folder>] [--rev <commit|tag|branch>] [--no-git]
                      [--with-deps]
+  kitchen new <name> --web <https url> [--insecure-tls] [--capture-keys]
+                     [--release-shortcut Ctrl+Alt+Shift+K] [--mic] [--muted] [--camera]
+                     [--screen] [--scheme <myapp>] [--no-fetch]
+                                       a web app: one site as a desktop app (its title, icon
+                                       and certificate are read from the site). On a terminal,
+                                       `kitchen new <name>` asks Desktop or Web first
+  kitchen icon fetch <url> [--insecure-tls] [--out icon.png]
+                                       the site's best icon as a 1024px PNG; in an app, its
+                                       icon set
+  kitchen enable deep_link [--scheme <myapp>]
+                                       the deep-link plugin, and the scheme it registers
   kitchen features [--check]           list the features and which are on; --check: do the
                                        answers in kitchen.toml work together?
   kitchen enable <feature>... [--with-deps]
@@ -93,7 +105,20 @@ pub struct Args {
 
 /// Options that take a value (all others are flags).
 const VALUED: &[&str] = &[
-    "enable", "disable", "set", "dir", "source", "rev", "label", "shortcut", "lines", "tag",
+    "enable",
+    "disable",
+    "set",
+    "dir",
+    "source",
+    "rev",
+    "label",
+    "shortcut",
+    "lines",
+    "tag",
+    "web",
+    "release-shortcut",
+    "scheme",
+    "out",
 ];
 
 /// `kitchen eval`'s options that take a value.
@@ -179,7 +204,7 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
     let cmd = args.words.first().map(String::as_str).unwrap_or("help");
     match cmd {
         "new" => {
-            let set = args
+            let mut set: Vec<(String, String)> = args
                 .values("set")
                 .into_iter()
                 .map(|kv| {
@@ -188,8 +213,19 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                         .ok_or_else(|| Error::Usage(format!("--set {kv}: use key=value")))
                 })
                 .collect::<Result<_>>()?;
-            project::create(&NewApp {
-                name: args.word(1, "the app name")?.to_string(),
+            let name = args.word(1, "the app name")?.to_string();
+            let mut enable = args.values("enable");
+            let mut lines = Vec::new();
+            let mut icon_png = None;
+            if let Some(url) = args.value("web") {
+                let web = web_new(args, url, &name, &set)?;
+                enable.extend(web.enable);
+                set.extend(web.set);
+                lines = web.lines;
+                icon_png = web.icon;
+            }
+            let mut report = project::create(&NewApp {
+                name,
                 dir: Some(
                     args.value("dir")
                         .map(|d| cwd.join(d))
@@ -206,12 +242,33 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                     })
                     .unwrap_or_default(),
                 rev: args.value("rev").map(String::from),
-                enable: args.values("enable"),
+                enable,
                 disable: args.values("disable"),
                 set,
                 no_git: args.flag("no-git"),
                 with_deps: opts.with_deps,
-            })
+                icon_png,
+            })?;
+            report.lines.splice(0..0, lines);
+            Ok(report)
+        }
+        "icon" => {
+            match args.words.get(1).map(String::as_str) {
+                Some("fetch") => {}
+                _ => {
+                    return Err(Error::Usage(
+                        "use: kitchen icon fetch <url> [--insecure-tls] [--out icon.png]".into(),
+                    ))
+                }
+            }
+            let url = args.word(2, "the site's URL")?;
+            let app = Project::find(cwd).ok().map(|p| p.root);
+            web::icon_fetch(
+                url,
+                args.flag("insecure-tls"),
+                app.as_deref(),
+                args.value("out").map(|o| cwd.join(o)),
+            )
         }
         "features" | "list" if args.flag("check") => Ok(project()?.check_features()),
         "features" | "list" => project()?.features_report(),
@@ -227,6 +284,18 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 )));
             }
             let p = project()?;
+            // `deep_link` is the deep-link plugin plus, with --scheme, the scheme it registers.
+            if names == ["deep_link"] && cmd == "enable" {
+                let mut r = p.set_features(&["tauri_plugins", "tauri_deep_link"], &[], &opts)?;
+                if let Some(scheme) = args.value("scheme") {
+                    let scheme = web::check_scheme(scheme)?;
+                    let p = project()?;
+                    let r2 = p.set_answer("deep_link_scheme", &scheme, &opts)?;
+                    r.lines.extend(r2.lines);
+                    r.next.extend(r2.next);
+                }
+                return Ok(r);
+            }
             // `bundled_models` is not a question: it is the `models` answer.
             if names == ["bundled_models"] {
                 let mode = if cmd == "enable" {
@@ -550,6 +619,195 @@ fn test(args: &Args, root: &Path, io_mode: Io) -> Result<Report> {
 /// current folder.
 pub fn cwd() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| Error::Io("find the current folder".into(), e))
+}
+
+/// What `kitchen new --web` adds to the new app's answers.
+struct WebNew {
+    enable: Vec<String>,
+    set: Vec<(String, String)>,
+    lines: Vec<String>,
+    icon: Option<Vec<u8>>,
+}
+
+/// `kitchen new <name> --web <url>`: check the URL, look at the site (title, certificate,
+/// icon) unless `--no-fetch`, and turn the flags into answers. The name and identifier
+/// come from the page title and host unless `--set` gives them.
+fn web_new(args: &Args, url: &str, name: &str, given: &[(String, String)]) -> Result<WebNew> {
+    let u = web::check_url(url)?;
+    let insecure = args.flag("insecure-tls");
+    let mut a = web::WebAnswers {
+        url: url.to_string(),
+        insecure_tls: insecure,
+        capture_keys: args.flag("capture-keys"),
+        release_shortcut: args
+            .value("release-shortcut")
+            .map(web::check_shortcut)
+            .transpose()?
+            .unwrap_or_default(),
+        microphone: args.flag("mic") || args.flag("microphone"),
+        muted: args.flag("muted"),
+        camera: args.flag("camera") || args.flag("webcam"),
+        screen: args.flag("screen"),
+        scheme: args
+            .value("scheme")
+            .map(web::check_scheme)
+            .transpose()?
+            .unwrap_or_default(),
+        ..web::WebAnswers::default()
+    };
+    let mut lines = Vec::new();
+    let mut title = None;
+    let mut icon = None;
+    if !args.flag("no-fetch") {
+        let p = web::probe(&u, insecure)?;
+        title = p.title.clone();
+        if let Some(fp) = &p.sha256 {
+            lines.push(format!(
+                "site certificate SHA-256 {}{}",
+                web::display_fingerprint(fp),
+                if p.trusted { " (trusted)" } else { " (self-signed or untrusted: pinned in the app; compare it with the device's own)" }
+            ));
+            if insecure && !p.trusted {
+                a.cert_sha256 = fp.clone();
+            }
+        }
+        match &p.icon_from {
+            Some((from, side)) => lines.push(format!("site icon {from} ({side}px)")),
+            None => lines.push("site icon: none found, the app keeps the template's".into()),
+        }
+        lines.extend(p.notes.iter().map(|n| format!("skipped  {n}")));
+        icon = p.icon;
+    }
+    let (enable, mut set) = a.answers();
+    let (app_name, identifier) = web::names(title.as_deref(), &u, name);
+    for (k, v) in [("app_name", app_name), ("identifier", identifier)] {
+        if !given.iter().any(|(g, _)| g == k) {
+            set.push((k.into(), v));
+        }
+    }
+    Ok(WebNew {
+        enable,
+        set,
+        lines,
+        icon,
+    })
+}
+
+/// `kitchen new <name>` on a terminal, with no other choices given: ask Desktop or Web
+/// first, and for a web app the site's questions in order (URL, TLS, key capture, release
+/// shortcut, microphone, muted, webcam, screen sharing). Returns the arguments to run.
+/// `input` and `output` are the terminal (or anything else, for tests).
+///
+/// ```
+/// use kitchen::cli::{ask_new, Args};
+///
+/// let args = Args::parse(["new", "kvm"]);
+/// let mut answers = "2\nhttps://pikvm.local\ny\ny\n\nn\ny\n\n\n".as_bytes();
+/// let out = ask_new(&args, &mut answers, &mut Vec::new()).unwrap();
+/// assert_eq!(out.value("web"), Some("https://pikvm.local"));
+/// assert!(out.flag("insecure-tls") && out.flag("capture-keys") && out.flag("muted"));
+/// assert!(!out.flag("mic") && !out.flag("camera") && out.value("release-shortcut").is_none());
+/// ```
+pub fn ask_new(
+    args: &Args,
+    input: &mut impl std::io::BufRead,
+    output: &mut impl std::io::Write,
+) -> Result<Args> {
+    let mut t = Terminal { input, output };
+    let mut out = args.clone();
+    loop {
+        match t.ask("What are you making?\n  1) Desktop app (boilerplate)\n  2) Web app (wrap a URL)\nChoose 1 or 2 [1]:")?.as_str() {
+            "" | "1" | "d" | "desktop" => return Ok(out),
+            "2" | "w" | "web" => break,
+            _ => {}
+        }
+    }
+    let url = loop {
+        let u = t.ask("Site URL (https://...):")?;
+        match web::check_url(&u) {
+            Ok(_) => break u,
+            Err(e) => t.say(&e.to_string()),
+        }
+    };
+    out.options.push(("web".into(), Some(url)));
+    let mut flag = |t: &mut Terminal<_, _>, q: &str, name: &str| -> Result<()> {
+        if t.yes_no(q)? {
+            out.options.push((name.into(), None));
+        }
+        Ok(())
+    };
+    flag(&mut t, "Ignore TLS certificate errors for this site? (self-signed, e.g. PiKVM; the certificate is pinned)", "insecure-tls")?;
+    flag(
+        &mut t,
+        "Capture all keys (Cmd/Win, Cmd+Tab, Alt+Tab, media keys) and send them to the page?",
+        "capture-keys",
+    )?;
+    let shortcut = loop {
+        let s = t.ask(
+            "Shortcut that releases the keys (changeable in Preferences) [Ctrl+Alt+Shift+K]:",
+        )?;
+        if s.is_empty() {
+            break None;
+        }
+        match web::check_shortcut(&s) {
+            Ok(s) => break Some(s),
+            Err(e) => t.say(&e.to_string()),
+        }
+    };
+    flag(&mut t, "Allow microphone?", "mic")?;
+    flag(&mut t, "Start muted?", "muted")?;
+    flag(&mut t, "Allow webcam?", "camera")?;
+    flag(&mut t, "Allow screen sharing?", "screen")?;
+    if let Some(s) = shortcut {
+        out.options.push(("release-shortcut".into(), Some(s)));
+    }
+    Ok(out)
+}
+
+/// Questions and answers on a terminal.
+struct Terminal<'a, R, W> {
+    input: &'a mut R,
+    output: &'a mut W,
+}
+
+impl<R: std::io::BufRead, W: std::io::Write> Terminal<'_, R, W> {
+    fn ask(&mut self, q: &str) -> Result<String> {
+        let _ = write!(self.output, "{q} ");
+        let _ = self.output.flush();
+        let mut line = String::new();
+        crate::io("read the answer", self.input.read_line(&mut line))?;
+        if line.is_empty() {
+            return Err(Error::Usage("no answer (end of input)".into()));
+        }
+        Ok(line.trim().to_string())
+    }
+
+    fn say(&mut self, s: &str) {
+        let _ = writeln!(self.output, "  {s}");
+    }
+
+    fn yes_no(&mut self, q: &str) -> Result<bool> {
+        loop {
+            match self
+                .ask(&format!("{q} [y/N]:"))?
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "y" | "yes" => return Ok(true),
+                "" | "n" | "no" => return Ok(false),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Whether `kitchen new` should ask [`ask_new`]'s questions: nothing chosen on the command
+/// line yet (no `--web`, `--enable`, `--set`, `--json` or `--yes`).
+pub fn should_ask_new(args: &Args) -> bool {
+    args.words.first().is_some_and(|w| w == "new")
+        && !["web", "enable", "disable", "set", "json", "yes"]
+            .iter()
+            .any(|f| args.flag(f))
 }
 
 #[cfg(test)]

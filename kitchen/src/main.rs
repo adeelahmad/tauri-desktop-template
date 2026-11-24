@@ -17,6 +17,21 @@ fn main() -> ExitCode {
         Ok(d) => d,
         Err(e) => return fail(&e),
     };
+    // `kitchen new <name>` on a terminal: Desktop or Web first.
+    let args = {
+        use std::io::IsTerminal;
+        if cli::should_ask_new(&args)
+            && std::io::stdin().is_terminal()
+            && std::io::stdout().is_terminal()
+        {
+            match cli::ask_new(&args, &mut std::io::stdin().lock(), &mut std::io::stdout()) {
+                Ok(a) => a,
+                Err(e) => return fail(&e),
+            }
+        } else {
+            args
+        }
+    };
     match args.words[0].as_str() {
         "mcp" => match kitchen::mcp::serve(&cwd) {
             Ok(()) => ExitCode::SUCCESS,
