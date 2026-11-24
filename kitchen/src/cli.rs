@@ -38,7 +38,9 @@ Usage:
                                        git hooks in .githooks/ (fmt, clippy, prettier, eslint)
   kitchen doctor [--json]              check this machine and this app
 
-  kitchen start [--install]            run the app with hot reload (cargo tauri dev, KITCHEN_ENV=development)
+  kitchen start [--install]            run the app with hot reload (cargo tauri dev, KITCHEN_ENV=development);
+                                       installs the UI's npm packages on the first run, and
+                                       with --install also a missing Tauri CLI
   kitchen test [--unit|--feature]      unit tests (cargo test / nextest) and the real app over WebDriver
   kitchen package [mac|windows|linux] [--release]
                                        installers for this OS (cargo tauri build), copied to ./packages

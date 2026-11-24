@@ -373,9 +373,12 @@ pub fn command(root: &Path, name: &str, opts: &Options) -> Result<Report> {
         ),
     )?;
     let mut r = e.finish(root, format!("Generated command {name}"), opts)?;
-    r.next = vec![format!(
-        "Edit src-tauri/src/{name}.rs, then call invoke('{name}', {{ input }}) from the UI"
-    )];
+    r.next = vec![
+        format!(
+            "Edit src-tauri/src/{name}.rs, then call invoke('{name}', {{ input }}) from the UI"
+        ),
+        "kitchen test --unit   # runs its test".into(),
+    ];
     Ok(r)
 }
 
@@ -487,7 +490,11 @@ pub fn page(root: &Path, name: &str, opts: &Options) -> Result<Report> {
         "{/* kitchen:pages */}",
         &format!("          <{pascal} />\n"),
     )?;
-    e.finish(root, format!("Generated page {pascal}"), opts)
+    let mut r = e.finish(root, format!("Generated page {pascal}"), opts)?;
+    r.next = vec![format!(
+        "kitchen start   # the page shows on the main screen; edit ui-react/src/{pascal}.jsx and it reloads in place"
+    )];
+    Ok(r)
 }
 
 /// A quick check of a key combination like `CmdOrCtrl+Shift+K`: known modifiers, then
