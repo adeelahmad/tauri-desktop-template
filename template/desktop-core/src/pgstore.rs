@@ -652,3 +652,37 @@ mod path_tests {
         assert!(path.join("x").parent().unwrap().is_dir());
     }
 }
+
+#[cfg(test)]
+mod unzip_tests {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    fn bundle(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for (name, body) in entries {
+            w.start_file(*name, opts).unwrap();
+            w.write_all(body).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn keeps_only_lib_and_share_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip = bundle(&[("lib/vector.so", b"so"), ("share/extension/vector.control", b"ctl"), ("bin/evil", b"x")]);
+        super::unzip_into(&zip, dir.path()).unwrap();
+        assert_eq!(std::fs::read(dir.path().join("lib/vector.so")).unwrap(), b"so");
+        assert_eq!(std::fs::read(dir.path().join("share/extension/vector.control")).unwrap(), b"ctl");
+        assert!(!dir.path().join("bin").exists());
+    }
+
+    #[test]
+    fn refuses_paths_that_climb_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip = bundle(&[("lib/../../escape.so", b"x")]);
+        assert!(super::unzip_into(&zip, dir.path()).is_err());
+        assert!(!dir.path().parent().unwrap().join("escape.so").exists());
+    }
+}
