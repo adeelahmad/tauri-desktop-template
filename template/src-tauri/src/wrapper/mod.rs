@@ -80,6 +80,7 @@ pub const SCHEME: &str = "{% if deep_link_scheme and deep_link_scheme != "" %}{{
 /// What the per-OS hooks need when the window is made.
 pub struct Hooks {
     /// The site's origin (TLS errors are only ever accepted for it).
+    #[cfg_attr(cef, allow(dead_code))]
     pub site: desktop_core::wrapper::url::Origin,
     /// The pin, when certificate errors may be accepted for the site (direct mode).
     pub pins: Option<PinStore>,
@@ -212,7 +213,7 @@ pub fn setup<R: Engine>(app: &AppHandle<R>) -> tauri::Result<()> {
         }
     });
     let proxy = match &checked {
-        Some(c) if cfg.uses_proxy() => Some(start_proxy(app, c, &pins)?),
+        Some(c) if engine::uses_proxy::<R>(&cfg) => Some(start_proxy(app, c, &pins)?),
         _ => None,
     };
     capture::init(app, cfg.capture_keys, checked.as_ref().map(|c| c.release.clone()).unwrap_or_default());
@@ -300,6 +301,8 @@ fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> 
                 PermissionKind::Microphone => Media::Microphone,
                 PermissionKind::Camera => Media::Camera,
                 PermissionKind::DisplayCapture => Media::Screen,
+                // Storage access, sign-in (FedCM) and the like: the engine's own answer.
+                PermissionKind::Other => return R::other_permission(),
                 _ => Media::Other,
             };
             let state = app.state::<Wrapper>();
@@ -333,7 +336,7 @@ fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> 
     if !c.config.user_agent.is_empty() {
         b = b.user_agent(&c.config.user_agent);
     }
-    if let Some(args) = platform::browser_args(&c.config.features) {
+    if let Some(args) = R::browser_args(&c.config.features) {
         b = b.additional_browser_args(&args);
     }
     let w = b.build()?;

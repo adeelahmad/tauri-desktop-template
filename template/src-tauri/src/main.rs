@@ -20,6 +20,9 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// With the Chromium engine (`cfg(cef)`), CEF starts this executable again for its renderer,
+// GPU and utility processes (`--type=...`); this sends those to CEF before anything else runs.
+#[cfg_attr(cef, tauri_runtime_cef::cef_entry_point)]
 fn main() {
     // Development builds only: `.env` and `.env.local` from the project folder (variables
     // already set win). Release builds never read or bundle them (desktop_core::dotenv).

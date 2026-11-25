@@ -91,7 +91,8 @@ fn tools() -> Value {
              "capture_keys": {"type": "boolean", "description": "Web app: capture all keys for the page"},
              "release_shortcut": {"type": "string", "description": "Web app: the shortcut that releases captured keys (default Ctrl+Alt+Shift+K)"},
              "microphone": {"type": "boolean"}, "muted": {"type": "boolean"}, "camera": {"type": "boolean"}, "screen": {"type": "boolean"},
-             "scheme": {"type": "string", "description": "Custom URL scheme (myapp://...) when tauri_deep_link is on"}}, "required": ["name"]}}
+             "scheme": {"type": "string", "description": "Custom URL scheme (myapp://...) when tauri_deep_link is on"},
+             "engine": {"type": "string", "enum": ["system", "chromium"], "description": "Web engine on macOS: system (WKWebView, default) or chromium (CEF; about 150 MB more)"}}, "required": ["name"]}}
     ])
 }
 
@@ -220,7 +221,7 @@ fn argv(tool: &str, a: &Value) -> Result<Vec<String>, String> {
                     v.extend([format!("--{k}"), list.join(",")]);
                 }
             }
-            for k in ["dir", "source", "rev", "web", "scheme"] {
+            for k in ["dir", "source", "rev", "web", "scheme", "engine"] {
                 if let Some(x) = s(k) {
                     v.extend([format!("--{k}"), x]);
                 }
@@ -402,6 +403,10 @@ mod tests {
         assert_eq!(
             argv("new", &json!({"name": "kvm", "web": "https://pikvm.local", "insecure_tls": true, "capture_keys": true, "release_shortcut": "F13", "muted": false})).unwrap(),
             ["new", "kvm", "--no-git", "--web", "https://pikvm.local", "--release-shortcut", "F13", "--insecure-tls", "--capture-keys"]
+        );
+        assert_eq!(
+            argv("new", &json!({"name": "x", "engine": "chromium"})).unwrap(),
+            ["new", "x", "--no-git", "--engine", "chromium"]
         );
         assert!(argv("enable", &json!({})).is_err());
         assert_eq!(

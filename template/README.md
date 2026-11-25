@@ -125,6 +125,9 @@ Everything runs on the user's machine.
 {% else -%}
 | Plain HTML/JS frontend (no build step) | `ui/` | |
 {% endif -%}
+{% if web_engine == "chromium" -%}
+| Chromium (CEF, through `tauri-runtime-cef`) as the web engine on macOS instead of WKWebView; Windows keeps WebView2, Linux WebKitGTK. About 150 MB more to download; see the guide's "Chromium engine" for bundling and signing | `src-tauri/src/engine.rs`, `src-tauri/src/wrapper/engine.rs` | `chromium` |
+{% endif -%}
 {% if ipc_worker -%}
 | Backend in a separate worker process over local IPC (Unix socket / named pipe) | `src-tauri/src/{service,ipc}.rs` | `ipc-worker` |
 {% if background_agent -%}

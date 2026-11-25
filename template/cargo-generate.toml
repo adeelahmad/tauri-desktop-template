@@ -189,6 +189,12 @@ prompt = "Frontend"
 choices = ["vanilla", "react"]
 default = "react"
 
+[placeholders.web_engine]
+type = "string"
+prompt = "Web engine on macOS: system (WKWebView, the default) or chromium (CEF through tauri-runtime-cef: Tauri 3 alpha, adds about 150 MB to the download; Windows keeps WebView2, Linux keeps WebKitGTK)"
+choices = ["system", "chromium"]
+default = "system"
+
 [placeholders.ipc_worker]
 type = "bool"
 prompt = "Run the backend as a separate worker process over local IPC (socket / named pipe)?"

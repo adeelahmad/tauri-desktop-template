@@ -145,6 +145,9 @@ This build has:
 {% if web_wrapper -%}
 - `web_wrapper` (cargo feature `web-wrapper`): one remote site as the app, `desktop-core/src/wrapper/` (settings, checks, pinning, rules, proxy) and `src-tauri/src/wrapper/` (window, menu, Preferences `ui/wrapper.html`, per-OS hooks in `macos.rs`, `windows.rs`, `linux.rs`, reached through the `Engine` trait in `engine.rs`). Keep the wrapper generic over the runtime (`R: Runtime`, or `R: Engine` where the native web view is needed); never name `tauri_runtime_wry` outside `run()`, `engine.rs` and the per-OS files. The site's window (`web-app`) must never get IPC or a capability; validate every new setting in `WrapperConfig::check`; wrapper settings are the developer's (`config/settings.json`, built in, read-only at run time), and the user may change only the fields in `wrapper.userEditable` (`desktop-core/src/wrapper/user.rs`; enforce new ones there, not only in the UI); never log header values or secrets (they are masked; secrets live in the keychain).
 {% endif -%}
+{% if web_engine == "chromium" -%}
+- `web_engine = chromium` (cargo feature `chromium`, `cfg(cef)` on macOS): Chromium through `tauri-runtime-cef` instead of WKWebView, `src-tauri/src/engine.rs`; the web wrapper's engine hooks are in `src-tauri/src/wrapper/engine.rs`. Never name `CefRuntime` or `WryRuntime` elsewhere: use `R: Runtime` or the default `tauri::DynRuntime`. Bundling and signing: docs/GUIDE.md, "Chromium engine".
+{% endif -%}
 {% if tauri_plugins -%}
 - `tauri_plugins`: official Tauri plugins, permissions in `src-tauri/capabilities/`:
 {%- if tauri_dialog %} `tauri_dialog`{% endif %}

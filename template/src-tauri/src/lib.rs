@@ -109,6 +109,7 @@ mod http;
 mod eval;
 {% endif %}pub mod app_config;
 pub mod config_layers;
+pub mod engine;
 pub mod error;
 mod guard;
 mod paths;
@@ -1236,9 +1237,10 @@ pub fn run() {
     let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
     #[cfg(not(all(desktop, feature = "ipc-worker")))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
-    // Tauri 3 takes its webview engine at run time; every Tauri type here is runtime-erased.
+    // Tauri 3 takes its web engine at run time (src/engine.rs); every Tauri type here is
+    // the runtime-erased `tauri::DynRuntime`.
     let builder = tauri::Builder::default()
-        .runtime(tauri_runtime_wry::Wry::default())
+        .runtime(engine::runtime())
         .manage(AppState { service })
         .plugin(guard::plugin());
     // Theme and fonts before the first paint, the Settings window and its menu item.

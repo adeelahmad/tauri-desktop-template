@@ -553,6 +553,31 @@ pub fn package_plan(
     })
 }
 
+/// What `kitchen package` says about an app on the Chromium engine (`web_engine =
+/// "chromium"`): on macOS the Tauri 3 CLI bundles and signs CEF itself; elsewhere the app
+/// builds with the system web view.
+///
+/// ```
+/// use kitchen::lifecycle::{chromium_notes, Platform};
+///
+/// assert!(chromium_notes(Platform::Mac).iter().any(|n| n.contains("Helper (Renderer)")));
+/// assert!(chromium_notes(Platform::Windows)[0].contains("WebView2"));
+/// ```
+pub fn chromium_notes(platform: Platform) -> Vec<String> {
+    match platform {
+        Platform::Mac => vec![
+            format!(
+                "Chromium engine: cargo tauri build ({}) puts the CEF framework and five helper apps (… Helper, Helper (GPU), Helper (Renderer), Helper (Plugin), Helper (Alerts)) in Contents/Frameworks and signs them before the app; expect a .app of about 340 MB and a .dmg of about 150 MB",
+                crate::doctor::TAURI_CLI
+            ),
+            "Chromium engine: the first build downloads CEF (about 130 MB) into CEF_PATH (default ~/Library/Caches/tauri-cef) and builds its wrapper with cmake and ninja (`kitchen doctor` checks them)".into(),
+            "Chromium engine: signing and notarizing use the same APPLE_* variables as before; the CLI adds the entitlements CEF needs (allow-jit, allow-unsigned-executable-memory, disable-library-validation) to src-tauri/Entitlements.plist's, for the app and every helper".into(),
+        ],
+        Platform::Windows => vec!["web_engine = chromium changes macOS only: Windows builds with WebView2 (Chromium already)".into()],
+        Platform::Linux => vec!["web_engine = chromium changes macOS only: Linux builds with WebKitGTK".into()],
+    }
+}
+
 /// Skip the signed updater archives (`.tar.gz` + `.sig`) when no signing key is set.
 ///
 /// With the `updater` feature, `tauri.conf.json` asks for updater artifacts, and Tauri then

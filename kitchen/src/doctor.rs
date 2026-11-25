@@ -313,6 +313,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     let mut out = Vec::new();
     let mut tray_menu = false;
     let mut capture_keys = false;
+    let mut chromium = false;
     match Manifest::load(&root) {
         Ok(m) => {
             let rev = if m.template.rev.is_empty() {
@@ -325,6 +326,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
             };
             tray_menu = m.is_on("tray_menu");
             capture_keys = m.is_on("web_wrapper") && m.is_on("capture_keys");
+            chromium = m.text("web_engine").is_some_and(|e| e == "chromium");
             out.push(check(
                 "Kitchen app",
                 Status::Ok,
@@ -399,7 +401,49 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     if capture_keys {
         out.extend(capture_check(std::env::consts::OS, accessibility_trusted()));
     }
+    if chromium {
+        out.extend(chromium_checks(std::env::consts::OS, |p| {
+            version(p, &["--version"]).is_some()
+        }));
+    }
     out
+}
+
+/// What an app on the Chromium engine (`web_engine = "chromium"`) needs: on macOS, cmake and
+/// ninja, which build CEF's C++ wrapper the first time; elsewhere only a note, since the
+/// engine changes only macOS. `has` says whether a program runs.
+///
+/// ```
+/// use kitchen::doctor::{chromium_checks, Status};
+///
+/// let c = chromium_checks("macos", |p| p == "cmake");
+/// assert_eq!(c.iter().find(|c| c.name == "ninja").unwrap().status, Status::Fail);
+/// assert_eq!(chromium_checks("linux", |_| false)[0].status, Status::Ok);
+/// ```
+pub fn chromium_checks(os: &str, has: impl Fn(&str) -> bool) -> Vec<Check> {
+    if os != "macos" {
+        return vec![check(
+            "Chromium engine",
+            Status::Ok,
+            "macOS only: this OS builds with the system web view",
+            "",
+        )];
+    }
+    ["cmake", "ninja"]
+        .into_iter()
+        .map(|p| {
+            if has(p) {
+                check(p, Status::Ok, "found (builds CEF's wrapper)", "")
+            } else {
+                check(
+                    p,
+                    Status::Fail,
+                    "not found: the Chromium engine's first build needs it",
+                    format!("brew install {p}"),
+                )
+            }
+        })
+        .collect()
 }
 
 /// Whether this terminal (which `kitchen start` runs the app from, so macOS asks about it)

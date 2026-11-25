@@ -125,6 +125,13 @@ and `--no-fetch` (skip reading the site); the MCP `new` tool takes the same as `
 `insecure_tls`, `capture_keys`, `release_shortcut`, `microphone`, `muted`, `camera`,
 `screen`, `scheme`.
 
+`--engine chromium` (any app, desktop or web; the last question on a terminal, `engine` in
+the MCP `new` tool) sets the template answer `web_engine = "chromium"`: the app runs on
+Chromium (CEF, Tauri 3 alpha) instead of WKWebView on macOS, about 150 MB more to download.
+`kitchen doctor` then checks `cmake` and `ninja`, and `kitchen package mac` says what the
+Tauri 3 CLI adds to the bundle (the CEF framework and five helper apps, signed inside out).
+The template's guide has the details ("Chromium engine").
+
 Before it generates, Kitchen reads the site (`kitchen::web`, plain HTTP/1.1 over rustls):
 
 - the page title becomes the app name, the host the bundle identifier (`pikvm.local` →
