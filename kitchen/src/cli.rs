@@ -466,8 +466,9 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             let key = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_some_and(|k| !k.is_empty());
             lifecycle::skip_updater_artifacts(&mut plan, key);
             lifecycle::prerequisites(&root, args.flag("install"), false, &mut plan)?;
+            let started = std::time::SystemTime::now();
             let mut r = lifecycle::execute(&plan, io_mode, "")?;
-            let files = lifecycle::collect_packages(&root, release)?;
+            let files = lifecycle::collect_packages(&root, release, Some(started))?;
             r.summary = format!(
                 "{} package(s) in {}",
                 files.len(),

@@ -627,15 +627,38 @@ pub fn is_package(path: &Path) -> bool {
 }
 
 /// Copy the installers from `<target>/<debug|release>/bundle` into `<app>/packages`.
-pub fn collect_packages(root: &Path, release: bool) -> Result<Vec<PathBuf>> {
+///
+/// With `since`, only installers written at or after that time are copied: a target
+/// folder shared by several apps (`CARGO_TARGET_DIR`) also holds the other apps' bundles.
+pub fn collect_packages(
+    root: &Path,
+    release: bool,
+    since: Option<std::time::SystemTime>,
+) -> Result<Vec<PathBuf>> {
     let bundle = target_dir(root)
         .join(if release { "release" } else { "debug" })
         .join("bundle");
-    collect_into(&bundle, &root.join("packages"))
+    collect_into(&bundle, &root.join("packages"), since)
 }
 
-/// Copy the installers in `bundle/<kind>/` into `out`.
-pub fn collect_into(bundle: &Path, out: &Path) -> Result<Vec<PathBuf>> {
+/// Whether `path` was written at or after `since` (a little early counts too, for
+/// file systems with coarse timestamps).
+fn fresh(path: &Path, since: Option<std::time::SystemTime>) -> bool {
+    let Some(since) = since else { return true };
+    let since = since
+        .checked_sub(std::time::Duration::from_secs(2))
+        .unwrap_or(since);
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t >= since)
+}
+
+/// Copy the installers in `bundle/<kind>/` into `out` (only those written since `since`).
+pub fn collect_into(
+    bundle: &Path,
+    out: &Path,
+    since: Option<std::time::SystemTime>,
+) -> Result<Vec<PathBuf>> {
     io(
         format!("create {}", out.display()),
         std::fs::create_dir_all(out),
@@ -650,7 +673,7 @@ pub fn collect_into(bundle: &Path, out: &Path) -> Result<Vec<PathBuf>> {
         };
         for f in files.flatten() {
             let path = f.path();
-            if !is_package(&path) {
+            if !is_package(&path) || !fresh(&path, since) {
                 continue;
             }
             let dest = out.join(f.file_name());
@@ -1052,7 +1075,13 @@ mod tests {
         std::fs::write(bundle.join("deb/notes.deb"), "x").unwrap();
         std::fs::write(bundle.join("deb/control.tar"), "x").unwrap();
         std::fs::write(bundle.join("macos/Notes.app/Contents/Info.plist"), "x").unwrap();
-        let got = collect_into(&bundle, &d.path().join("packages")).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        let stale = collect_into(&bundle, &d.path().join("old"), Some(later)).unwrap();
+        assert!(
+            stale.is_empty(),
+            "bundles from before the build are left out: {stale:?}"
+        );
+        let got = collect_into(&bundle, &d.path().join("packages"), None).unwrap();
         let names: Vec<String> = got
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
