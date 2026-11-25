@@ -29,6 +29,7 @@
     "autofill": [],
     "fillOnLoad": false,
     "proxy": "auto",
+    "openInBrowserApp": "",
     "userEditable": ["releaseShortcut", "zoom", "muted", "startCaptured"]
   }{% endif %}
 }

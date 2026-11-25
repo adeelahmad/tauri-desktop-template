@@ -858,6 +858,7 @@ wrapper-menu-actual-size = الحجم الفعلي
 wrapper-menu-capture = تشغيل/إيقاف التقاط المفاتيح
 wrapper-menu-mute = كتم / إلغاء الكتم
 wrapper-menu-fill = ملء النموذج
+wrapper-menu-open-in-browser = فتح في المتصفح…
 wrapper-prefs-title = التفضيلات
 wrapper-prefs-permissions = الأذونات
 wrapper-prefs-site = الموقع

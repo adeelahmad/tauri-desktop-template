@@ -911,6 +911,17 @@ in the default browser, and other schemes are refused. Cookies and storage persi
 app's data folder (`<data>/wrapper`), so a login survives restarts. Downloads go to the
 Downloads folder under a unique name, with a "Show in Finder/Explorer" button.
 
+**Open in Browser….** A site that breaks in the web view (WebKit on macOS and Linux) can
+still be used: Page → Open in Browser… (Cmd/Ctrl+Shift+O) opens the page the window shows
+in a real browser. It opens only that page, only when it is `http(s)` on the wrapped
+origin (through the proxy, the site's own URL, never the loopback one with its token).
+`wrapper.openInBrowserApp` picks the browser: empty (the default) for the user's default
+browser, or an app name such as `"Google Chrome"`, started on macOS with `open -a <app>
+<url>` and elsewhere as a program on `PATH` (`"firefox"`), with an argument list and never
+a shell; if it cannot be started, the default browser opens instead. `WrapperConfig::check`
+allows plain app name characters only (letters, digits, spaces, `.`, `-`, `_`, `+`). It is
+a developer setting, not one the user can change (`desktop_core::wrapper::browser`).
+
 **Self-signed certificates.** With "ignore TLS errors" on, a certificate error is accepted
 for the wrapped origin only, and only for the certificate pinned by its SHA-256: the one
 `kitchen new` saw (it prints it; compare it with the device's), or the first one the app sees.

@@ -291,7 +291,7 @@ mod tests {
     fn fields_the_developer_owns_are_refused() {
         let c = baked();
         let o = UserOverrides::default();
-        for key in ["url", "insecureTls", "pinnedSha256", "headers", "autofill", "userAgent", "features", "proxy", "userEditable"] {
+        for key in ["url", "insecureTls", "pinnedSha256", "headers", "autofill", "userAgent", "features", "proxy", "openInBrowserApp", "userEditable"] {
             let e = o.change(&c, &json!({ key: true })).unwrap_err();
             assert_eq!(e, ChangeError::NotEditable(key.into()), "{key}");
         }

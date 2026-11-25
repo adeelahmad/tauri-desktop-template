@@ -816,6 +816,7 @@ wrapper-menu-actual-size = Actual Size
 wrapper-menu-capture = Toggle Key Capture
 wrapper-menu-mute = Mute / Unmute
 wrapper-menu-fill = Fill Form
+wrapper-menu-open-in-browser = Open in Browser…
 wrapper-prefs-title = Preferences
 wrapper-prefs-permissions = Permissions
 wrapper-prefs-site = Site

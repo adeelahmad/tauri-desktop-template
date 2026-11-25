@@ -10,7 +10,13 @@
 //!   persistent store (`<data>/wrapper` on Windows and Linux, the app's default
 //!   `WKWebsiteDataStore` on macOS), never incognito.
 //! - **Menu**: Reload, Back, Forward, Zoom, Toggle Key Capture, Mute, Fill Form,
-//!   Preferences…, Quit (plus the usual Edit menu, so copy and paste work).
+//!   Open in Browser…, Preferences…, Quit (plus the usual Edit menu, so copy and paste work).
+//! - **Open in Browser…** (Cmd/Ctrl+Shift+O) opens the page the window shows in a real
+//!   browser, for sites that break in the web view: the user's default browser, or the
+//!   developer's `wrapper.openInBrowserApp` (macOS `open -a <app>`, elsewhere a program on
+//!   `PATH`), started with an argument list, never a shell. Only an `http(s)` page on the
+//!   wrapped origin is opened (through the proxy: the site's own URL, never the local one
+//!   with its token); see `desktop_core::wrapper::browser`.
 //! - **Settings are the developer's.** The `wrapper` section of `config/settings.json` is
 //!   compiled in ([`baked`]) and read-only at run time. The user can change only the fields
 //!   in its `userEditable` list (by default the release shortcut, zoom, mute and "start
@@ -45,6 +51,7 @@ pub mod capture;
 pub mod platform;
 
 use crate::error::{codes, CommandError};
+use desktop_core::wrapper::browser;
 use desktop_core::wrapper::perm::{self, Media};
 use desktop_core::wrapper::pin::{self, PinStore};
 use desktop_core::wrapper::proxy::{self, Proxy, Upstream};
@@ -414,6 +421,41 @@ fn open_external(state: &Wrapper, url: &Url) {
     }
 }
 
+/// "Open in Browser…": the page the window shows (`window_url`), as the site knows it, in
+/// the developer's browser app or the default one. Anything but an `http(s)` page on the
+/// wrapped origin is refused.
+fn open_in_browser(app: &AppHandle, window_url: &str) {
+    let state = app.state::<Wrapper>();
+    let Some(c) = state.checked() else { return };
+    let url = match c.browser_url(&state.site_url(window_url)) {
+        Ok(u) => u,
+        Err(e) => {
+            log::warn!("open in browser refused: {e}");
+            return;
+        }
+    };
+    let Some(l) = browser::launch(&c.config.open_in_browser_app, &url, cfg!(target_os = "macos")) else {
+        if let Err(e) = open_with_system(&url, false) {
+            log::warn!("could not open the default browser: {e}");
+        }
+        return;
+    };
+    // `open -a` returns at once, and fails when the app is missing: then the default
+    // browser. Elsewhere the program is the browser itself, so only a failed start falls back.
+    let wait = cfg!(target_os = "macos");
+    std::thread::spawn(move || {
+        let mut cmd = std::process::Command::new(&l.program);
+        cmd.args(&l.args);
+        let ok = if wait { cmd.status().map(|s| s.success()) } else { cmd.spawn().map(|_| true) };
+        if !matches!(ok, Ok(true)) {
+            log::warn!("could not open {}; using the default browser", l.program);
+            if let Err(e) = open_with_system(&url, false) {
+                log::warn!("could not open the default browser: {e}");
+            }
+        }
+    });
+}
+
 /// `open` / `explorer` / `xdg-open` with one argument (with `reveal`: select the file).
 fn open_with_system(target: &str, reveal: bool) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
@@ -568,6 +610,7 @@ const M_ZOOM_RESET: &str = "wrap-zoom-reset";
 const M_CAPTURE: &str = "wrap-capture";
 const M_MUTE: &str = "wrap-mute";
 const M_FILL: &str = "wrap-fill";
+const M_OPEN_BROWSER: &str = "wrap-open-browser";
 const M_PREFS: &str = "wrap-prefs";
 
 /// A menu text: its translation when the app has translations (feature `i18n`, ids in
@@ -638,6 +681,8 @@ fn menu(app: &AppHandle, cfg: &WrapperConfig) -> tauri::Result<Menu<tauri::Wry>>
             &MenuItem::with_id(app, M_CAPTURE, text("wrapper-menu-capture", "Toggle Key Capture"), cfg.capture_keys, None::<&str>)?,
             &item(M_MUTE, &text("wrapper-menu-mute", "Mute / Unmute"), Some("CmdOrCtrl+Shift+M"))?,
             &MenuItem::with_id(app, M_FILL, text("wrapper-menu-fill", "Fill Form"), !cfg.autofill.is_empty(), None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &item(M_OPEN_BROWSER, &text("wrapper-menu-open-in-browser", "Open in Browser…"), Some("CmdOrCtrl+Shift+O"))?,
         ],
     )?;
     Menu::with_items(app, &[&app_menu, &edit, &view, &page_menu])
@@ -684,6 +729,7 @@ fn on_menu(app: &AppHandle, e: MenuEvent) {
         }
         M_MUTE => set_muted(app, !state.muted.load(Ordering::SeqCst)),
         M_FILL => fill(app, &w, w.url().map(|u| u.to_string()).unwrap_or_default().as_str()),
+        M_OPEN_BROWSER => open_in_browser(app, w.url().map(|u| u.to_string()).unwrap_or_default().as_str()),
         M_PREFS => {
             let _ = open_prefs(app, "");
         }
@@ -847,6 +893,7 @@ mod tests {
             json!({"microphone": true}),
             json!({"zoom": 1.2, "pinnedSha256": "ab"}),
             json!({"userEditable": ["url"]}),
+            json!({"openInBrowserApp": "Safari"}),
         ] {
             let e = changed(&baked, &user, &changes).unwrap_err();
             assert_eq!(e.code, codes::DENIED, "{changes}: {e:?}");
