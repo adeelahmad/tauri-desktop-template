@@ -1276,10 +1276,24 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_shell::init());
 {% endif %}{% if tauri_global_shortcut %}    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
-{% endif %}{% if tauri_autostart %}    #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
-{% endif %}{% if tauri_window_state %}    #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+{% endif %}{% if tauri_autostart %}{% if web_wrapper %}    // A web app started at login knows it (it may then stay hidden in the menu bar).
+    #[cfg(all(desktop, feature = "web-wrapper"))]
+    let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![wrapper::presence::AUTOSTART_ARG])));
+    #[cfg(all(desktop, not(feature = "web-wrapper")))]
+{% else %}    #[cfg(desktop)]
+{% endif %}    let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
+{% endif %}{% if tauri_window_state %}{% if web_wrapper %}    // The web app's window: restored by the wrapper itself (only with "remember the window"
+    // on, then kept on screen), so the plugin only tracks and saves it.
+    #[cfg(all(desktop, feature = "web-wrapper"))]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(wrapper::presence::WINDOW_FLAGS)
+            .skip_initial_state(desktop_core::wrapper::LABEL)
+            .build(),
+    );
+    #[cfg(all(desktop, not(feature = "web-wrapper")))]
+{% else %}    #[cfg(desktop)]
+{% endif %}    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
 {% endif %}{% if tauri_process %}    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_process::init());
 {% endif %}{% endif %}{% if tray_menu %}    // Tray, global shortcuts and app menu: one action registry (see tray.rs).
@@ -1374,7 +1388,13 @@ pub fn run() {
 {% if web_wrapper %}        // The web app: its window, menu and Preferences (feature `web-wrapper`).
         #[cfg(all(desktop, feature = "web-wrapper"))]
         {
-            wrapper::setup(app.handle())?;
+{% if tray_menu %}            // Preferences turns the menu bar icon and the Dock icon on and off at once.
+            #[cfg(feature = "tray-menu")]
+            {
+                let handle = app.handle().clone();
+                wrapper::presence::on_tray_change(move || tray::apply(&handle, &load_settings(&handle).config));
+            }
+{% endif %}            wrapper::setup(app.handle())?;
 {% if tauri_plugins %}{% if tauri_deep_link %}            use tauri_plugin_deep_link::DeepLinkExt;
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {

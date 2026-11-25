@@ -125,6 +125,12 @@ and `--no-fetch` (skip reading the site); the MCP `new` tool takes the same as `
 `insecure_tls`, `capture_keys`, `release_shortcut`, `microphone`, `muted`, `camera`,
 `screen`, `scheme`.
 
+A web app also gets `tray_menu`, `tauri_plugins`, `tauri_window_state` and
+`tauri_autostart`: the parts behind the user's window and startup preferences (remember
+the window, Dock icon, menu bar icon, open at login; set their defaults in
+`config/settings.json`, `wrapper`). `kitchen disable <part>` takes one away, and
+Preferences then stops offering it.
+
 `--engine chromium` (any app, desktop or web; the last question on a terminal, `engine` in
 the MCP `new` tool) sets the template answer `web_engine = "chromium"`: the app runs on
 Chromium (CEF, Tauri 3 alpha) instead of WKWebView on macOS, about 150 MB more to download.

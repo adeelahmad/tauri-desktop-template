@@ -30,6 +30,10 @@
 //! - **Deep links** (`<scheme>://path?x`, with the `tauri_deep_link` plugin) open
 //!   `<base>/path?x` on the same site, also when another launch hands them over.
 //!
+//! - **Window, Dock, menu bar and startup** ([`presence`]): the window comes back at the
+//!   size and place it was left (moved back on screen when a display was removed), and the
+//!   user picks a Dock icon (macOS), a menu bar or tray icon, and starting at login.
+//!
 //! Per OS, see [`platform`]: TLS pinning, mute, the media permission prompts, key capture.
 //!
 //! The wrapper is generic over the Tauri runtime `R` (the web engine, picked in `run()`);
@@ -53,6 +57,7 @@ pub mod engine;
 #[cfg_attr(windows, path = "windows.rs")]
 #[cfg_attr(not(any(target_os = "macos", windows)), path = "linux.rs")]
 pub mod platform;
+pub mod presence;
 
 use crate::error::{codes, CommandError};
 pub use engine::Engine;
@@ -196,6 +201,7 @@ pub const FREEZE_PROTOTYPE: &str = "Object.freeze(Object.prototype);";
 /// Open the site's window, the menu and (when keys need a permission first) Preferences.
 pub fn setup<R: Engine>(app: &AppHandle<R>) -> tauri::Result<()> {
     let cfg = effective(app);
+    presence::setup(app, &cfg);
     let checked = match cfg.check() {
         Ok(c) => Some(c),
         Err(e) => {
@@ -331,6 +337,8 @@ fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> 
         .on_permission_request(on_permission)
         .on_download(on_download)
         .initialization_script(page::init_script(&c.config.features))
+        // Shown by `presence::restore_and_show`, once its size and place are restored.
+        .visible(false)
         // Persistent cookies and storage (Windows and Linux; macOS keeps the default store).
         .data_directory(crate::paths::app_dirs().1.join("wrapper"));
     if !c.config.user_agent.is_empty() {
@@ -350,6 +358,8 @@ fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> 
     };
     let reload = hooks.pins.is_some();
     R::install(&w, hooks)?;
+    let args: Vec<String> = std::env::args().collect();
+    presence::restore_and_show(&w, &c.config, presence::starts_hidden(&c.config, &args))?;
     if reload {
         // The first request can reach the server before the certificate hook is in place
         // (macOS), so load the site again once it is. Runs after `install` on the UI thread.
@@ -624,6 +634,34 @@ const M_FILL: &str = "wrap-fill";
 const M_OPEN_BROWSER: &str = "wrap-open-browser";
 const M_PREFS: &str = "wrap-prefs";
 
+/// The menu bar (tray) icon's own actions (`crate::tray`, feature `tray-menu`).
+#[allow(dead_code)]
+pub const A_RELEASE: &str = "wrapper_release";
+/// Mute or unmute, from the tray.
+#[allow(dead_code)]
+pub const A_MUTE: &str = "wrapper_mute";
+/// Preferences, from the tray.
+#[allow(dead_code)]
+pub const A_PREFS: &str = "wrapper_prefs";
+
+/// Run one of the tray's wrapper actions ([`A_RELEASE`], [`A_MUTE`], [`A_PREFS`]); `false`
+/// when `id` is not one of them.
+#[allow(dead_code)] // the tray only
+pub fn tray_action<R: Engine>(app: &AppHandle<R>, id: &str) -> bool {
+    match id {
+        A_RELEASE => capture::stop(),
+        A_MUTE => {
+            let muted = app.try_state::<Wrapper>().is_some_and(|s| s.muted.load(Ordering::SeqCst));
+            set_muted(app, !muted);
+        }
+        A_PREFS => {
+            let _ = open_prefs(app, "");
+        }
+        _ => return false,
+    }
+    true
+}
+
 /// A menu text: its translation when the app has translations (feature `i18n`, ids in
 /// `locales/*/app.ftl`), else the English.
 fn text(id: &str, en: &str) -> String {
@@ -786,10 +824,14 @@ pub fn wrapper_get<R: Runtime>(app: AppHandle<R>) -> Result<Value, CommandError>
     let cfg = user(&app).merge(&baked);
     let state = app.state::<Wrapper>();
     let p = platform::permissions();
+    let editable: Vec<Editable> = cfg.editable().filter(|f| presence::available(*f)).collect();
+    let mut values = UserOverrides::shown(&cfg);
+    values.retain(|k, _| editable.iter().any(|f| f.key() == k));
     Ok(json!({
         "site": cfg.url,
-        "editable": cfg.editable().map(Editable::key).collect::<Vec<_>>(),
-        "values": UserOverrides::shown(&cfg),
+        "editable": editable.iter().map(|f| f.key()).collect::<Vec<_>>(),
+        "applies": editable.iter().map(|f| (f.key().to_string(), Value::from(presence::applies(*f)))).collect::<serde_json::Map<_, _>>(),
+        "values": values,
         "insecureTls": cfg.insecure_tls,
         "pin": state.pins.get().map(|f| pin::display(&f)),
         "canForgetPin": baked.learns_pin(),
@@ -804,7 +846,8 @@ pub fn wrapper_get<R: Runtime>(app: AppHandle<R>) -> Result<Value, CommandError>
 /// Save the user's changes from Preferences: `changes` is `{field: value}` with only
 /// fields on the developer's `userEditable` list (`null` goes back to the built-in value).
 /// Any other field is refused (`denied`) and nothing is saved. Returns whether a restart
-/// is needed (turning key capture on or off changes the menu).
+/// is needed (turning key capture on or off changes the menu), and a `warning` when a
+/// change was saved but the OS refused it (e.g. the login item).
 #[tauri::command]
 pub fn wrapper_set<R: Engine>(app: AppHandle<R>, changes: Value) -> Result<Value, CommandError> {
     let baked = baked();
@@ -824,12 +867,16 @@ pub fn wrapper_set<R: Engine>(app: AppHandle<R>, changes: Value) -> Result<Value
     if new.muted != state.muted.load(Ordering::SeqCst) {
         set_muted(&app, new.muted);
     }
-    Ok(json!({ "restart": new.capture_keys != old.capture_keys }))
+    let warning = presence::changed(&app, &old, &new).err();
+    Ok(json!({ "restart": new.capture_keys != old.capture_keys, "warning": warning }))
 }
 
 /// The user's part with `changes` applied, the settings then in force, and their check:
 /// a field the developer did not allow is `denied`, a bad value `invalid`; nothing is saved.
 fn changed(baked: &WrapperConfig, user: &UserWrapper, changes: &Value) -> Result<(UserWrapper, WrapperConfig, Checked), CommandError> {
+    if let Some(key) = changes.as_object().and_then(|m| m.keys().find(|k| Editable::from_key(k).is_some_and(|f| !presence::available(f)))) {
+        return Err(CommandError::new(codes::DENIED, format!("{key} is not available in this build of the app")));
+    }
     let mut u = user.clone();
     u.overrides = u.overrides.change(baked, changes).map_err(|e| match e {
         ChangeError::NotEditable(_) => CommandError::new(codes::DENIED, e.to_string()),
@@ -916,6 +963,22 @@ mod tests {
         assert_eq!(checked.release.to_string(), "Ctrl+Alt+F12");
         assert_eq!(u.overrides.zoom, Some(1.5));
         assert!(baked.learns_pin(), "Forget is offered: insecureTls with no built-in pin");
+    }
+
+    #[test]
+    fn window_preferences_are_checked_too() {
+        let baked = WrapperConfig { url: "https://pikvm.local/".into(), ..WrapperConfig::default() };
+        let user = UserWrapper::default();
+        let e = changed(&baked, &user, &json!({"dockIcon": false})).unwrap_err();
+        // Off without a menu bar icon is refused; where there is no Dock it is not offered at all.
+        assert_eq!(e.code, if presence::available(Editable::DockIcon) { codes::INVALID } else { codes::DENIED }, "{e:?}");
+        let r = changed(&baked, &user, &json!({"menuBarIcon": true, "rememberWindow": false}));
+        if presence::available(Editable::MenuBarIcon) && presence::available(Editable::RememberWindow) {
+            let (_, new, _) = r.unwrap();
+            assert!(new.menu_bar_icon && !new.remember_window && new.dock_icon);
+        } else {
+            assert_eq!(r.unwrap_err().code, codes::DENIED);
+        }
     }
 
     #[test]

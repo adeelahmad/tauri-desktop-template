@@ -46,6 +46,7 @@ async function load() {
     if (el.type === 'checkbox') el.checked = !!v;
     else if (v != null) el.value = v;
   }
+  showWindowPrefs(s, editable);
   $('actions').hidden = editable.size === 0;
   $('site').textContent = s.site || '';
   $('certificate').hidden = !s.insecureTls;
@@ -60,8 +61,37 @@ async function load() {
   $('problems').hidden = problems.length === 0;
   $('problems').textContent = problems.join('; ');
   showPermissions(s.permissions);
+  applyBundle();
   return s;
 }
+
+// When each window preference takes effect, the menu bar's name on this OS, and the rule
+// that the Dock icon and the menu bar icon are never both off (the app checks it too).
+const APPLIES = { now: 'Applies at once.', nextLaunch: 'Applies on the next launch.' };
+function showWindowPrefs(s, editable) {
+  const mac = s.permissions && s.permissions.platform === 'macos';
+  for (const el of document.querySelectorAll('[data-os]')) el.hidden = (el.dataset.os === 'macos') !== mac;
+  for (const el of document.querySelectorAll('[data-applies]')) {
+    const when = (s.applies || {})[el.dataset.applies];
+    el.textContent = APPLIES[when] || '';
+    el.dataset.i18n = when === 'nextLaunch' ? 'wrapper-prefs-applies-next-launch' : 'wrapper-prefs-applies-now';
+  }
+  keepReachable(editable);
+}
+
+function keepReachable(editable) {
+  const dock = form.elements.dockIcon;
+  const bar = form.elements.menuBarIcon;
+  const both = editable.has('dockIcon');
+  // Without the menu bar icon the Dock icon must stay; without the Dock icon, the menu bar icon.
+  dock.disabled = both && !(editable.has('menuBarIcon') ? bar.checked : current.values.menuBarIcon);
+  bar.disabled = both && !dock.checked;
+  if (dock.disabled) dock.checked = true;
+  $('reachable').hidden = !both || !(dock.disabled || bar.disabled);
+}
+
+form.elements.dockIcon.addEventListener('change', () => keepReachable(new Set(current.editable)));
+form.elements.menuBarIcon.addEventListener('change', () => keepReachable(new Set(current.editable)));
 
 // The changed values of the shown fields only.
 function collect() {
@@ -80,7 +110,7 @@ form.addEventListener('submit', async (e) => {
   try {
     const r = await invoke('wrapper_set', { changes: collect() });
     await load();
-    $('status').textContent = r.restart ? 'Saved. Some changes apply after a restart.' : 'Saved.';
+    $('status').textContent = r.warning ? 'Saved, but: ' + r.warning : r.restart ? 'Saved. Some changes apply after a restart.' : 'Saved.';
     $('restart').hidden = !r.restart;
   } catch (err) {
     $('status').textContent = errorText(err);
@@ -134,13 +164,19 @@ setInterval(async () => {
 
 // Translations, when the app has them (feature i18n: the `i18n_bundle` command): the plain
 // messages of the headings; the English in the page stays otherwise.
+let bundle = null;
 async function translate() {
-  let bundle;
   try {
     bundle = await invoke('i18n_bundle', { locale: null });
   } catch {
     return;
   }
+  applyBundle();
+}
+
+// Again after each load: the "applies" hints are set then.
+function applyBundle() {
+  if (!bundle) return;
   const text = (m) =>
     typeof m === 'string' ? m : m && Array.isArray(m.parts) && m.parts.every((p) => typeof p === 'string') ? m.parts.join('') : null;
   document.documentElement.lang = bundle.locale;

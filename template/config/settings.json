@@ -30,6 +30,10 @@
     "fillOnLoad": false,
     "proxy": "auto",
     "openInBrowserApp": "",
-    "userEditable": ["releaseShortcut", "zoom", "muted", "startCaptured"]
+    "userEditable": ["releaseShortcut", "zoom", "muted", "startCaptured", "dockIcon", "menuBarIcon", "runAtStartup", "rememberWindow"],
+    "dockIcon": true,
+    "menuBarIcon": false,
+    "runAtStartup": false,
+    "rememberWindow": true
   }{% endif %}
 }
