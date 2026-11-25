@@ -14,6 +14,7 @@
 //! | Media permissions and download names | [`perm`] |
 //! | "Open in Browser…": the current page in a real browser | [`browser`] |
 //! | The script the wrapper adds to the page | [`page`] |
+//! | Keeping a restored window on screen | [`screen`] |
 //! | The loopback proxy (headers on every request, pinning, WebSockets) | [`proxy`] |
 //!
 //! Key codes and the release shortcut are in [`crate::keymap`].
@@ -52,6 +53,7 @@ pub mod perm;
 pub mod pin;
 pub mod proxy;
 pub mod rules;
+pub mod screen;
 pub mod url;
 pub mod user;
 
@@ -153,6 +155,19 @@ pub struct WrapperConfig {
     /// every other field stays as built. Default: [`DEFAULT_EDITABLE`]. `[]` shows no
     /// settings at all.
     pub user_editable: Vec<String>,
+    /// macOS: show the app in the Dock (`true`, the default). Off, the app lives in the menu
+    /// bar only (needs [`menu_bar_icon`](Self::menu_bar_icon): [`check`](Self::check)
+    /// refuses both off, or the app could never be reached).
+    pub dock_icon: bool,
+    /// An icon in the macOS menu bar (the system tray on Windows and Linux) with Show/Hide,
+    /// Release Keys, Mute, Preferences and Quit. Off by default.
+    pub menu_bar_icon: bool,
+    /// Start the app when the user logs in. Off by default. With the Dock icon off it
+    /// starts hidden, in the menu bar.
+    pub run_at_startup: bool,
+    /// Restore the window's size, position, maximized and full-screen state on the next
+    /// launch (moved back on screen when a display was removed). On by default.
+    pub remember_window: bool,
 }
 
 impl Default for WrapperConfig {
@@ -177,6 +192,10 @@ impl Default for WrapperConfig {
             proxy: ProxyMode::Auto,
             open_in_browser_app: String::new(),
             user_editable: DEFAULT_EDITABLE.iter().map(|f| f.key().to_string()).collect(),
+            dock_icon: true,
+            menu_bar_icon: false,
+            run_at_startup: false,
+            remember_window: true,
         }
     }
 }
@@ -202,7 +221,8 @@ pub struct Checked {
 
 impl WrapperConfig {
     /// Validate everything, in one place: the URL, the shortcut, the pin, zoom, the
-    /// User-Agent, the "Open in Browser…" app, every header rule and auto-fill rule. All problems are listed.
+    /// User-Agent, the "Open in Browser…" app, the Dock and menu bar icons (not both off),
+    /// every header rule and auto-fill rule. All problems are listed.
     pub fn check(&self) -> Result<Checked, Vec<String>> {
         let mut errors = Vec::new();
         let parsed = url::WebUrl::parse(&self.url).map_err(|e| format!("url: {e}"));
@@ -221,6 +241,9 @@ impl WrapperConfig {
         }
         if self.user_agent.len() > 512 || self.user_agent.chars().any(char::is_control) {
             errors.push("user agent: at most 512 characters, no line breaks".into());
+        }
+        if !self.dock_icon && !self.menu_bar_icon {
+            errors.push("dockIcon, menuBarIcon: keep at least one on, or the app cannot be reached".into());
         }
         if let Err(e) = browser::check_app(&self.open_in_browser_app) {
             errors.push(format!("openInBrowserApp: {e}"));
@@ -422,6 +445,19 @@ mod tests {
         assert!(e[0].starts_with("openInBrowserApp:"), "{e:?}");
         let c: WrapperConfig = serde_json::from_str(r#"{"url":"https://a.b","openInBrowserApp":"Firefox"}"#).unwrap();
         assert_eq!(c.open_in_browser_app, "Firefox");
+    }
+
+    #[test]
+    fn the_app_stays_reachable() {
+        let c = WrapperConfig::default();
+        assert!(c.dock_icon && !c.menu_bar_icon && !c.run_at_startup && c.remember_window);
+        let menu_bar_only = WrapperConfig { dock_icon: false, menu_bar_icon: true, ..cfg("https://h.example/") };
+        assert!(menu_bar_only.check().is_ok());
+        let e = WrapperConfig { dock_icon: false, ..cfg("https://h.example/") }.check().unwrap_err();
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].starts_with("dockIcon, menuBarIcon:"), "{e:?}");
+        let c: WrapperConfig = serde_json::from_str(r#"{"url":"https://a.b","menuBarIcon":true,"runAtStartup":true,"rememberWindow":false}"#).unwrap();
+        assert!(c.dock_icon && c.menu_bar_icon && c.run_at_startup && !c.remember_window);
     }
 
     #[test]

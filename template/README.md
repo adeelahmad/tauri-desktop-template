@@ -757,7 +757,8 @@ certificate pinned on first use are kept apart (`config.wrapper` in the user's
 | `microphone`, `camera`, `screen`, `muted` | `--mic`, `--camera`, `--screen`, `--muted` / `kitchen set web_microphone=true` (and `web_camera`, `web_screen`, `web_muted`) | media for the site; start muted |
 | `startCaptured`, `zoom`, `userAgent`, `features`, `headers`, `autofill`, `fillOnLoad`, `proxy` | edit the file | see docs/GUIDE.md, "Wrap a web app" |
 | `openInBrowserApp` | edit the file | the browser for "Open in Browser…" (Page menu, Cmd/Ctrl+Shift+O), the fallback for sites that break in the web view: empty (default) for the default browser, or an app name such as `Google Chrome` (macOS, `open -a`) or `firefox` (a program on `PATH`); only the current page of the site, http(s) only |
-| `userEditable` | edit the file | what the user may change: default `["releaseShortcut", "zoom", "muted", "startCaptured"]`; also allowed: `captureKeys`, `microphone`, `camera`, `screen`; `[]` for none |
+| `dockIcon`, `menuBarIcon`, `runAtStartup`, `rememberWindow` | edit the file | the defaults for the user's window and startup preferences: Dock icon on (macOS), menu bar / system tray icon off, open at login off, remember the window's size and place on; the Dock icon and the menu bar icon are never both off. They use the `tray_menu`, `tauri_autostart` and `tauri_window_state` parts, which `kitchen new --web` turns on; a part that is not built in is not offered |
+| `userEditable` | edit the file | what the user may change: default `["releaseShortcut", "zoom", "muted", "startCaptured", "dockIcon", "menuBarIcon", "runAtStartup", "rememberWindow"]`; also allowed: `captureKeys`, `microphone`, `camera`, `screen`; `[]` for none |
 
 `kitchen set` rewrites `config/settings.json` from the new answer (keeping your other edits
 with a 3-way merge). After any change, rebuild: the settings are part of the binary.

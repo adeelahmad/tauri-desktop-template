@@ -213,6 +213,9 @@ fn new_web_app_end_to_end() {
         "capture_keys = true".into(),
         "web_muted = true".into(),
         "web_microphone = false".into(),
+        "tray_menu = true".into(),
+        "tauri_window_state = true".into(),
+        "tauri_autostart = true".into(),
         "release_shortcut = \"Ctrl+Alt+F12\"".into(),
     ] {
         assert!(toml.contains(&want), "{want} not in\n{toml}");
@@ -233,8 +236,36 @@ fn new_web_app_end_to_end() {
     assert_eq!(wrapper["microphone"], false);
     assert_eq!(
         wrapper["userEditable"],
-        serde_json::json!(["releaseShortcut", "zoom", "muted", "startCaptured"]),
+        serde_json::json!([
+            "releaseShortcut",
+            "zoom",
+            "muted",
+            "startCaptured",
+            "dockIcon",
+            "menuBarIcon",
+            "runAtStartup",
+            "rememberWindow"
+        ]),
         "the user may change only these"
+    );
+    // The window and startup preferences: Dock on, menu bar off, startup off, remember on.
+    assert_eq!(
+        (
+            &wrapper["dockIcon"],
+            &wrapper["menuBarIcon"],
+            &wrapper["runAtStartup"],
+            &wrapper["rememberWindow"]
+        ),
+        (
+            &serde_json::json!(true),
+            &serde_json::json!(false),
+            &serde_json::json!(false),
+            &serde_json::json!(true)
+        )
+    );
+    assert!(
+        app.join("src-tauri/src/tray.rs").is_file(),
+        "the menu bar icon"
     );
     assert!(app.join("src-tauri/src/wrapper/mod.rs").is_file());
     assert!(app.join("src-tauri/icons/source-1024.png").is_file());

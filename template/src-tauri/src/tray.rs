@@ -15,6 +15,12 @@
 //!
 //! Add an action with `kitchen generate menu <id> --label "..."` or bind a default
 //! shortcut with `kitchen generate shortcut <action> <keys>`; both write into [`own`].
+{% if web_wrapper %}//!
+//! In a web app (feature `web-wrapper`) the tray is the wrapper's menu bar icon: its
+//! settings come from Preferences (`menuBarIcon`, `dockIcon`; see
+//! `crate::wrapper::presence::tray_settings`), its menu has Show/Hide, Release Keys, Mute,
+//! Preferences and Quit, and the app menu stays the wrapper's own.
+{% endif %}
 
 use crate::error::CommandError;
 use desktop_core::actions::{ActionError, Host, PlannedItem, Registry};
@@ -40,7 +46,18 @@ fn own(r: &mut Registry) -> Result<(), ActionError> {
 /// Every action the tray, shortcuts and menu may name: the built-ins and the app's own.
 pub fn registry() -> Registry {
     let mut r = Registry::new();
-    if let Err(e) = own(&mut r) {
+{% if web_wrapper %}    // The web app's tray actions (crate::wrapper::tray_action).
+    #[cfg(feature = "web-wrapper")]
+    for (id, label) in [
+        (crate::wrapper::A_RELEASE, "Release Keys"),
+        (crate::wrapper::A_MUTE, "Mute / Unmute"),
+        (crate::wrapper::A_PREFS, "Preferences…"),
+    ] {
+        if let Err(e) = r.register(id, label) {
+            log::warn!("web app actions: {e}");
+        }
+    }
+{% endif %}    if let Err(e) = own(&mut r) {
         log::warn!("app actions: {e}");
     }
     r
@@ -109,6 +126,14 @@ pub fn closes_to_tray(app: &AppHandle) -> bool {
 /// Build the tray, the app menu and the shortcuts from `cfg`, replacing what was there.
 pub fn apply(app: &AppHandle, cfg: &Config) {
     let Some(tray) = app.try_state::<Tray>() else { return };
+{% if web_wrapper %}    // A web app: the icon follows the wrapper's Preferences, and the app menu is the wrapper's.
+    #[cfg(feature = "web-wrapper")]
+    let wrapped = Config { tray: crate::wrapper::presence::tray_settings(&crate::wrapper::effective(app)), ..cfg.clone() };
+    #[cfg(feature = "web-wrapper")]
+    let cfg = &wrapped;
+    let own_menu = !cfg!(feature = "web-wrapper");
+{% else %}    let own_menu = true;
+{% endif %}
     let plan = tray.registry.plan(&cfg.tray, &cfg.menu, &cfg.shortcuts);
     let mut problems = plan.problems.clone();
     let paused = tray.paused.load(Ordering::Relaxed);
@@ -119,8 +144,10 @@ pub fn apply(app: &AppHandle, cfg: &Config) {
     }
     // The default title is shown in the user's language; a title of the user's own as it is.
     let title = if cfg.menu.title == desktop_core::actions::MenuConfig::default().title { text("menu-actions", &cfg.menu.title) } else { cfg.menu.title.clone() };
-    if let Err(e) = build_menu(app, &title, &plan.menu, &tray.registry, paused) {
-        problems.push(format!("Menu: {e}"));
+    if own_menu {
+        if let Err(e) = build_menu(app, &title, &plan.menu, &tray.registry, paused) {
+            problems.push(format!("Menu: {e}"));
+        }
     }
     #[cfg(target_os = "macos")]
     if let Err(e) = app.set_dock_visibility(!(cfg.tray.enabled && cfg.tray.show_in_menu_bar_only)) {
@@ -366,7 +393,7 @@ pub struct AppHost(pub AppHandle);
 
 impl AppHost {
     fn window(&self) -> Result<tauri::WebviewWindow, String> {
-        self.0.get_webview_window("main").ok_or_else(|| "no main window".into())
+        self.0.get_webview_window("main"){% if web_wrapper %}.or_else(|| self.0.get_webview_window("web-app")){% endif %}.ok_or_else(|| "no main window".into())
     }
 
     /// Tell the window an action ran (it may move the focus).
@@ -464,7 +491,11 @@ impl Host for AppHost {
     }
 
     fn open_settings(&self) -> Result<(), String> {
-        self.show()?;
+{% if web_wrapper %}        #[cfg(feature = "web-wrapper")]
+        if self.0.get_webview_window("main").is_none() {
+            return crate::wrapper::open_prefs(&self.0, "").map_err(|e| e.to_string());
+        }
+{% endif %}        self.show()?;
         self.tell("settings");
         Ok(())
     }
@@ -475,7 +506,11 @@ impl Host for AppHost {
     }
 
     fn custom(&self, id: &str) -> Result<(), String> {
-        self.tell(id);
+{% if web_wrapper %}        #[cfg(feature = "web-wrapper")]
+        if crate::wrapper::tray_action(&self.0, id) {
+            return Ok(());
+        }
+{% endif %}        self.tell(id);
         let id = id.to_string();
         let app = self.0.clone();
         std::thread::spawn(move || {

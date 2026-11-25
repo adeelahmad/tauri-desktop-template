@@ -895,7 +895,8 @@ read-only at run time. Change it by editing the file, or for the generation answ
 `kitchen set` (`web_url`, `web_insecure_tls`, `web_cert_sha256`, `capture_keys`,
 `release_shortcut`, `web_microphone`, `web_camera`, `web_screen`, `web_muted`), then
 rebuild. `wrapper.userEditable` names the only fields the user may change in Preferences
-(default `["releaseShortcut", "zoom", "muted", "startCaptured"]`; `captureKeys`,
+(default `["releaseShortcut", "zoom", "muted", "startCaptured", "dockIcon", "menuBarIcon",
+"runAtStartup", "rememberWindow"]`; `captureKeys`,
 `microphone`, `camera` and `screen` may be added; `[]` hides them all). Preferences shows
 only those, and `wrapper_set` refuses any other field in Rust (`UserOverrides::change`),
 so a page cannot change the address, TLS, headers or anything else. The user's changes
@@ -903,6 +904,22 @@ are saved apart, as `config.wrapper` in the user's `settings.json` (`UserWrapper
 overrides and the certificate pinned on first use), and merged over the built-in settings;
 an override the developer no longer allows is ignored. The Zoom and Mute menu items always
 work, and are remembered only when `zoom` or `muted` is editable.
+
+**Window, Dock, menu bar and startup** (`src-tauri/src/wrapper/presence.rs`). Four user
+preferences, with the developer's defaults in `config/settings.json`:
+
+| Preference | Default | Built on | Applies |
+|---|---|---|---|
+| `rememberWindow`: size, position, maximized and full screen come back on the next launch | on | `tauri_window_state` (the plugin tracks and saves the `web-app` window; the wrapper restores it, and `desktop_core::wrapper::screen::fit` moves it back onto a display when the one it was on is gone) | next launch |
+| `menuBarIcon`: a menu bar icon (system tray on Windows and Linux) with Show/Hide, Release Keys (with key capture), Mute, Preferences and Quit | off | `tray_menu` (`src-tauri/src/tray.rs`; the wrapper keeps its own app menu) | at once |
+| `dockIcon` (macOS): off makes a menu-bar-only app, and closing the window hides it | on | the tray's "menu bar only" switch | at once |
+| `runAtStartup`: open at login (a LaunchAgent on macOS, the Run key on Windows, an autostart entry on Linux); with the Dock icon off it starts hidden in the menu bar | off | `tauri_autostart`, started with `--autostart` | at once |
+
+`kitchen new --web` turns on `tray_menu`, `tauri_plugins`, `tauri_window_state` and
+`tauri_autostart` for these. In a build without one of them, its preference is not shown
+and `wrapper_set` refuses it. `WrapperConfig::check` refuses the Dock icon and the menu bar
+icon both off, so Preferences cannot save that and a hand-edited file falls back to the
+built-in settings: the app always stays reachable.
 
 **What the site can and cannot do.** The site's window (`web-app`) has no Tauri IPC: it is
 in no capability, and the command guard refuses every call from a `web-*` window. Only the

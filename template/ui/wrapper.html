@@ -67,6 +67,33 @@
           <label class="check" data-field="muted" hidden><input name="muted" type="checkbox" /> Mute the page</label>
         </section>
 
+        <section data-auto>
+          <h2 data-i18n="wrapper-prefs-window">Window and startup</h2>
+          <label class="check" data-field="dockIcon" hidden
+            ><input name="dockIcon" type="checkbox" /> <span data-i18n="wrapper-prefs-dock-icon">Show in the Dock</span>
+            <small class="hint" data-applies="dockIcon"></small
+          ></label>
+          <label class="check" data-field="menuBarIcon" hidden
+            ><input name="menuBarIcon" type="checkbox" />
+            <span data-i18n="wrapper-prefs-menu-bar-icon" data-os="macos">Show in the menu bar</span
+            ><span data-i18n="wrapper-prefs-tray-icon" data-os="other">Show in the system tray</span>
+            <small class="hint" data-applies="menuBarIcon"></small
+          ></label>
+          <p class="hint" id="reachable" hidden data-i18n="wrapper-prefs-keep-one">
+            Keep the Dock icon or the menu bar icon, or the app could not be reached.
+          </p>
+          <label class="check" data-field="runAtStartup" hidden
+            ><input name="runAtStartup" type="checkbox" />
+            <span data-i18n="wrapper-prefs-run-at-startup">Open at login</span>
+            <small class="hint" data-applies="runAtStartup"></small
+          ></label>
+          <label class="check" data-field="rememberWindow" hidden
+            ><input name="rememberWindow" type="checkbox" />
+            <span data-i18n="wrapper-prefs-remember-window">Remember the window's size and place</span>
+            <small class="hint" data-applies="rememberWindow"></small
+          ></label>
+        </section>
+
         <section id="secrets" hidden>
           <h2 data-i18n="wrapper-prefs-autofill">Form auto-fill</h2>
           <p class="hint">The app reads these secrets from the keychain:</p>

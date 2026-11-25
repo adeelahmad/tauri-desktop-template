@@ -44,3 +44,7 @@ label.check input {
 #perm-list li {
   margin: 4px 0;
 }
+label.check small {
+  display: block;
+  margin-inline-start: 22px;
+}

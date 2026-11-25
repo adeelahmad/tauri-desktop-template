@@ -940,7 +940,18 @@ pub struct WebAnswers {
 impl WebAnswers {
     /// As `kitchen.toml` answers: (name, value), plus the features to turn on.
     pub fn answers(&self) -> (Vec<String>, Vec<(String, String)>) {
-        let mut on = vec!["web_wrapper".to_string()];
+        // The window's remembered size and place, the menu bar icon (and with it the Dock
+        // switch) and starting at login: user preferences in the wrapper (dockIcon,
+        // menuBarIcon, runAtStartup, rememberWindow), built on these template parts.
+        let mut on: Vec<String> = [
+            "web_wrapper",
+            "tray_menu",
+            "tauri_plugins",
+            "tauri_window_state",
+            "tauri_autostart",
+        ]
+        .map(String::from)
+        .to_vec();
         for (name, v) in [
             ("web_insecure_tls", self.insecure_tls),
             ("capture_keys", self.capture_keys),
@@ -962,7 +973,7 @@ impl WebAnswers {
         }
         if !self.scheme.is_empty() {
             // The scheme is only registered (Info.plist, tauri.conf.json) with the plugin on.
-            on.extend(["tauri_plugins".into(), "tauri_deep_link".into()]);
+            on.push("tauri_deep_link".into());
             set.push(("deep_link_scheme".into(), self.scheme.clone()));
         }
         (on, set)
@@ -1208,7 +1219,18 @@ mod tests {
             ..WebAnswers::default()
         };
         let (on, set) = a.answers();
-        assert_eq!(on, ["web_wrapper", "web_insecure_tls", "capture_keys"]);
+        assert_eq!(
+            on,
+            [
+                "web_wrapper",
+                "tray_menu",
+                "tauri_plugins",
+                "tauri_window_state",
+                "tauri_autostart",
+                "web_insecure_tls",
+                "capture_keys"
+            ]
+        );
         assert_eq!(
             set[0],
             ("web_url".to_string(), "https://pikvm.local/".to_string())

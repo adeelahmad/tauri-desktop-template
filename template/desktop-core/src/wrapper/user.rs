@@ -3,7 +3,8 @@
 //! The wrapper's settings are the **developer's**: the `wrapper` section of `config/`,
 //! compiled into the app ([`WrapperConfig`]). They are read-only at run time. The developer
 //! names the few fields the user may change in [`WrapperConfig::user_editable`] (by default
-//! [`DEFAULT_EDITABLE`]: the release shortcut, zoom, mute and "start captured"); only those
+//! [`DEFAULT_EDITABLE`]: the release shortcut, zoom, mute, "start captured", the Dock and
+//! menu bar icons, run at startup and "remember the window"); only those
 //! show in Preferences, and [`UserOverrides::change`] refuses every other field, so the
 //! check holds in Rust whatever the page sends.
 //!
@@ -58,15 +59,32 @@ pub enum Editable {
     Camera,
     /// `screen`: let the site share the screen.
     Screen,
+    /// `dockIcon`: show the app in the macOS Dock.
+    DockIcon,
+    /// `menuBarIcon`: the menu bar (system tray) icon.
+    MenuBarIcon,
+    /// `runAtStartup`: start the app at login.
+    RunAtStartup,
+    /// `rememberWindow`: restore the window's size and place on the next launch.
+    RememberWindow,
 }
 
 /// The allowlist when the developer sets none: `["releaseShortcut", "zoom", "muted",
-/// "startCaptured"]`.
-pub const DEFAULT_EDITABLE: [Editable; 4] = [Editable::ReleaseShortcut, Editable::Zoom, Editable::Muted, Editable::StartCaptured];
+/// "startCaptured", "dockIcon", "menuBarIcon", "runAtStartup", "rememberWindow"]`.
+pub const DEFAULT_EDITABLE: [Editable; 8] = [
+    Editable::ReleaseShortcut,
+    Editable::Zoom,
+    Editable::Muted,
+    Editable::StartCaptured,
+    Editable::DockIcon,
+    Editable::MenuBarIcon,
+    Editable::RunAtStartup,
+    Editable::RememberWindow,
+];
 
 impl Editable {
     /// Every field that can be put on the allowlist.
-    pub const ALL: [Editable; 8] = [
+    pub const ALL: [Editable; 12] = [
         Editable::CaptureKeys,
         Editable::StartCaptured,
         Editable::ReleaseShortcut,
@@ -75,6 +93,10 @@ impl Editable {
         Editable::Microphone,
         Editable::Camera,
         Editable::Screen,
+        Editable::DockIcon,
+        Editable::MenuBarIcon,
+        Editable::RunAtStartup,
+        Editable::RememberWindow,
     ];
 
     /// The camelCase key, as in `config/settings.json` and in Preferences.
@@ -88,6 +110,10 @@ impl Editable {
             Editable::Microphone => "microphone",
             Editable::Camera => "camera",
             Editable::Screen => "screen",
+            Editable::DockIcon => "dockIcon",
+            Editable::MenuBarIcon => "menuBarIcon",
+            Editable::RunAtStartup => "runAtStartup",
+            Editable::RememberWindow => "rememberWindow",
         }
     }
 
@@ -107,6 +133,10 @@ impl Editable {
             Editable::Microphone => cfg.microphone.into(),
             Editable::Camera => cfg.camera.into(),
             Editable::Screen => cfg.screen.into(),
+            Editable::DockIcon => cfg.dock_icon.into(),
+            Editable::MenuBarIcon => cfg.menu_bar_icon.into(),
+            Editable::RunAtStartup => cfg.run_at_startup.into(),
+            Editable::RememberWindow => cfg.remember_window.into(),
         }
     }
 }
@@ -144,6 +174,14 @@ pub struct UserOverrides {
     pub camera: Option<bool>,
     /// `screen`.
     pub screen: Option<bool>,
+    /// `dockIcon`.
+    pub dock_icon: Option<bool>,
+    /// `menuBarIcon`.
+    pub menu_bar_icon: Option<bool>,
+    /// `runAtStartup`.
+    pub run_at_startup: Option<bool>,
+    /// `rememberWindow`.
+    pub remember_window: Option<bool>,
 }
 
 impl UserOverrides {
@@ -162,6 +200,10 @@ impl UserOverrides {
         put(Editable::Microphone, &mut c.microphone, self.microphone);
         put(Editable::Camera, &mut c.camera, self.camera);
         put(Editable::Screen, &mut c.screen, self.screen);
+        put(Editable::DockIcon, &mut c.dock_icon, self.dock_icon);
+        put(Editable::MenuBarIcon, &mut c.menu_bar_icon, self.menu_bar_icon);
+        put(Editable::RunAtStartup, &mut c.run_at_startup, self.run_at_startup);
+        put(Editable::RememberWindow, &mut c.remember_window, self.remember_window);
         if let Some(s) = self.release_shortcut.as_ref().filter(|_| allowed(Editable::ReleaseShortcut)) {
             c.release_shortcut = s.clone();
         }
@@ -199,6 +241,10 @@ impl UserOverrides {
             Editable::Microphone => self.microphone = flag(v)?,
             Editable::Camera => self.camera = flag(v)?,
             Editable::Screen => self.screen = flag(v)?,
+            Editable::DockIcon => self.dock_icon = flag(v)?,
+            Editable::MenuBarIcon => self.menu_bar_icon = flag(v)?,
+            Editable::RunAtStartup => self.run_at_startup = flag(v)?,
+            Editable::RememberWindow => self.remember_window = flag(v)?,
             Editable::ReleaseShortcut => {
                 self.release_shortcut = if v.is_null() { None } else { Some(v.as_str().ok_or_else(bad)?.trim().to_string()) }
             }
@@ -279,8 +325,9 @@ mod tests {
     fn the_default_allowlist() {
         let c = baked();
         let keys: Vec<_> = c.editable().map(Editable::key).collect();
-        assert_eq!(keys, ["releaseShortcut", "zoom", "muted", "startCaptured"]);
-        assert_eq!(serde_json::to_value(&c).unwrap()["userEditable"], json!(["releaseShortcut", "zoom", "muted", "startCaptured"]));
+        let expected = ["releaseShortcut", "zoom", "muted", "startCaptured", "dockIcon", "menuBarIcon", "runAtStartup", "rememberWindow"];
+        assert_eq!(keys, expected);
+        assert_eq!(serde_json::to_value(&c).unwrap()["userEditable"], json!(expected));
         for f in Editable::ALL {
             assert_eq!(Editable::from_key(f.key()), Some(f));
         }
@@ -348,6 +395,24 @@ mod tests {
         assert!(!fixed.learns_pin());
         assert_eq!(u.merge(&fixed).pinned_sha256, "cd".repeat(32), "the developer's pin wins");
         assert_eq!(UserWrapper { learned_pin: "nope".into(), ..u }.validated().learned_pin, "");
+    }
+
+    #[test]
+    fn window_preferences_change_but_never_leave_the_app_unreachable() {
+        let c = baked();
+        let o = UserOverrides::default().change(&c, &json!({"menuBarIcon": true, "dockIcon": false, "runAtStartup": true, "rememberWindow": false})).unwrap();
+        let u = UserWrapper { overrides: o, ..UserWrapper::default() };
+        let m = u.try_merge(&c).unwrap();
+        assert!(!m.dock_icon && m.menu_bar_icon && m.run_at_startup && !m.remember_window);
+        // Turning the menu bar icon off as well would hide the app for good: refused.
+        let both_off = u.overrides.change(&c, &json!({"menuBarIcon": false})).unwrap();
+        let e = UserWrapper { overrides: both_off, ..UserWrapper::default() }.try_merge(&c).unwrap_err();
+        assert!(e[0].contains("dockIcon"), "{e:?}");
+        // A developer who keeps them to themselves: the user's values are ignored.
+        let fixed = WrapperConfig { user_editable: vec!["zoom".into()], ..baked() };
+        assert!(UserOverrides::default().change(&fixed, &json!({"dockIcon": false})).is_err());
+        let m = u.merge(&fixed);
+        assert!(m.dock_icon && !m.menu_bar_icon && !m.run_at_startup && m.remember_window);
     }
 
     #[test]
