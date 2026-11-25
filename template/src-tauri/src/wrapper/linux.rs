@@ -24,7 +24,7 @@ use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 pub const KEYS_ARRIVE_IN_PAGE: bool = true;
 
 /// Wire the hooks into a new web view.
-pub fn install(pv: tauri::webview::PlatformWebview, hooks: Hooks) {
+pub fn install(pv: &tauri_runtime_wry::Webview, hooks: Hooks) {
     let wv = pv.inner();
     wv.set_is_muted(hooks.muted);
     if let Some(s) = WebViewExt::settings(&wv) {
@@ -51,7 +51,7 @@ pub fn install(pv: tauri::webview::PlatformWebview, hooks: Hooks) {
 }
 
 /// Mute or unmute the page.
-pub fn set_muted(pv: tauri::webview::PlatformWebview, muted: bool) {
+pub fn set_muted(pv: &tauri_runtime_wry::Webview, muted: bool) {
     pv.inner().set_is_muted(muted);
 }
 

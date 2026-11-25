@@ -50,7 +50,7 @@ fn take(f: impl FnOnce(*mut PWSTR) -> windows::core::Result<()>) -> Option<Strin
 }
 
 /// Wire the hooks into a new web view.
-pub fn install(pv: tauri::webview::PlatformWebview, hooks: Hooks) {
+pub fn install(pv: &tauri_runtime_wry::Webview, hooks: Hooks) {
     // SAFETY: COM calls on the controller Tauri hands us, on the thread that owns it.
     let r = unsafe { install_inner(&pv.controller(), hooks) };
     if let Err(e) = r {
@@ -116,7 +116,7 @@ unsafe fn install_inner(controller: &ICoreWebView2Controller, hooks: Hooks) -> w
 }
 
 /// Mute or unmute the page.
-pub fn set_muted(pv: tauri::webview::PlatformWebview, muted: bool) {
+pub fn set_muted(pv: &tauri_runtime_wry::Webview, muted: bool) {
     // SAFETY: COM calls on the live controller, on its thread (inside `with_webview`).
     let r = unsafe { pv.controller().CoreWebView2().and_then(|w| w.cast::<ICoreWebView2_8>()).and_then(|w| w.SetIsMuted(muted)) };
     if let Err(e) = r {

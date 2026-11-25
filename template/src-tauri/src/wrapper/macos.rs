@@ -96,7 +96,7 @@ extern "C" {
 static TLS: OnceLock<Mutex<Option<(Origin, PinStore)>>> = OnceLock::new();
 
 /// Wire the hooks into a new web view.
-pub fn install(pv: tauri::webview::PlatformWebview, hooks: Hooks) {
+pub fn install(pv: &tauri_runtime_wry::Webview, hooks: Hooks) {
     let wv = pv.inner() as *mut AnyObject;
     if hooks.muted {
         mute(wv, true);
@@ -267,7 +267,7 @@ fn mute(wv: *mut AnyObject, muted: bool) {
 }
 
 /// Mute or unmute the page.
-pub fn set_muted(pv: tauri::webview::PlatformWebview, muted: bool) {
+pub fn set_muted(pv: &tauri_runtime_wry::Webview, muted: bool) {
     mute(pv.inner() as *mut AnyObject, muted);
 }
 

@@ -51,7 +51,7 @@ pub const SETTINGS_MENU_ID: &str = "app-shell-settings";
 pub const SETTINGS_PAGE: &str = "settings.html";
 
 /// The Tauri plugin that applies `appearance` before each page loads.
-pub fn plugin(appearance: &AppearanceConfig) -> tauri::plugin::TauriPlugin<tauri::Wry> {
+pub fn plugin(appearance: &AppearanceConfig) -> tauri::plugin::TauriPlugin<tauri::DynRuntime> {
     tauri::plugin::Builder::new("app-shell").js_init_script(appearance.init_script(std::env::consts::OS, 0)).build()
 }
 
@@ -127,7 +127,7 @@ pub fn add_menu_item(app: &AppHandle) -> tauri::Result<()> {
     if let Some(MenuItemKind::Submenu(first)) = menu.items()?.into_iter().next() {
         let item = MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
         let separator = PredefinedMenuItem::separator(app)?;
-        let items: [&dyn IsMenuItem<tauri::Wry>; 2] = [&separator, &item];
+        let items: [&dyn IsMenuItem<tauri::DynRuntime>; 2] = [&separator, &item];
         // After "About" (the first item), as macOS apps place it.
         first.insert_items(&items, first.items()?.len().min(1))?;
     }

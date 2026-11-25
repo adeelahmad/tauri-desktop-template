@@ -1236,7 +1236,11 @@ pub fn run() {
     let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
     #[cfg(not(all(desktop, feature = "ipc-worker")))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
-    let builder = tauri::Builder::default().manage(AppState { service }).plugin(guard::plugin());
+    // Tauri 3 takes its webview engine at run time; every Tauri type here is runtime-erased.
+    let builder = tauri::Builder::default()
+        .runtime(tauri_runtime_wry::Wry::default())
+        .manage(AppState { service })
+        .plugin(guard::plugin());
     // Theme and fonts before the first paint, the Settings window and its menu item.
     #[cfg(all(desktop, feature = "app-shell"))]
     let builder = builder

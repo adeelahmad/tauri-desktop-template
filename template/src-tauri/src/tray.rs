@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, DynRuntime, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 const TRAY_ID: &str = "main";
@@ -191,9 +191,9 @@ fn text(id: &str, _english: &str) -> String {
 }
 
 /// The items of a menu, as Tauri menu items. Ids are `action#item` ([`desktop_core::actions::menu_id`]).
-fn items(app: &AppHandle, plan: &[PlannedItem], registry: &Registry, paused: bool) -> tauri::Result<Vec<Box<dyn IsMenuItem<Wry>>>> {
+fn items(app: &AppHandle, plan: &[PlannedItem], registry: &Registry, paused: bool) -> tauri::Result<Vec<Box<dyn IsMenuItem<DynRuntime>>>> {
     plan.iter()
-        .map(|i| -> tauri::Result<Box<dyn IsMenuItem<Wry>>> {
+        .map(|i| -> tauri::Result<Box<dyn IsMenuItem<DynRuntime>>> {
             Ok(match i {
                 PlannedItem::Separator => Box::new(PredefinedMenuItem::separator(app)?),
                 PlannedItem::Item { menu_id, label, accelerator, enabled } => {
@@ -212,7 +212,7 @@ fn build_tray(app: &AppHandle, cfg: &Config, plan: &[PlannedItem], registry: &Re
         return Ok(());
     }
     let boxed = items(app, plan, registry, paused)?;
-    let refs: Vec<&dyn IsMenuItem<Wry>> = boxed.iter().map(|b| b.as_ref()).collect();
+    let refs: Vec<&dyn IsMenuItem<DynRuntime>> = boxed.iter().map(|b| b.as_ref()).collect();
     let menu = Menu::with_items(app, &refs)?;
     let left_menu = !cfg.tray.left_click_opens;
     if let Some(t) = app.tray_by_id(TRAY_ID) {
@@ -253,7 +253,7 @@ fn build_menu(app: &AppHandle, title: &str, plan: &[PlannedItem], registry: &Reg
     let menu = if mac { Menu::default(app)? } else { Menu::new(app)? };
     if !plan.is_empty() {
         let boxed = items(app, plan, registry, paused)?;
-        let refs: Vec<&dyn IsMenuItem<Wry>> = boxed.iter().map(|b| b.as_ref()).collect();
+        let refs: Vec<&dyn IsMenuItem<DynRuntime>> = boxed.iter().map(|b| b.as_ref()).collect();
         let sub = Submenu::with_items(app, title, true, &refs)?;
         // Before Window and Help on macOS, as apps usually place their own menus.
         let at = if mac { menu.items()?.len().saturating_sub(2) } else { 0 };

@@ -66,6 +66,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, PermissionKind, PermissionResponse};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_runtime_wry::WebviewWryExt;
 
 /// The custom URL scheme (`tauri_deep_link`), as generated.
 // Used by the deep-link plugin and the single-instance knock, when the app has them.
@@ -341,7 +342,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
         headers: if state.proxy.is_none() { Some((c.clone(), app.config().identifier.clone())) } else { None },
     };
     let reload = hooks.pins.is_some();
-    w.with_webview(move |pv| platform::install(pv, hooks))?;
+    w.with_wry_webview(move |pv| platform::install(pv, hooks))?;
     if reload {
         // The first request can reach the server before the certificate hook is in place
         // (macOS), so load the site again once it is. Runs after `install` on the UI thread.
@@ -627,7 +628,7 @@ fn text(id: &str, en: &str) -> String {
     en.to_string()
 }
 
-fn menu(app: &AppHandle, cfg: &WrapperConfig) -> tauri::Result<Menu<tauri::Wry>> {
+fn menu(app: &AppHandle, cfg: &WrapperConfig) -> tauri::Result<Menu<tauri::DynRuntime>> {
     let item = |id: &str, label: &str, keys: Option<&str>| MenuItem::with_id(app, id, label, true, keys);
     let name = app.package_info().name.clone();
     let app_menu = Submenu::with_items(
@@ -742,7 +743,7 @@ fn set_muted(app: &AppHandle, muted: bool) {
     let state = app.state::<Wrapper>();
     state.muted.store(muted, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window(LABEL) {
-        let _ = w.with_webview(move |pv| platform::set_muted(pv, muted));
+        let _ = w.with_wry_webview(move |pv| platform::set_muted(pv, muted));
         let _ = w.eval(page::mute_script(muted));
     }
     remember(app, Editable::Muted, muted.into());

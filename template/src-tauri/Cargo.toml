@@ -16,7 +16,8 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+# Tauri 3 alpha: pinned exactly, since alphas break APIs between releases.
+tauri-build = { version = "=3.0.0-alpha.4", features = [] }
 # build.rs merges config/*.json (the layered app config).
 serde_json.workspace = true
 
@@ -156,39 +157,44 @@ tray-menu = ["tauri/tray-icon", "desktop-core/tray-menu"{% unless shortcut_plugi
 desktop-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
+# Tauri 3 alpha, pinned exactly (alphas break APIs between releases). Tauri 3 ships no webview
+# of its own: the runtime crate below is chosen in `run()` (`Builder::runtime`), and every Tauri
+# type uses the type-erased `tauri::DynRuntime`.
+tauri = { version = "=3.0.0-alpha.6", features = [] }
+# The system webview (WKWebView, WebView2, WebKitGTK) through wry: the default engine.
+tauri-runtime-wry = { version = "=3.0.0-alpha.6" }
 log = "0.4"
 {% if tauri_plugins -%}
 # Official Tauri plugins chosen when the app was generated (each is wired in lib.rs and capabilities/).
 {% if tauri_dialog -%}
-tauri-plugin-dialog = "2"
+tauri-plugin-dialog = "3.0.0-alpha.4"
 {% endif -%}
 {% if tauri_fs -%}
-tauri-plugin-fs = "2"
+tauri-plugin-fs = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_clipboard -%}
-tauri-plugin-clipboard-manager = "2"
+tauri-plugin-clipboard-manager = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_notification -%}
-tauri-plugin-notification = "2"
+tauri-plugin-notification = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_opener -%}
-tauri-plugin-opener = "2"
+tauri-plugin-opener = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_store -%}
-tauri-plugin-store = "2"
+tauri-plugin-store = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_deep_link -%}
-tauri-plugin-deep-link = "2"
+tauri-plugin-deep-link = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_os -%}
-tauri-plugin-os = "2"
+tauri-plugin-os = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_log -%}
-tauri-plugin-log = "2"
+tauri-plugin-log = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_http -%}
-tauri-plugin-http = "2"
+tauri-plugin-http = "3.0.0-alpha.3"
 {% endif -%}
 {% endif -%}
 {% if ipc_worker or updater or tray_menu or tauri_global_shortcut or tauri_autostart or tauri_window_state or tauri_process or tauri_positioner or tauri_shell -%}
@@ -206,28 +212,28 @@ signal-hook = { version = "0.4", default-features = false, optional = true }
 {% endif -%}
 {% endif -%}
 {% if updater -%}
-tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-updater = { version = "3.0.0-alpha.3", optional = true }
 {% endif -%}
 {% if shortcut_plugin -%}
-tauri-plugin-global-shortcut = "2"
+tauri-plugin-global-shortcut = "3.0.0-alpha.3"
 {% elsif tray_menu -%}
-tauri-plugin-global-shortcut = { version = "2", optional = true }
+tauri-plugin-global-shortcut = { version = "3.0.0-alpha.3", optional = true }
 {% endif -%}
 {% if tauri_plugins -%}
 {% if tauri_autostart -%}
-tauri-plugin-autostart = "2"
+tauri-plugin-autostart = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_window_state -%}
-tauri-plugin-window-state = "2"
+tauri-plugin-window-state = "3.0.0-alpha.2"
 {% endif -%}
 {% if tauri_process -%}
-tauri-plugin-process = "2"
+tauri-plugin-process = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_positioner -%}
-tauri-plugin-positioner = "2"
+tauri-plugin-positioner = "3.0.0-alpha.3"
 {% endif -%}
 {% if tauri_shell -%}
-tauri-plugin-shell = "2"
+tauri-plugin-shell = "3.0.0-alpha.3"
 {% endif -%}
 {% endif -%}
 {% endif -%}
