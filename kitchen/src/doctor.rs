@@ -12,6 +12,48 @@ use crate::Report;
 use std::path::Path;
 use std::process::Command;
 
+macro_rules! tauri_cli {
+    () => {
+        "3.0.0-alpha.6"
+    };
+}
+
+/// The Tauri CLI version generated apps build with. The template is on Tauri 3 alpha, and an
+/// alpha CLI only builds apps on the matching alpha crates, so it is pinned exactly.
+pub const TAURI_CLI: &str = tauri_cli!();
+
+/// The `cargo` arguments that install [`TAURI_CLI`].
+///
+/// ```
+/// assert_eq!(
+///     kitchen::doctor::tauri_cli_install_args(),
+///     ["install", "tauri-cli", "--version", "=3.0.0-alpha.6", "--locked"]
+/// );
+/// ```
+pub fn tauri_cli_install_args() -> [&'static str; 5] {
+    [
+        "install",
+        "tauri-cli",
+        "--version",
+        TAURI_CLI_REQ,
+        "--locked",
+    ]
+}
+
+const TAURI_CLI_REQ: &str = concat!("=", tauri_cli!());
+
+/// The shell command that installs [`TAURI_CLI`].
+pub fn tauri_cli_install_command() -> String {
+    format!("cargo install tauri-cli --version '{TAURI_CLI_REQ}' --locked")
+}
+
+/// Whether the installed `cargo tauri` is a Tauri 3 CLI (a 2.x CLI cannot build these apps).
+pub fn tauri_cli_ok() -> bool {
+    version("cargo", &["tauri", "--version"])
+        .and_then(|v| parse_version(&v))
+        .is_some_and(|(major, _)| major == 3)
+}
+
 /// How a check went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -124,9 +166,9 @@ pub fn run(project: Option<&Path>) -> Vec<Check> {
         "Tauri CLI",
         "cargo",
         &["tauri", "--version"],
-        Some((2, 0)),
+        Some((3, 0)),
         false,
-        "cargo install tauri-cli --version '^2' --locked",
+        &tauri_cli_install_command(),
     ));
     out.push(tool(
         "git",
@@ -534,6 +576,7 @@ mod tests {
         );
         assert_eq!(parse_version("v20.11.1"), Some((20, 11)));
         assert_eq!(parse_version("tauri-cli 2.1.0"), Some((2, 1)));
+        assert_eq!(parse_version("tauri-cli 3.0.0-alpha.6"), Some((3, 0)));
         assert_eq!(parse_version("none"), None);
     }
 

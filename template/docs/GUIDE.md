@@ -172,7 +172,7 @@ VITE_DEV_MOCK=1 npm run build && npx vite preview   # http://localhost:4173
 
 **Map the parts.**
 
-| Electron | Kitchen (Tauri 2) |
+| Electron | Kitchen (Tauri 3) |
 |---|---|
 | main process (`main.js`) | `src-tauri/src/lib.rs` (`run`, the window, commands) + `desktop-core` (logic) |
 | `ipcMain.handle('search', ...)` | `#[tauri::command] fn search(...)`, registered in `generate_handler!` |

@@ -185,14 +185,14 @@ fn exists(program: &str, arg: &str) -> bool {
 /// itself with `npm ci`, so only `start` asks for them).
 pub fn missing_tools(root: &Path, deps: bool) -> Vec<(String, Step)> {
     let mut out = Vec::new();
-    if !runs("cargo", &["tauri", "--version"]) {
+    if !crate::doctor::tauri_cli_ok() {
         out.push((
-            "the Tauri CLI".to_string(),
+            format!("the Tauri {} CLI", crate::doctor::TAURI_CLI),
             Step::new(
                 "install the Tauri CLI",
                 root,
                 "cargo",
-                &["install", "tauri-cli", "--version", "^2", "--locked"],
+                &crate::doctor::tauri_cli_install_args(),
             ),
         ));
     }

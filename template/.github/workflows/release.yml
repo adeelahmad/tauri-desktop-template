@@ -145,7 +145,7 @@ jobs:
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] && jq -e '.bundle.createUpdaterArtifacts' tauri.conf.json >/dev/null; then
             args+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
           fi
-          npx --yes @tauri-apps/cli@2 "${args[@]}"
+          npx --yes @tauri-apps/cli@3.0.0-alpha.6 "${args[@]}"
       - name: Install and self-test (macOS)
         if: runner.os == 'macOS' && matrix.selftest != 'skip'
         run: |

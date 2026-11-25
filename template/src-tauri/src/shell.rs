@@ -52,7 +52,7 @@ pub const SETTINGS_PAGE: &str = "settings.html";
 
 /// The Tauri plugin that applies `appearance` before each page loads.
 pub fn plugin(appearance: &AppearanceConfig) -> tauri::plugin::TauriPlugin<tauri::DynRuntime> {
-    tauri::plugin::Builder::new("app-shell").js_init_script(appearance.init_script(std::env::consts::OS, 0)).build()
+    tauri::plugin::Builder::new("app-shell").initialization_script(appearance.init_script(std::env::consts::OS, 0)).build()
 }
 
 /// Tell every window about new appearance settings (after `set_config`).

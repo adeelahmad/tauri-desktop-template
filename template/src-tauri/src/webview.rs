@@ -3,7 +3,7 @@
 //!
 //! Commands: `webview_open {url, name?, title?}` opens (or reuses) the window `web-<name>`
 //! and returns its label, `webview_close {name}` closes it, and `webview_post {name,
-//! message}` sends a JSON message to a page that may use the bridge. Each window is a Tauri 2
+//! message}` sends a JSON message to a page that may use the bridge. Each window is a Tauri
 //! `WebviewWindowBuilder` window. Child webviews inside the main window need Tauri's
 //! `unstable` feature, so this module does not use them.
 //!

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI agents (and people) working in **{{app_name}}**, a Tauri 2 desktop app
+Instructions for AI agents (and people) working in **{{app_name}}**, a Tauri 3 (alpha) desktop app
 made with Kitchen. Read this first, then [docs/GUIDE.md](docs/GUIDE.md) and the `//!` doc of
 the module you are changing. [TESTING.md](TESTING.md) has the test commands for each OS, and
 [BRAND.md](BRAND.md) has the name, icon and colours.

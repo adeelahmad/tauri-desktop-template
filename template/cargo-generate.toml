@@ -145,7 +145,7 @@ default = false
 
 [placeholders.mobile]
 type = "bool"
-prompt = "Also build for iOS and Android (Tauri 2 mobile: file store, in-process backend, store updates; desktop-only parts compiled out)?"
+prompt = "Also build for iOS and Android (Tauri mobile: file store, in-process backend, store updates; desktop-only parts compiled out)?"
 default = false
 
 [placeholders.single_instance]

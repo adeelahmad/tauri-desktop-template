@@ -1,7 +1,7 @@
 # Tauri desktop app template
 
 A [cargo-generate](https://github.com/cargo-generate/cargo-generate) template for
-cross-platform desktop apps (macOS, Windows, Linux) in Rust + Tauri 2, extracted from the
+cross-platform desktop apps (macOS, Windows, Linux) in Rust + Tauri 3 (alpha), extracted from the
 AnkiPlus desktop app. Every part is a yes/no question when you generate, and a cargo
 feature afterwards.
 
