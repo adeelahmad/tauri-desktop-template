@@ -195,7 +195,11 @@ fn write_settings(file: &Path, s: &Settings) -> Result<(), String> {
 fn save_config(config: Config) -> Result<(), String> {
     let file = paths::app_dirs().0.join("settings.json");
     let mut s = settings_at(&file);
-    s.config = config;
+{% if web_wrapper %}    // The wrapper's part is changed only through Preferences (`wrapper_set`), which
+    // enforces the developer's allowlist; keep the saved one.
+    #[cfg(feature = "web-wrapper")]
+    let config = Config { wrapper: s.config.wrapper.clone(), ..config };
+{% endif %}    s.config = config;
     write_settings(&file, &s)
 }
 
@@ -535,7 +539,13 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Conf
     shell::applied(&app, &applied.appearance);
     let mut s = load_settings(&app);
     s.config = applied.clone();
-    save_settings(&app, &s)?;
+{% if web_wrapper %}    // The wrapper's part is changed only through Preferences (`wrapper_set`), which
+    // enforces the developer's allowlist; keep the saved one.
+    #[cfg(feature = "web-wrapper")]
+    {
+        s.config.wrapper = load_settings(&app).config.wrapper;
+    }
+{% endif %}    save_settings(&app, &s)?;
 {% if i18n %}    // Menus, the tray and this process's messages switch language at once (the UI asks
     // for its own bundle with `i18n_bundle`).
     #[cfg(feature = "i18n")]

@@ -736,6 +736,29 @@ never reach a command. Child webviews inside the main window need Tauri's `unsta
 feature, so web views open as separate windows.
 
 {% endif -%}
+{% if web_wrapper -%}
+### Web app settings (chosen before you build)
+
+The web app's settings are **yours as the developer**: the `wrapper` section of
+`config/settings.json`, compiled into the app and read-only at run time. Preferences
+(Cmd/Ctrl+,) shows the user only the fields you list in `wrapper.userEditable`, and the
+app refuses a change to any other field, whatever the page sends. The user's changes and a
+certificate pinned on first use are kept apart (`config.wrapper` in the user's
+`settings.json`) and merged over your settings.
+
+| Key in `config/settings.json` → `wrapper` | Generated from | |
+|---|---|---|
+| `url` | `--web <url>` / `kitchen set web_url=<url>` | the site (https; plain http only to this computer) |
+| `insecureTls`, `pinnedSha256` | `--insecure-tls` / `kitchen set web_insecure_tls=true`, `web_cert_sha256=<hex>` | accept the site's own certificate, pinned by SHA-256 (empty: pinned on first use, and Preferences can forget it) |
+| `captureKeys`, `releaseShortcut` | `--capture-keys`, `--release-shortcut` / `kitchen set capture_keys=true`, `release_shortcut=Ctrl+Alt+Shift+K` | send system keys to the page, and the shortcut that gives them back |
+| `microphone`, `camera`, `screen`, `muted` | `--mic`, `--camera`, `--screen`, `--muted` / `kitchen set web_microphone=true` (and `web_camera`, `web_screen`, `web_muted`) | media for the site; start muted |
+| `startCaptured`, `zoom`, `userAgent`, `features`, `headers`, `autofill`, `fillOnLoad`, `proxy` | edit the file | see docs/GUIDE.md, "Wrap a web app" |
+| `userEditable` | edit the file | what the user may change: default `["releaseShortcut", "zoom", "muted", "startCaptured"]`; also allowed: `captureKeys`, `microphone`, `camera`, `screen`; `[]` for none |
+
+`kitchen set` rewrites `config/settings.json` from the new answer (keeping your other edits
+with a 3-way merge). After any change, rebuild: the settings are part of the binary.
+
+{% endif -%}
 Every request (model, voice and Postgres downloads, AI providers, telemetry) goes through
 `desktop-core/src/net.rs` and obeys `net`. Child processes (the Python worker, uv) get the
 proxy, the CA file and offline switches (`HF_HUB_OFFLINE`, `UV_OFFLINE`) in their environment.

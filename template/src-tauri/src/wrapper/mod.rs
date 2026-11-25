@@ -11,8 +11,14 @@
 //!   `WKWebsiteDataStore` on macOS), never incognito.
 //! - **Menu**: Reload, Back, Forward, Zoom, Toggle Key Capture, Mute, Fill Form,
 //!   Preferences…, Quit (plus the usual Edit menu, so copy and paste work).
+//! - **Settings are the developer's.** The `wrapper` section of `config/settings.json` is
+//!   compiled in ([`baked`]) and read-only at run time. The user can change only the fields
+//!   in its `userEditable` list (by default the release shortcut, zoom, mute and "start
+//!   captured"); those changes and the certificate pinned on first use are saved apart, as
+//!   `config.wrapper` ([`UserWrapper`]), and merged over the built-in settings ([`effective`]).
 //! - **Preferences** (`wrapper.html`, window `prefs`) is the app's own page; it is the only
-//!   window that can call the `wrapper_*` commands below.
+//!   window that can call the `wrapper_*` commands below. It shows only the editable
+//!   fields, and [`wrapper_set`] refuses any other field, whatever the page sends.
 //! - **Downloads** go to the Downloads folder under a free name, with a notice in the page
 //!   and "Show in Finder/Explorer".
 //! - **Deep links** (`<scheme>://path?x`, with the `tauri_deep_link` plugin) open
@@ -44,7 +50,7 @@ use desktop_core::wrapper::pin::{self, PinStore};
 use desktop_core::wrapper::proxy::{self, Proxy, Upstream};
 use desktop_core::wrapper::rules::{self, Source};
 use desktop_core::wrapper::url::{self as wurl, Verdict, WebUrl};
-use desktop_core::wrapper::{page, Checked, WrapperConfig, LABEL, PREFS_LABEL};
+use desktop_core::wrapper::{page, ChangeError, Checked, Editable, UserOverrides, UserWrapper, WrapperConfig, LABEL, PREFS_LABEL};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -91,6 +97,8 @@ pub struct Wrapper {
     pins: PinStore,
     proxy: Option<Proxy>,
     muted: AtomicBool,
+    /// The page zoom now (the menu changes it even when the user may not save it).
+    zoom: Mutex<f64>,
     downloads: Mutex<Vec<PathBuf>>,
     last_external: Mutex<Option<Instant>>,
 }
@@ -112,16 +120,44 @@ impl Wrapper {
     }
 }
 
-/// The settings in force: the user's from Preferences, else the developer's in `config/`.
-pub fn effective(app: &AppHandle) -> WrapperConfig {
-    crate::load_settings(app).config.wrapper.unwrap_or_else(|| crate::app_config::get("wrapper").unwrap_or_default())
+/// The developer's settings: the `wrapper` section of `config/`, compiled in. Read-only.
+pub fn baked() -> WrapperConfig {
+    crate::app_config::get("wrapper").unwrap_or_default()
 }
 
-/// Save `cfg` as the user's settings.
-fn save(app: &AppHandle, cfg: WrapperConfig) -> Result<(), String> {
+/// The user's part: the overrides of the editable fields and the learned pin.
+fn user(app: &AppHandle) -> UserWrapper {
+    crate::load_settings(app).config.wrapper
+}
+
+/// The settings in force: [`baked`] with the user's allowed changes merged over it.
+pub fn effective(app: &AppHandle) -> WrapperConfig {
+    user(app).merge(&baked())
+}
+
+/// Save the user's part.
+fn save_user(app: &AppHandle, u: UserWrapper) -> Result<(), String> {
     let mut s = crate::load_settings(app);
-    s.config.wrapper = Some(cfg);
+    s.config.wrapper = u;
     crate::save_settings(app, &s)
+}
+
+/// Remember a value the menu changed (zoom, mute), when the developer lets the user change it.
+fn remember(app: &AppHandle, field: Editable, value: Value) {
+    let baked = baked();
+    if !baked.is_editable(field) {
+        return;
+    }
+    let mut u = user(app);
+    match u.overrides.change(&baked, &json!({ field.key(): value })) {
+        Ok(o) => {
+            u.overrides = o;
+            if let Err(e) = save_user(app, u) {
+                log::warn!("could not save {}: {e}", field.key());
+            }
+        }
+        Err(e) => log::warn!("{e}"),
+    }
 }
 
 /// Resolve a value spec (literal, `${ENV}`, `config:`, `keychain:`). Errors never hold the value.
@@ -155,10 +191,11 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         }
     };
     let saver = app.clone();
+    // A pin learned on first use is the user's, kept apart from the built-in settings.
     let pins = PinStore::new(cfg.insecure_tls, checked.as_ref().and_then(|c| c.pin.clone()), move |p| {
-        let mut c = effective(&saver);
-        c.pinned_sha256 = p.unwrap_or_default().to_string();
-        if let Err(e) = save(&saver, c) {
+        let mut u = user(&saver);
+        u.learned_pin = p.unwrap_or_default().to_string();
+        if let Err(e) = save_user(&saver, u) {
             log::warn!("could not save the certificate pin: {e}");
         }
     });
@@ -172,6 +209,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         pins,
         proxy,
         muted: AtomicBool::new(cfg.muted),
+        zoom: Mutex::new(cfg.zoom),
         downloads: Mutex::default(),
         last_external: Mutex::default(),
     });
@@ -614,10 +652,13 @@ fn on_menu(app: &AppHandle, e: MenuEvent) {
     };
     let state = app.state::<Wrapper>();
     let zoom = |delta: Option<f64>| {
-        let mut cfg = effective(app);
-        cfg.zoom = delta.map_or(1.0, |d| (cfg.zoom + d).clamp(0.25, 5.0));
-        let _ = w.set_zoom(cfg.zoom);
-        let _ = save(app, cfg);
+        let z = {
+            let mut z = state.zoom.lock().unwrap_or_else(PoisonError::into_inner);
+            *z = delta.map_or(1.0, |d| ((*z + d) * 100.0).round() / 100.0).clamp(0.25, 5.0);
+            *z
+        };
+        let _ = w.set_zoom(z);
+        remember(app, Editable::Zoom, z.into());
     };
     match e.id().as_ref() {
         M_RELOAD => {
@@ -658,9 +699,7 @@ fn set_muted(app: &AppHandle, muted: bool) {
         let _ = w.with_webview(move |pv| platform::set_muted(pv, muted));
         let _ = w.eval(page::mute_script(muted));
     }
-    let mut cfg = effective(app);
-    cfg.muted = muted;
-    let _ = save(app, cfg);
+    remember(app, Editable::Muted, muted.into());
 }
 
 /// Open Preferences (or bring it to the front); `anchor` picks a section (`#permissions`).
@@ -680,19 +719,24 @@ pub fn open_prefs(app: &AppHandle, anchor: &str) -> tauri::Result<()> {
 
 // ---- commands (Preferences only: `web-*` windows are refused before any command runs) ----
 
-/// The settings as Preferences shows them (secrets masked), the pin, capture and the OS
-/// permissions key capture needs.
+/// What Preferences shows: only the fields the developer lets the user change
+/// (`editable`, `values`), the site (read-only), the pin and whether it can be forgotten,
+/// the keychain entries the rules read, capture, and the OS permissions key capture needs.
+/// Header values, auto-fill values and the other built-in settings are never sent.
 #[tauri::command]
 pub fn wrapper_get(app: AppHandle) -> Result<Value, CommandError> {
-    let cfg = effective(&app);
+    let baked = baked();
+    let cfg = user(&app).merge(&baked);
     let state = app.state::<Wrapper>();
-    let mut shown = cfg.clone();
-    shown.headers = cfg.headers.iter().map(rules::HeaderRule::masked).collect();
-    shown.autofill = cfg.autofill.iter().map(rules::AutofillRule::masked).collect();
     let p = platform::permissions();
     Ok(json!({
-        "config": shown,
+        "site": cfg.url,
+        "editable": cfg.editable().map(Editable::key).collect::<Vec<_>>(),
+        "values": UserOverrides::shown(&cfg),
+        "insecureTls": cfg.insecure_tls,
         "pin": state.pins.get().map(|f| pin::display(&f)),
+        "canForgetPin": baked.learns_pin(),
+        "secrets": baked.keychain_names(),
         "proxy": state.proxy.as_ref().map(|p| json!({"port": p.port()})),
         "capture": {"enabled": capture::is_enabled(), "active": capture::is_active()},
         "permissions": {"granted": p.granted, "items": p.items, "platform": std::env::consts::OS},
@@ -700,45 +744,52 @@ pub fn wrapper_get(app: AppHandle) -> Result<Value, CommandError> {
     }))
 }
 
-/// Save new settings from Preferences. Masked values keep their old value. Returns whether
-/// a restart is needed for some of them (the address, proxy, headers, User-Agent, features).
+/// Save the user's changes from Preferences: `changes` is `{field: value}` with only
+/// fields on the developer's `userEditable` list (`null` goes back to the built-in value).
+/// Any other field is refused (`denied`) and nothing is saved. Returns whether a restart
+/// is needed (turning key capture on or off changes the menu).
 #[tauri::command]
-pub fn wrapper_set(app: AppHandle, config: Value) -> Result<Value, CommandError> {
-    let old = effective(&app);
-    let mut new: WrapperConfig = serde_json::from_value(config).map_err(|e| CommandError::invalid(format!("not wrapper settings: {e}")))?;
-    let old_value = |list: &[rules::HeaderRule], name: &str| list.iter().find(|h| h.name == name).map(|h| h.value.clone());
-    for h in &mut new.headers {
-        h.value = rules::unmask(&h.value, old_value(&old.headers, &h.name).as_deref());
-    }
-    for a in &mut new.autofill {
-        let before = old.autofill.iter().find(|o| o.pattern == a.pattern);
-        for (sel, v) in a.fields.iter_mut() {
-            *v = rules::unmask(v, before.and_then(|b| b.fields.get(sel)).map(String::as_str));
-        }
-    }
-    let checked = new.check().map_err(|e| CommandError::new(codes::INVALID, e.join("; ")))?;
-    save(&app, new.clone()).map_err(CommandError::from)?;
+pub fn wrapper_set(app: AppHandle, changes: Value) -> Result<Value, CommandError> {
+    let baked = baked();
+    let old_user = user(&app);
+    let old = old_user.merge(&baked);
+    let (u, new, checked) = changed(&baked, &old_user, &changes)?;
+    save_user(&app, u).map_err(CommandError::from)?;
     let state = app.state::<Wrapper>();
     *state.checked.lock().unwrap_or_else(PoisonError::into_inner) = Some(checked.clone());
     capture::configure(new.capture_keys, checked.release.clone());
-    if let Some(w) = app.get_webview_window(LABEL) {
-        let _ = w.set_zoom(new.zoom);
+    if new.zoom != old.zoom {
+        *state.zoom.lock().unwrap_or_else(PoisonError::into_inner) = new.zoom;
+        if let Some(w) = app.get_webview_window(LABEL) {
+            let _ = w.set_zoom(new.zoom);
+        }
     }
     if new.muted != state.muted.load(Ordering::SeqCst) {
         set_muted(&app, new.muted);
     }
-    let restart = new.url != old.url
-        || new.proxy != old.proxy
-        || new.headers != old.headers
-        || new.user_agent != old.user_agent
-        || new.features != old.features
-        || new.insecure_tls != old.insecure_tls;
-    Ok(json!({ "restart": restart }))
+    Ok(json!({ "restart": new.capture_keys != old.capture_keys }))
 }
 
-/// Forget the pinned certificate: the next one the site shows is pinned (after a reload).
+/// The user's part with `changes` applied, the settings then in force, and their check:
+/// a field the developer did not allow is `denied`, a bad value `invalid`; nothing is saved.
+fn changed(baked: &WrapperConfig, user: &UserWrapper, changes: &Value) -> Result<(UserWrapper, WrapperConfig, Checked), CommandError> {
+    let mut u = user.clone();
+    u.overrides = u.overrides.change(baked, changes).map_err(|e| match e {
+        ChangeError::NotEditable(_) => CommandError::new(codes::DENIED, e.to_string()),
+        ChangeError::Invalid(_) => CommandError::invalid(e.to_string()),
+    })?;
+    let new = u.try_merge(baked).map_err(|e| CommandError::new(codes::INVALID, e.join("; ")))?;
+    let checked = new.check().map_err(|e| CommandError::new(codes::INVALID, e.join("; ")))?;
+    Ok((u, new, checked))
+}
+
+/// Forget the certificate pinned on first use: the next one the site shows is pinned (after
+/// a reload). Only with `insecureTls` on and no pin chosen by the developer.
 #[tauri::command]
 pub fn wrapper_forget_pin(app: AppHandle) -> Result<(), CommandError> {
+    if !baked().learns_pin() {
+        return Err(CommandError::new(codes::DENIED, "this app's certificate pin is set by its developer"));
+    }
     app.state::<Wrapper>().pins.forget();
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.reload();
@@ -746,12 +797,13 @@ pub fn wrapper_forget_pin(app: AppHandle) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Store (or with an empty value delete) an auto-fill secret in the OS keychain, for
-/// `keychain:<name>` values.
+/// Store (or with an empty value delete) a secret in the OS keychain, for the
+/// `keychain:<name>` values of the built-in header and auto-fill rules. Only the names
+/// those rules read are accepted.
 #[tauri::command]
 pub fn wrapper_set_secret(app: AppHandle, name: String, value: Option<String>) -> Result<(), CommandError> {
-    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
-        return Err(CommandError::invalid("a keychain name is 1 to 128 characters"));
+    if !baked().keychain_names().contains(&name) {
+        return Err(CommandError::new(codes::DENIED, "no rule of this app reads that keychain entry"));
     }
     let value = value.filter(|v| !v.is_empty());
     desktop_core::wrapper::keychain_set(&app.config().identifier, &name, value.as_deref()).map_err(CommandError::from)
@@ -780,6 +832,32 @@ mod tests {
         assert!(SCHEME.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c)));
         let cfg = WrapperConfig { url: "https://pikvm.local/kvm".into(), ..WrapperConfig::default() }.check().unwrap();
         assert_eq!(wurl::map_deep_link(SCHEME, &cfg.base, &format!("{SCHEME}://x?y=1")).unwrap(), "https://pikvm.local/kvm/x?y=1");
+    }
+
+    #[test]
+    fn preferences_can_change_only_what_the_developer_allows() {
+        let baked = WrapperConfig { url: "https://pikvm.local/".into(), insecure_tls: true, ..WrapperConfig::default() };
+        let user = UserWrapper::default();
+        // Fields the UI might send that are the developer's: refused, nothing changes.
+        for changes in [
+            json!({"url": "https://evil.example/"}),
+            json!({"insecureTls": false}),
+            json!({"headers": [{"pattern": "*", "name": "X-A", "value": "1"}]}),
+            json!({"userAgent": "x"}),
+            json!({"microphone": true}),
+            json!({"zoom": 1.2, "pinnedSha256": "ab"}),
+            json!({"userEditable": ["url"]}),
+        ] {
+            let e = changed(&baked, &user, &changes).unwrap_err();
+            assert_eq!(e.code, codes::DENIED, "{changes}: {e:?}");
+        }
+        let e = changed(&baked, &user, &json!({"zoom": 50.0})).unwrap_err();
+        assert_eq!(e.code, codes::INVALID);
+        let (u, new, checked) = changed(&baked, &user, &json!({"zoom": 1.5, "muted": true, "releaseShortcut": "Ctrl+Alt+F12"})).unwrap();
+        assert_eq!((new.zoom, new.muted, new.url.as_str()), (1.5, true, "https://pikvm.local/"));
+        assert_eq!(checked.release.to_string(), "Ctrl+Alt+F12");
+        assert_eq!(u.overrides.zoom, Some(1.5));
+        assert!(baked.learns_pin(), "Forget is offered: insecureTls with no built-in pin");
     }
 
     #[test]

@@ -885,8 +885,24 @@ cd kvm && kitchen start
 On a terminal, plain `kitchen new kvm` first asks "Desktop app (boilerplate)" or "Web app
 (wrap a URL)", then the URL, "Ignore TLS certificate errors for this site?", "Capture all
 keys?", the release shortcut (default Ctrl+Alt+Shift+K), microphone, start muted, webcam
-and screen sharing (all default no). Every answer can be changed later in Preferences
-(Cmd/Ctrl+,). `kitchen icon fetch <url> [--insecure-tls]` remakes the icon set from the site.
+and screen sharing (all default no). The answers go into `config/settings.json`
+(`wrapper`) and are built into the app (see "Developer settings" below).
+`kitchen icon fetch <url> [--insecure-tls]` remakes the icon set from the site.
+
+**Developer settings.** Every wrapper setting is the developer's choice, made before the
+build: the `wrapper` section of `config/settings.json` is compiled in (`app_config`) and
+read-only at run time. Change it by editing the file, or for the generation answers with
+`kitchen set` (`web_url`, `web_insecure_tls`, `web_cert_sha256`, `capture_keys`,
+`release_shortcut`, `web_microphone`, `web_camera`, `web_screen`, `web_muted`), then
+rebuild. `wrapper.userEditable` names the only fields the user may change in Preferences
+(default `["releaseShortcut", "zoom", "muted", "startCaptured"]`; `captureKeys`,
+`microphone`, `camera` and `screen` may be added; `[]` hides them all). Preferences shows
+only those, and `wrapper_set` refuses any other field in Rust (`UserOverrides::change`),
+so a page cannot change the address, TLS, headers or anything else. The user's changes
+are saved apart, as `config.wrapper` in the user's `settings.json` (`UserWrapper`: the
+overrides and the certificate pinned on first use), and merged over the built-in settings;
+an override the developer no longer allows is ignored. The Zoom and Mute menu items always
+work, and are remembered only when `zoom` or `muted` is editable.
 
 **What the site can and cannot do.** The site's window (`web-app`) has no Tauri IPC: it is
 in no capability, and the command guard refuses every call from a `web-*` window. Only the
@@ -898,19 +914,23 @@ Downloads folder under a unique name, with a "Show in Finder/Explorer" button.
 **Self-signed certificates.** With "ignore TLS errors" on, a certificate error is accepted
 for the wrapped origin only, and only for the certificate pinned by its SHA-256: the one
 `kitchen new` saw (it prints it; compare it with the device's), or the first one the app sees.
-A different certificate is refused until you press Forget in Preferences. No local CA is
-installed and the system trust store is never touched.
+A different certificate is refused until you press Forget in Preferences, which is there
+only when `insecureTls` is on and `pinnedSha256` is empty (a certificate pinned on first
+use, kept with the user's settings, apart from the built-in ones). A pin you set in
+`config/` is fixed: change it there and rebuild. No local CA is installed and the system
+trust store is never touched.
 
 **Key capture.** Keys the OS would keep (Cmd+Tab, the Windows key, Alt+Tab, media keys) go
 to the page while capture is on. The release shortcut, or the window losing focus, gives
 them back; an overlay says how. `kitchen doctor` checks the macOS permission.
 
-**Customise.** `config/settings.json` (`wrapper`) sets defaults at build time, Preferences
-changes them at run time, and both are checked in one place (`WrapperConfig::check`):
+**Customise.** `config/settings.json` (`wrapper`) sets everything at build time, and it is
+checked in one place (`WrapperConfig::check`, with the user's changes merged):
 the User-Agent, request headers per URL pattern (`/api/*`, a full URL, or `re:` + a regex;
-values are literal, `${ENV}`, `config:<key>` or `keychain:<name>`, never logged and masked
-in Preferences), form auto-fill (pattern → CSS selector → value, on the wrapped origin only;
-secrets in the OS keychain; on load or from the Page menu), and switches for WebRTC,
+values are literal, `${ENV}`, `config:<key>` or `keychain:<name>`, never logged and never
+sent to Preferences), form auto-fill (pattern → CSS selector → value, on the wrapped origin
+only; on load or from the Page menu; Preferences can store the secrets the rules name as
+`keychain:<name>` in the OS keychain, and no others), and switches for WebRTC,
 service workers and WebAssembly. A custom URL scheme (`deep_link_scheme`, needs
 `tauri_deep_link`; `kitchen enable deep_link --scheme kvm`) maps `kvm://path?x` to
 `<site>/path?x`, same origin only, and reaches a running instance with `single_instance`.

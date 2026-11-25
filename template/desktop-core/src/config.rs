@@ -91,10 +91,11 @@ pub struct Config {
 {% endif %}{% if webview %}    /// Embedded web views: allowlist, isolation and the optional bridge.
     #[cfg(feature = "webview")]
     pub webview: crate::webview::WebviewConfig,
-{% endif %}{% if web_wrapper %}    /// The web app wrapper, as changed in Preferences (`None`: the developer's defaults in
-    /// `config/`, section `wrapper`).
+{% endif %}{% if web_wrapper %}    /// The user's part of the web app wrapper: the changes made in Preferences to the
+    /// fields the developer allows (`wrapper.userEditable` in `config/`), and the
+    /// certificate pinned on first use. The wrapper's settings themselves are built in.
     #[cfg(feature = "web-wrapper")]
-    pub wrapper: Option<crate::wrapper::WrapperConfig>,
+    pub wrapper: crate::wrapper::UserWrapper,
 {% endif %}{% if tray_menu %}    /// The tray or menu-bar icon and its menu.
     #[cfg(feature = "tray-menu")]
     pub tray: crate::actions::TrayConfig,
@@ -370,11 +371,11 @@ impl Config {
         {
             self.webview = self.webview.validated();
         }
-{% endif %}{% if web_wrapper %}        // A wrapper section that does not pass the check falls back to the developer's defaults.
+{% endif %}{% if web_wrapper %}        // Values that can never be valid are dropped; the rest is checked against the
+        // developer's settings when it is merged (`UserWrapper::merge`).
         #[cfg(feature = "web-wrapper")]
-        if let Some(Err(e)) = self.wrapper.as_ref().map(crate::wrapper::WrapperConfig::check) {
-            log::warn!("wrapper settings ignored: {}", e.join("; "));
-            self.wrapper = None;
+        {
+            self.wrapper = self.wrapper.validated();
         }
 {% endif %}{% if tray_menu %}        #[cfg(feature = "tray-menu")]
         {
