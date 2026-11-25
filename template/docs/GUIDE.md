@@ -935,6 +935,14 @@ trust store is never touched.
 to the page while capture is on. The release shortcut, or the window losing focus, gives
 them back; an overlay says how. `kitchen doctor` checks the macOS permission.
 
+**The web engine.** Tauri 3 takes its engine when the app starts (`Builder::runtime` in
+`run()`), and the wrapper's code is generic over that runtime (`R: tauri::Runtime`). It uses
+Tauri's own API for navigation, new windows, downloads, permissions, page scripts and zoom.
+The few hooks that need the engine's native web view (mute, the certificate hook in direct
+mode, WebView2's headers, WebKitGTK's settings) go through the `Engine` trait in
+`src-tauri/src/wrapper/engine.rs`, which today is the system web view through wry. Another
+engine implements that trait; the rest of the wrapper does not change.
+
 **Customise.** `config/settings.json` (`wrapper`) sets everything at build time, and it is
 checked in one place (`WrapperConfig::check`, with the user's changes merged):
 the User-Agent, request headers per URL pattern (`/api/*`, a full URL, or `re:` + a regex;
@@ -1086,7 +1094,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`python`](../src-tauri/src/python.rs) | `python-example` | A Python child process behind a command |
 | [`claude`](../src-tauri/src/claude.rs) | `claude-mcp` | Register a Python MCP server in Claude Desktop through bundled uv |
 | [`webview`](../src-tauri/src/webview.rs) | `webview` | Remote pages in app windows: allowlist hook, isolation, no IPC, bridge |
-| [`wrapper`](../src-tauri/src/wrapper/mod.rs) | `web-wrapper` | The web app: its window, menu, Preferences, and the per-OS TLS, key capture, media and mute hooks |
+| [`wrapper`](../src-tauri/src/wrapper/mod.rs) | `web-wrapper` | The web app: its window, menu, Preferences, the engine hooks (`engine.rs`), and the per-OS TLS, key capture, media and mute hooks |
 | [`eval`](../src-tauri/src/eval.rs) | `evals` | `--eval`: the command line of the search evals |
 
 ## Docs and checks

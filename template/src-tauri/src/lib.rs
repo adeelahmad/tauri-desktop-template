@@ -162,11 +162,11 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 /// The settings of the running profile (see `paths`).
-fn settings_file(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn settings_file<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     Ok(paths::app_dirs().0.join("settings.json"))
 }
 
-fn load_settings(app: &tauri::AppHandle) -> Settings {
+fn load_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Settings {
     settings_file(app).ok().map(|f| settings_at(&f)).unwrap_or_default()
 }
 
@@ -179,7 +179,7 @@ fn settings_at(file: &Path) -> Settings {
 }
 
 /// Written to a temporary file and renamed, so a crash never leaves half a settings file.
-fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
+fn save_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>, s: &Settings) -> Result<(), String> {
     write_settings(&settings_file(app)?, s)
 }
 

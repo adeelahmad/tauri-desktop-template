@@ -29,7 +29,7 @@ use objc2::{class, msg_send, sel};
 use serde_json::json;
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::{Mutex, OnceLock, PoisonError};
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 /// Captured keys are taken before the web view sees them and sent to the page.
 pub const KEYS_ARRIVE_IN_PAGE: bool = false;
@@ -360,7 +360,7 @@ unsafe fn handle(kind: u32, event: *mut CGEvent) -> bool {
 }
 
 /// Start the event tap (made once; enabled while capturing).
-pub fn capture_start(_app: &AppHandle) -> Result<(), String> {
+pub fn capture_start<R: Runtime>(_app: &AppHandle<R>) -> Result<(), String> {
     if !permissions().granted {
         // SAFETY: plain call; it adds the app to the Input Monitoring list.
         unsafe { CGRequestListenEventAccess() };
@@ -389,7 +389,7 @@ pub fn capture_start(_app: &AppHandle) -> Result<(), String> {
 }
 
 /// Disable the tap (it stays installed for next time).
-pub fn capture_stop(_app: &AppHandle) {
+pub fn capture_stop<R: Runtime>(_app: &AppHandle<R>) {
     if let Some(t) = TAP.get() {
         // SAFETY: the tap is a live CFMachPort.
         unsafe { CGEventTapEnable(t.0, false) };

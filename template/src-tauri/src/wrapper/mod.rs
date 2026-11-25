@@ -32,6 +32,9 @@
 //!
 //! Per OS, see [`platform`]: TLS pinning, mute, the media permission prompts, key capture.
 //!
+//! The wrapper is generic over the Tauri runtime `R` (the web engine, picked in `run()`);
+//! the hooks that need the engine's native web view go through [`Engine`] (see [`engine`]).
+//!
 //! # Example
 //!
 //! What the navigation hook decides:
@@ -45,12 +48,14 @@
 //! ```
 
 pub mod capture;
+pub mod engine;
 #[cfg_attr(target_os = "macos", path = "macos.rs")]
 #[cfg_attr(windows, path = "windows.rs")]
 #[cfg_attr(not(any(target_os = "macos", windows)), path = "linux.rs")]
 pub mod platform;
 
 use crate::error::{codes, CommandError};
+pub use engine::Engine;
 use desktop_core::wrapper::browser;
 use desktop_core::wrapper::perm::{self, Media};
 use desktop_core::wrapper::pin::{self, PinStore};
@@ -65,8 +70,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, PermissionKind, PermissionResponse};
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
-use tauri_runtime_wry::WebviewWryExt;
+use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// The custom URL scheme (`tauri_deep_link`), as generated.
 // Used by the deep-link plugin and the single-instance knock, when the app has them.
@@ -134,24 +138,24 @@ pub fn baked() -> WrapperConfig {
 }
 
 /// The user's part: the overrides of the editable fields and the learned pin.
-fn user(app: &AppHandle) -> UserWrapper {
+fn user<R: Runtime>(app: &AppHandle<R>) -> UserWrapper {
     crate::load_settings(app).config.wrapper
 }
 
 /// The settings in force: [`baked`] with the user's allowed changes merged over it.
-pub fn effective(app: &AppHandle) -> WrapperConfig {
+pub fn effective<R: Runtime>(app: &AppHandle<R>) -> WrapperConfig {
     user(app).merge(&baked())
 }
 
 /// Save the user's part.
-fn save_user(app: &AppHandle, u: UserWrapper) -> Result<(), String> {
+fn save_user<R: Runtime>(app: &AppHandle<R>, u: UserWrapper) -> Result<(), String> {
     let mut s = crate::load_settings(app);
     s.config.wrapper = u;
     crate::save_settings(app, &s)
 }
 
 /// Remember a value the menu changed (zoom, mute), when the developer lets the user change it.
-fn remember(app: &AppHandle, field: Editable, value: Value) {
+fn remember<R: Runtime>(app: &AppHandle<R>, field: Editable, value: Value) {
     let baked = baked();
     if !baked.is_editable(field) {
         return;
@@ -189,7 +193,7 @@ pub(crate) fn resolve(identifier: &str, spec: &str) -> Result<String, String> {
 pub const FREEZE_PROTOTYPE: &str = "Object.freeze(Object.prototype);";
 
 /// Open the site's window, the menu and (when keys need a permission first) Preferences.
-pub fn setup(app: &AppHandle) -> tauri::Result<()> {
+pub fn setup<R: Engine>(app: &AppHandle<R>) -> tauri::Result<()> {
     let cfg = effective(app);
     let checked = match cfg.check() {
         Ok(c) => Some(c),
@@ -222,7 +226,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         last_external: Mutex::default(),
     });
     app.set_menu(menu(app, &cfg)?)?;
-    app.on_menu_event(on_menu);
+    app.on_menu_event(on_menu::<R>);
     match checked {
         Some(c) => open_window(app, &c)?,
         None => open_prefs(app, "")?,
@@ -233,7 +237,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn start_proxy(app: &AppHandle, c: &Checked, pins: &PinStore) -> tauri::Result<Proxy> {
+fn start_proxy<R: Runtime>(app: &AppHandle<R>, c: &Checked, pins: &PinStore) -> tauri::Result<Proxy> {
     let identifier = app.config().identifier.clone();
     let rules = c.clone();
     let headers: Arc<proxy::HeaderFn> = Arc::new(move |url: &str| match rules.headers_for(url, &|s| resolve(&identifier, s)) {
@@ -255,7 +259,7 @@ fn start_proxy(app: &AppHandle, c: &Checked, pins: &PinStore) -> tauri::Result<P
 }
 
 /// The site's window.
-fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
+fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> {
     let state = app.state::<Wrapper>();
     let start = match &state.proxy {
         Some(p) => p.auth_url(&WebUrl::parse(&c.config.url).map(|u| u.rest).unwrap_or_else(|_| "/".into())),
@@ -283,7 +287,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
     };
     let on_load = {
         let app = app.clone();
-        move |w: tauri::WebviewWindow, p: tauri::webview::PageLoadPayload<'_>| {
+        move |w: WebviewWindow<R>, p: tauri::webview::PageLoadPayload<'_>| {
             if p.event() == PageLoadEvent::Finished {
                 page_loaded(&app, &w, p.url().as_str());
             }
@@ -291,7 +295,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
     };
     let on_permission = {
         let app = app.clone();
-        move |webview: tauri::Webview, kind: PermissionKind| {
+        move |webview: tauri::Webview<R>, kind: PermissionKind| {
             let media = match kind {
                 PermissionKind::Microphone => Media::Microphone,
                 PermissionKind::Camera => Media::Camera,
@@ -312,7 +316,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
     };
     let on_download = {
         let app = app.clone();
-        move |_w: tauri::Webview, event: DownloadEvent<'_>| download(&app, event)
+        move |_w: tauri::Webview<R>, event: DownloadEvent<'_>| download(&app, event)
     };
     let mut b = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url.clone()))
         .title(title)
@@ -342,7 +346,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
         headers: if state.proxy.is_none() { Some((c.clone(), app.config().identifier.clone())) } else { None },
     };
     let reload = hooks.pins.is_some();
-    w.with_wry_webview(move |pv| platform::install(pv, hooks))?;
+    R::install(&w, hooks)?;
     if reload {
         // The first request can reach the server before the certificate hook is in place
         // (macOS), so load the site again once it is. Runs after `install` on the UI thread.
@@ -370,7 +374,7 @@ fn open_window(app: &AppHandle, c: &Checked) -> tauri::Result<()> {
 }
 
 /// The navigation hook: `true` lets the window go there.
-fn navigate(app: &AppHandle, url: &Url) -> bool {
+fn navigate<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
     let state = app.state::<Wrapper>();
     if let Some(c) = page::control(url.as_str()) {
         let app = app.clone();
@@ -401,7 +405,7 @@ fn navigate(app: &AppHandle, url: &Url) -> bool {
     }
 }
 
-fn go(app: &AppHandle, url: &str) {
+fn go<R: Runtime>(app: &AppHandle<R>, url: &str) {
     let (app, url) = (app.clone(), url.to_string());
     std::thread::spawn(move || {
         if let (Some(w), Ok(u)) = (app.get_webview_window(LABEL), Url::parse(&url)) {
@@ -425,7 +429,7 @@ fn open_external(state: &Wrapper, url: &Url) {
 /// "Open in Browser…": the page the window shows (`window_url`), as the site knows it, in
 /// the developer's browser app or the default one. Anything but an `http(s)` page on the
 /// wrapped origin is refused.
-fn open_in_browser(app: &AppHandle, window_url: &str) {
+fn open_in_browser<R: Runtime>(app: &AppHandle<R>, window_url: &str) {
     let state = app.state::<Wrapper>();
     let Some(c) = state.checked() else { return };
     let url = match c.browser_url(&state.site_url(window_url)) {
@@ -486,7 +490,7 @@ fn open_with_system(target: &str, reveal: bool) -> std::io::Result<()> {
 }
 
 /// A message from the page script.
-fn control(app: &AppHandle, c: page::Control) {
+fn control<R: Runtime>(app: &AppHandle<R>, c: page::Control) {
     match c {
         page::Control::Release => capture::stop(),
         page::Control::Reveal(id) => {
@@ -499,7 +503,7 @@ fn control(app: &AppHandle, c: page::Control) {
     }
 }
 
-fn page_loaded(app: &AppHandle, w: &tauri::WebviewWindow, url: &str) {
+fn page_loaded<R: Runtime>(app: &AppHandle<R>, w: &WebviewWindow<R>, url: &str) {
     let state = app.state::<Wrapper>();
     let muted = state.muted.load(Ordering::SeqCst);
     let _ = w.eval(page::mute_script(muted));
@@ -517,7 +521,7 @@ fn page_loaded(app: &AppHandle, w: &tauri::WebviewWindow, url: &str) {
 }
 
 /// Fill the forms the auto-fill rules name for this page (only on the site itself).
-fn fill(app: &AppHandle, w: &tauri::WebviewWindow, url: &str) {
+fn fill<R: Runtime>(app: &AppHandle<R>, w: &WebviewWindow<R>, url: &str) {
     let state = app.state::<Wrapper>();
     let Some(c) = state.checked() else { return };
     let site_url = state.site_url(url);
@@ -540,7 +544,7 @@ fn fill(app: &AppHandle, w: &tauri::WebviewWindow, url: &str) {
     }
 }
 
-fn download(app: &AppHandle, event: DownloadEvent<'_>) -> bool {
+fn download<R: Runtime>(app: &AppHandle<R>, event: DownloadEvent<'_>) -> bool {
     match event {
         DownloadEvent::Requested { url, destination } => {
             let name = destination
@@ -583,7 +587,7 @@ fn download(app: &AppHandle, event: DownloadEvent<'_>) -> bool {
 /// Open a deep link (`<scheme>://path?x`) on the site.
 // Used by the deep-link plugin and the single-instance knock, when the app has them.
 #[allow(dead_code)]
-pub fn open_link(app: &AppHandle, link: &str) {
+pub fn open_link<R: Runtime>(app: &AppHandle<R>, link: &str) {
     let Some(state) = app.try_state::<Wrapper>() else { return };
     let Some(c) = state.checked() else { return };
     match wurl::map_deep_link(SCHEME, &c.base, link) {
@@ -628,7 +632,7 @@ fn text(id: &str, en: &str) -> String {
     en.to_string()
 }
 
-fn menu(app: &AppHandle, cfg: &WrapperConfig) -> tauri::Result<Menu<tauri::DynRuntime>> {
+fn menu<R: Runtime>(app: &AppHandle<R>, cfg: &WrapperConfig) -> tauri::Result<Menu<R>> {
     let item = |id: &str, label: &str, keys: Option<&str>| MenuItem::with_id(app, id, label, true, keys);
     let name = app.package_info().name.clone();
     let app_menu = Submenu::with_items(
@@ -689,7 +693,7 @@ fn menu(app: &AppHandle, cfg: &WrapperConfig) -> tauri::Result<Menu<tauri::DynRu
     Menu::with_items(app, &[&app_menu, &edit, &view, &page_menu])
 }
 
-fn on_menu(app: &AppHandle, e: MenuEvent) {
+fn on_menu<R: Engine>(app: &AppHandle<R>, e: MenuEvent) {
     let Some(w) = app.get_webview_window(LABEL) else {
         if e.id() == M_PREFS {
             let _ = open_prefs(app, "");
@@ -739,18 +743,18 @@ fn on_menu(app: &AppHandle, e: MenuEvent) {
 }
 
 /// Mute or unmute the page, and remember it.
-fn set_muted(app: &AppHandle, muted: bool) {
+fn set_muted<R: Engine>(app: &AppHandle<R>, muted: bool) {
     let state = app.state::<Wrapper>();
     state.muted.store(muted, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window(LABEL) {
-        let _ = w.with_wry_webview(move |pv| platform::set_muted(pv, muted));
+        let _ = R::set_muted(&w, muted);
         let _ = w.eval(page::mute_script(muted));
     }
     remember(app, Editable::Muted, muted.into());
 }
 
 /// Open Preferences (or bring it to the front); `anchor` picks a section (`#permissions`).
-pub fn open_prefs(app: &AppHandle, anchor: &str) -> tauri::Result<()> {
+pub fn open_prefs<R: Runtime>(app: &AppHandle<R>, anchor: &str) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window(PREFS_LABEL) {
         let _ = w.show();
         return w.set_focus();
@@ -771,7 +775,7 @@ pub fn open_prefs(app: &AppHandle, anchor: &str) -> tauri::Result<()> {
 /// the keychain entries the rules read, capture, and the OS permissions key capture needs.
 /// Header values, auto-fill values and the other built-in settings are never sent.
 #[tauri::command]
-pub fn wrapper_get(app: AppHandle) -> Result<Value, CommandError> {
+pub fn wrapper_get<R: Runtime>(app: AppHandle<R>) -> Result<Value, CommandError> {
     let baked = baked();
     let cfg = user(&app).merge(&baked);
     let state = app.state::<Wrapper>();
@@ -796,7 +800,7 @@ pub fn wrapper_get(app: AppHandle) -> Result<Value, CommandError> {
 /// Any other field is refused (`denied`) and nothing is saved. Returns whether a restart
 /// is needed (turning key capture on or off changes the menu).
 #[tauri::command]
-pub fn wrapper_set(app: AppHandle, changes: Value) -> Result<Value, CommandError> {
+pub fn wrapper_set<R: Engine>(app: AppHandle<R>, changes: Value) -> Result<Value, CommandError> {
     let baked = baked();
     let old_user = user(&app);
     let old = old_user.merge(&baked);
@@ -833,7 +837,7 @@ fn changed(baked: &WrapperConfig, user: &UserWrapper, changes: &Value) -> Result
 /// Forget the certificate pinned on first use: the next one the site shows is pinned (after
 /// a reload). Only with `insecureTls` on and no pin chosen by the developer.
 #[tauri::command]
-pub fn wrapper_forget_pin(app: AppHandle) -> Result<(), CommandError> {
+pub fn wrapper_forget_pin<R: Runtime>(app: AppHandle<R>) -> Result<(), CommandError> {
     if !baked().learns_pin() {
         return Err(CommandError::new(codes::DENIED, "this app's certificate pin is set by its developer"));
     }
@@ -848,7 +852,7 @@ pub fn wrapper_forget_pin(app: AppHandle) -> Result<(), CommandError> {
 /// `keychain:<name>` values of the built-in header and auto-fill rules. Only the names
 /// those rules read are accepted.
 #[tauri::command]
-pub fn wrapper_set_secret(app: AppHandle, name: String, value: Option<String>) -> Result<(), CommandError> {
+pub fn wrapper_set_secret<R: Runtime>(app: AppHandle<R>, name: String, value: Option<String>) -> Result<(), CommandError> {
     if !baked().keychain_names().contains(&name) {
         return Err(CommandError::new(codes::DENIED, "no rule of this app reads that keychain entry"));
     }
@@ -865,7 +869,7 @@ pub fn wrapper_open_privacy(pane: String) -> Result<(), CommandError> {
 
 /// Restart the app (for settings that apply at start).
 #[tauri::command]
-pub fn wrapper_restart(app: AppHandle) {
+pub fn wrapper_restart<R: Runtime>(app: AppHandle<R>) {
     app.restart();
 }
 

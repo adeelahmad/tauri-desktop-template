@@ -17,7 +17,7 @@ use desktop_core::wrapper::url::WebUrl;
 use desktop_core::wrapper::WebFeatures;
 use serde_json::json;
 use std::sync::atomic::{AtomicU32, Ordering};
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{ServerCertificateErrorDetectedEventHandler, WebResourceRequestedEventHandler};
 use windows::core::{Interface, HSTRING, PWSTR};
@@ -168,7 +168,7 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
 }
 
 /// Install the hook on its own thread.
-pub fn capture_start(_app: &AppHandle) -> Result<(), String> {
+pub fn capture_start<R: Runtime>(_app: &AppHandle<R>) -> Result<(), String> {
     if HOOK_THREAD.load(Ordering::SeqCst) != 0 {
         return Ok(());
     }
@@ -200,7 +200,7 @@ pub fn capture_start(_app: &AppHandle) -> Result<(), String> {
 }
 
 /// Remove the hook.
-pub fn capture_stop(_app: &AppHandle) {
+pub fn capture_stop<R: Runtime>(_app: &AppHandle<R>) {
     let id = HOOK_THREAD.load(Ordering::SeqCst);
     if id != 0 {
         // SAFETY: asks the hook thread's message loop to end.
