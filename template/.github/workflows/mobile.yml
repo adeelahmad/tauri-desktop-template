@@ -40,7 +40,7 @@ jobs:
         with:
           key: android
       - name: Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version "=3.0.0-alpha.6" --locked
       - name: Android project
         run: cargo tauri android init --ci
       # Signing for Google Play: add the repository secrets ANDROID_KEY_BASE64 (your upload
@@ -71,7 +71,7 @@ jobs:
         with:
           key: ios
       - name: Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version "=3.0.0-alpha.6" --locked
       - name: iOS project
         run: cargo tauri ios init --ci
       # Signing for the App Store: add the repository secrets IOS_CERTIFICATE (a .p12,

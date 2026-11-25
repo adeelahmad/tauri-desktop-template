@@ -109,6 +109,7 @@ mod http;
 mod eval;
 {% endif %}pub mod app_config;
 pub mod config_layers;
+pub mod engine;
 pub mod error;
 mod guard;
 mod paths;
@@ -162,11 +163,11 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 /// The settings of the running profile (see `paths`).
-fn settings_file(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn settings_file<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     Ok(paths::app_dirs().0.join("settings.json"))
 }
 
-fn load_settings(app: &tauri::AppHandle) -> Settings {
+fn load_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Settings {
     settings_file(app).ok().map(|f| settings_at(&f)).unwrap_or_default()
 }
 
@@ -179,7 +180,7 @@ fn settings_at(file: &Path) -> Settings {
 }
 
 /// Written to a temporary file and renamed, so a crash never leaves half a settings file.
-fn save_settings(app: &tauri::AppHandle, s: &Settings) -> Result<(), String> {
+fn save_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>, s: &Settings) -> Result<(), String> {
     write_settings(&settings_file(app)?, s)
 }
 
@@ -1236,7 +1237,12 @@ pub fn run() {
     let service: Arc<dyn Service> = Arc::new(ipc::Remote::default());
     #[cfg(not(all(desktop, feature = "ipc-worker")))]
     let service: Arc<dyn Service> = Arc::new(service::Local::default());
-    let builder = tauri::Builder::default().manage(AppState { service }).plugin(guard::plugin());
+    // Tauri 3 takes its web engine at run time (src/engine.rs); every Tauri type here is
+    // the runtime-erased `tauri::DynRuntime`.
+    let builder = tauri::Builder::default()
+        .runtime(engine::runtime())
+        .manage(AppState { service })
+        .plugin(guard::plugin());
     // Theme and fonts before the first paint, the Settings window and its menu item.
     #[cfg(all(desktop, feature = "app-shell"))]
     let builder = builder
@@ -1554,10 +1560,11 @@ pub fn run() {
         ]{% if webview or web_wrapper %}){% endif %})
         .build(tauri::generate_context!())
         .expect("error while building the app")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                on_exit(app);
-            }
+        .run(|app, event| match event {
+            // Chromium writes cookies lazily: save them while the engine is still up.
+            tauri::RunEvent::ExitRequested { .. } => engine::flush_cookies(),
+            tauri::RunEvent::Exit => on_exit(app),
+            _ => {}
         });
 }
 

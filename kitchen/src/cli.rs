@@ -24,7 +24,9 @@ pub const HELP: &str = "kitchen: create and grow cross-platform desktop apps
 Usage:
   kitchen new <name> [--enable a,b] [--disable c] [--set key=value] [--dir <parent>]
                      [--source <git url or folder>] [--rev <commit|tag|branch>] [--no-git]
-                     [--with-deps]
+                     [--with-deps] [--engine system|chromium]
+                                       --engine chromium: Chromium (CEF) instead of WKWebView
+                                       on macOS (Tauri 3 alpha; about 150 MB more)
   kitchen new <name> --web <https url> [--insecure-tls] [--capture-keys]
                      [--release-shortcut Ctrl+Alt+Shift+K] [--mic] [--muted] [--camera]
                      [--screen] [--scheme <myapp>] [--no-fetch]
@@ -118,6 +120,7 @@ const VALUED: &[&str] = &[
     "web",
     "release-shortcut",
     "scheme",
+    "engine",
     "out",
 ];
 
@@ -214,6 +217,9 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
                 })
                 .collect::<Result<_>>()?;
             let name = args.word(1, "the app name")?.to_string();
+            if let Some(e) = args.value("engine") {
+                set.push(engine_answer(e)?);
+            }
             let mut enable = args.values("enable");
             let mut lines = Vec::new();
             let mut icon_png = None;
@@ -453,11 +459,16 @@ pub fn run_with(args: &Args, cwd: &Path, io_mode: Io) -> Result<Report> {
             let platform = args.words.get(1).map(|w| Platform::parse(w)).transpose()?;
             let release = args.flag("release");
             let mut plan = lifecycle::package_plan(&root, platform, host, release)?;
+            if is_chromium(&root) {
+                plan.notes
+                    .extend(lifecycle::chromium_notes(platform.unwrap_or(host)));
+            }
             let key = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_some_and(|k| !k.is_empty());
             lifecycle::skip_updater_artifacts(&mut plan, key);
             lifecycle::prerequisites(&root, args.flag("install"), false, &mut plan)?;
+            let started = std::time::SystemTime::now();
             let mut r = lifecycle::execute(&plan, io_mode, "")?;
-            let files = lifecycle::collect_packages(&root, release)?;
+            let files = lifecycle::collect_packages(&root, release, Some(started))?;
             r.summary = format!(
                 "{} package(s) in {}",
                 files.len(),
@@ -615,6 +626,36 @@ fn test(args: &Args, root: &Path, io_mode: Io) -> Result<Report> {
     Ok(r)
 }
 
+/// Whether the app at `root` was generated with `web_engine = "chromium"`.
+fn is_chromium(root: &Path) -> bool {
+    crate::manifest::Manifest::load(root)
+        .ok()
+        .and_then(|m| m.text("web_engine"))
+        .is_some_and(|e| e == "chromium")
+}
+
+/// `--engine system|chromium` for `kitchen new`: the `web_engine` answer.
+///
+/// ```
+/// use kitchen::cli::engine_answer;
+///
+/// assert_eq!(engine_answer("chromium").unwrap(), ("web_engine".to_string(), "chromium".to_string()));
+/// assert_eq!(engine_answer("CEF").unwrap().1, "chromium");
+/// assert!(engine_answer("gecko").is_err());
+/// ```
+pub fn engine_answer(engine: &str) -> Result<(String, String)> {
+    let e = match engine.trim().to_ascii_lowercase().as_str() {
+        "system" | "webkit" | "native" => "system",
+        "chromium" | "cef" | "chrome" => "chromium",
+        other => {
+            return Err(Error::Usage(format!(
+                "--engine {other}: use system (the OS web view, the default) or chromium (CEF on macOS)"
+            )))
+        }
+    };
+    Ok(("web_engine".into(), e.into()))
+}
+
 /// The folder a command runs in: `--project <dir>` style callers pass it, else the
 /// current folder.
 pub fn cwd() -> Result<PathBuf> {
@@ -702,11 +743,16 @@ fn web_new(args: &Args, url: &str, name: &str, given: &[(String, String)]) -> Re
 /// use kitchen::cli::{ask_new, Args};
 ///
 /// let args = Args::parse(["new", "kvm"]);
-/// let mut answers = "2\nhttps://pikvm.local\ny\ny\n\nn\ny\n\n\n".as_bytes();
+/// let mut answers = "2\nhttps://pikvm.local\ny\ny\n\nn\ny\n\n\n\n".as_bytes();
 /// let out = ask_new(&args, &mut answers, &mut Vec::new()).unwrap();
 /// assert_eq!(out.value("web"), Some("https://pikvm.local"));
 /// assert!(out.flag("insecure-tls") && out.flag("capture-keys") && out.flag("muted"));
 /// assert!(!out.flag("mic") && !out.flag("camera") && out.value("release-shortcut").is_none());
+/// assert!(out.value("engine").is_none());
+///
+/// // A desktop app on Chromium.
+/// let out = ask_new(&args, &mut "1\n2\n".as_bytes(), &mut Vec::new()).unwrap();
+/// assert_eq!(out.value("engine"), Some("chromium"));
 /// ```
 pub fn ask_new(
     args: &Args,
@@ -717,7 +763,10 @@ pub fn ask_new(
     let mut out = args.clone();
     loop {
         match t.ask("What are you making?\n  1) Desktop app (boilerplate)\n  2) Web app (wrap a URL)\nChoose 1 or 2 [1]:")?.as_str() {
-            "" | "1" | "d" | "desktop" => return Ok(out),
+            "" | "1" | "d" | "desktop" => {
+                ask_engine(&mut t, &mut out)?;
+                return Ok(out);
+            }
             "2" | "w" | "web" => break,
             _ => {}
         }
@@ -761,7 +810,29 @@ pub fn ask_new(
     if let Some(s) = shortcut {
         out.options.push(("release-shortcut".into(), Some(s)));
     }
+    ask_engine(&mut t, &mut out)?;
     Ok(out)
+}
+
+/// The last question of [`ask_new`]: the web engine on macOS. Only a Chromium answer adds
+/// `--engine chromium`; the system web view is the default.
+fn ask_engine<R: std::io::BufRead, W: std::io::Write>(
+    t: &mut Terminal<'_, R, W>,
+    out: &mut Args,
+) -> Result<()> {
+    loop {
+        match t
+            .ask("Web engine on macOS?\n  1) System web view (WKWebView, small)\n  2) Chromium (CEF: Tauri 3 alpha, about 150 MB more, Chromium security updates are yours to ship)\nChoose 1 or 2 [1]:")?
+            .as_str()
+        {
+            "" | "1" | "s" | "system" => return Ok(()),
+            "2" | "c" | "chromium" => {
+                out.options.push(("engine".into(), Some("chromium".into())));
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Questions and answers on a terminal.
@@ -802,10 +873,10 @@ impl<R: std::io::BufRead, W: std::io::Write> Terminal<'_, R, W> {
 }
 
 /// Whether `kitchen new` should ask [`ask_new`]'s questions: nothing chosen on the command
-/// line yet (no `--web`, `--enable`, `--set`, `--json` or `--yes`).
+/// line yet (no `--web`, `--enable`, `--set`, `--engine`, `--json` or `--yes`).
 pub fn should_ask_new(args: &Args) -> bool {
     args.words.first().is_some_and(|w| w == "new")
-        && !["web", "enable", "disable", "set", "json", "yes"]
+        && !["web", "enable", "disable", "set", "json", "yes", "engine"]
             .iter()
             .any(|f| args.flag(f))
 }

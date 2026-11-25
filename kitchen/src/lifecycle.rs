@@ -185,14 +185,14 @@ fn exists(program: &str, arg: &str) -> bool {
 /// itself with `npm ci`, so only `start` asks for them).
 pub fn missing_tools(root: &Path, deps: bool) -> Vec<(String, Step)> {
     let mut out = Vec::new();
-    if !runs("cargo", &["tauri", "--version"]) {
+    if !crate::doctor::tauri_cli_ok() {
         out.push((
-            "the Tauri CLI".to_string(),
+            format!("the Tauri {} CLI", crate::doctor::TAURI_CLI),
             Step::new(
                 "install the Tauri CLI",
                 root,
                 "cargo",
-                &["install", "tauri-cli", "--version", "^2", "--locked"],
+                &crate::doctor::tauri_cli_install_args(),
             ),
         ));
     }
@@ -553,6 +553,31 @@ pub fn package_plan(
     })
 }
 
+/// What `kitchen package` says about an app on the Chromium engine (`web_engine =
+/// "chromium"`): on macOS the Tauri 3 CLI bundles and signs CEF itself; elsewhere the app
+/// builds with the system web view.
+///
+/// ```
+/// use kitchen::lifecycle::{chromium_notes, Platform};
+///
+/// assert!(chromium_notes(Platform::Mac).iter().any(|n| n.contains("Helper (Renderer)")));
+/// assert!(chromium_notes(Platform::Windows)[0].contains("WebView2"));
+/// ```
+pub fn chromium_notes(platform: Platform) -> Vec<String> {
+    match platform {
+        Platform::Mac => vec![
+            format!(
+                "Chromium engine: cargo tauri build ({}) puts the CEF framework and five helper apps (… Helper, Helper (GPU), Helper (Renderer), Helper (Plugin), Helper (Alerts)) in Contents/Frameworks and signs them before the app; expect a .app of about 340 MB and a .dmg of about 150 MB",
+                crate::doctor::TAURI_CLI
+            ),
+            "Chromium engine: the first build downloads CEF (about 130 MB) into CEF_PATH (default ~/Library/Caches/tauri-cef) and builds its wrapper with cmake and ninja (`kitchen doctor` checks them)".into(),
+            "Chromium engine: signing and notarizing use the same APPLE_* variables as before; the CLI adds the entitlements CEF needs (allow-jit, allow-unsigned-executable-memory, disable-library-validation) to src-tauri/Entitlements.plist's, for the app and every helper".into(),
+        ],
+        Platform::Windows => vec!["web_engine = chromium changes macOS only: Windows builds with WebView2 (Chromium already)".into()],
+        Platform::Linux => vec!["web_engine = chromium changes macOS only: Linux builds with WebKitGTK".into()],
+    }
+}
+
 /// Skip the signed updater archives (`.tar.gz` + `.sig`) when no signing key is set.
 ///
 /// With the `updater` feature, `tauri.conf.json` asks for updater artifacts, and Tauri then
@@ -602,15 +627,38 @@ pub fn is_package(path: &Path) -> bool {
 }
 
 /// Copy the installers from `<target>/<debug|release>/bundle` into `<app>/packages`.
-pub fn collect_packages(root: &Path, release: bool) -> Result<Vec<PathBuf>> {
+///
+/// With `since`, only installers written at or after that time are copied: a target
+/// folder shared by several apps (`CARGO_TARGET_DIR`) also holds the other apps' bundles.
+pub fn collect_packages(
+    root: &Path,
+    release: bool,
+    since: Option<std::time::SystemTime>,
+) -> Result<Vec<PathBuf>> {
     let bundle = target_dir(root)
         .join(if release { "release" } else { "debug" })
         .join("bundle");
-    collect_into(&bundle, &root.join("packages"))
+    collect_into(&bundle, &root.join("packages"), since)
 }
 
-/// Copy the installers in `bundle/<kind>/` into `out`.
-pub fn collect_into(bundle: &Path, out: &Path) -> Result<Vec<PathBuf>> {
+/// Whether `path` was written at or after `since` (a little early counts too, for
+/// file systems with coarse timestamps).
+fn fresh(path: &Path, since: Option<std::time::SystemTime>) -> bool {
+    let Some(since) = since else { return true };
+    let since = since
+        .checked_sub(std::time::Duration::from_secs(2))
+        .unwrap_or(since);
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t >= since)
+}
+
+/// Copy the installers in `bundle/<kind>/` into `out` (only those written since `since`).
+pub fn collect_into(
+    bundle: &Path,
+    out: &Path,
+    since: Option<std::time::SystemTime>,
+) -> Result<Vec<PathBuf>> {
     io(
         format!("create {}", out.display()),
         std::fs::create_dir_all(out),
@@ -625,7 +673,7 @@ pub fn collect_into(bundle: &Path, out: &Path) -> Result<Vec<PathBuf>> {
         };
         for f in files.flatten() {
             let path = f.path();
-            if !is_package(&path) {
+            if !is_package(&path) || !fresh(&path, since) {
                 continue;
             }
             let dest = out.join(f.file_name());
@@ -1027,7 +1075,13 @@ mod tests {
         std::fs::write(bundle.join("deb/notes.deb"), "x").unwrap();
         std::fs::write(bundle.join("deb/control.tar"), "x").unwrap();
         std::fs::write(bundle.join("macos/Notes.app/Contents/Info.plist"), "x").unwrap();
-        let got = collect_into(&bundle, &d.path().join("packages")).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        let stale = collect_into(&bundle, &d.path().join("old"), Some(later)).unwrap();
+        assert!(
+            stale.is_empty(),
+            "bundles from before the build are left out: {stale:?}"
+        );
+        let got = collect_into(&bundle, &d.path().join("packages"), None).unwrap();
         let names: Vec<String> = got
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())

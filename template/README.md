@@ -24,7 +24,7 @@
 
 {% endif -%}
 
-A Rust + [Tauri 2](https://tauri.app) desktop app for macOS, Windows{% if linux %} and Linux{% else %} (and Linux for development){% endif %}.
+A Rust + [Tauri 3](https://tauri.app) (alpha) desktop app for macOS, Windows{% if linux %} and Linux{% else %} (and Linux for development){% endif %}.
 Everything runs on the user's machine.
 
 ## What's inside
@@ -125,6 +125,9 @@ Everything runs on the user's machine.
 {% else -%}
 | Plain HTML/JS frontend (no build step) | `ui/` | |
 {% endif -%}
+{% if web_engine == "chromium" -%}
+| Chromium (CEF, through `tauri-runtime-cef`) as the web engine on macOS instead of WKWebView; Windows keeps WebView2, Linux WebKitGTK. About 150 MB more to download; see the guide's "Chromium engine" for bundling and signing | `src-tauri/src/engine.rs`, `src-tauri/src/wrapper/engine.rs` | `chromium` |
+{% endif -%}
 {% if ipc_worker -%}
 | Backend in a separate worker process over local IPC (Unix socket / named pipe) | `src-tauri/src/{service,ipc}.rs` | `ipc-worker` |
 {% if background_agent -%}
@@ -153,7 +156,7 @@ Everything runs on the user's machine.
 | Bundled uv + Claude Desktop MCP registration | `src-tauri/src/claude.rs` | `claude-mcp` |
 {% endif -%}
 {% if mobile -%}
-| iOS and Android from the same code (Tauri 2 mobile): file store, backend in the app, store updates; `Mobile` workflow builds an unsigned APK/AAB and an iOS simulator app | `src-tauri/tauri.{android,ios}.conf.json`, `src-tauri/capabilities/mobile.json`, `.github/workflows/mobile.yml` | always |
+| iOS and Android from the same code (Tauri mobile): file store, backend in the app, store updates; `Mobile` workflow builds an unsigned APK/AAB and an iOS simulator app | `src-tauri/tauri.{android,ios}.conf.json`, `src-tauri/capabilities/mobile.json`, `.github/workflows/mobile.yml` | always |
 {% endif -%}
 | `--self-test` (CI runs it on every installed build) | `self_test` in `src-tauri/src/lib.rs` | always |
 | Hardened parsers: a size cap per input type, no panics (a panic becomes an error), fuzz targets for every parser of outside input (`make fuzz`) | `desktop-core/src/untrusted.rs`, `fuzz/` | always |

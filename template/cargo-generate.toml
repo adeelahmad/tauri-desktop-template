@@ -145,7 +145,7 @@ default = false
 
 [placeholders.mobile]
 type = "bool"
-prompt = "Also build for iOS and Android (Tauri 2 mobile: file store, in-process backend, store updates; desktop-only parts compiled out)?"
+prompt = "Also build for iOS and Android (Tauri mobile: file store, in-process backend, store updates; desktop-only parts compiled out)?"
 default = false
 
 [placeholders.single_instance]
@@ -188,6 +188,12 @@ type = "string"
 prompt = "Frontend"
 choices = ["vanilla", "react"]
 default = "react"
+
+[placeholders.web_engine]
+type = "string"
+prompt = "Web engine on macOS: system (WKWebView, the default) or chromium (CEF through tauri-runtime-cef: Tauri 3 alpha, adds about 150 MB to the download; Windows keeps WebView2, Linux keeps WebKitGTK)"
+choices = ["system", "chromium"]
+default = "system"
 
 [placeholders.ipc_worker]
 type = "bool"

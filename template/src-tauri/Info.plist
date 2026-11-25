@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Merged into the app's Info.plist by Tauri: macOS shows these when it asks before the microphone or camera is used. -->
+<!-- Merged into the app's Info.plist by Tauri: macOS shows these when it asks before the microphone, camera or local network is used. -->
 <plist version="1.0">
 <dict>
 {%- if stt %}
@@ -9,6 +9,10 @@
 {%- elsif web_wrapper and web_microphone %}
   <key>NSMicrophoneUsageDescription</key>
   <string>{{app_name}} lets the site you opened use the microphone, as you allowed in Preferences.</string>
+{%- endif %}
+{%- if web_wrapper %}
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>{{app_name}} connects to {{web_url | escape}}, which may be a device on your local network.</string>
 {%- endif %}
 {%- if web_wrapper and web_camera %}
   <key>NSCameraUsageDescription</key>

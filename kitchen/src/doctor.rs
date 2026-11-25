@@ -12,6 +12,48 @@ use crate::Report;
 use std::path::Path;
 use std::process::Command;
 
+macro_rules! tauri_cli {
+    () => {
+        "3.0.0-alpha.6"
+    };
+}
+
+/// The Tauri CLI version generated apps build with. The template is on Tauri 3 alpha, and an
+/// alpha CLI only builds apps on the matching alpha crates, so it is pinned exactly.
+pub const TAURI_CLI: &str = tauri_cli!();
+
+/// The `cargo` arguments that install [`TAURI_CLI`].
+///
+/// ```
+/// assert_eq!(
+///     kitchen::doctor::tauri_cli_install_args(),
+///     ["install", "tauri-cli", "--version", "=3.0.0-alpha.6", "--locked"]
+/// );
+/// ```
+pub fn tauri_cli_install_args() -> [&'static str; 5] {
+    [
+        "install",
+        "tauri-cli",
+        "--version",
+        TAURI_CLI_REQ,
+        "--locked",
+    ]
+}
+
+const TAURI_CLI_REQ: &str = concat!("=", tauri_cli!());
+
+/// The shell command that installs [`TAURI_CLI`].
+pub fn tauri_cli_install_command() -> String {
+    format!("cargo install tauri-cli --version '{TAURI_CLI_REQ}' --locked")
+}
+
+/// Whether the installed `cargo tauri` is a Tauri 3 CLI (a 2.x CLI cannot build these apps).
+pub fn tauri_cli_ok() -> bool {
+    version("cargo", &["tauri", "--version"])
+        .and_then(|v| parse_version(&v))
+        .is_some_and(|(major, _)| major == 3)
+}
+
 /// How a check went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -124,9 +166,9 @@ pub fn run(project: Option<&Path>) -> Vec<Check> {
         "Tauri CLI",
         "cargo",
         &["tauri", "--version"],
-        Some((2, 0)),
+        Some((3, 0)),
         false,
-        "cargo install tauri-cli --version '^2' --locked",
+        &tauri_cli_install_command(),
     ));
     out.push(tool(
         "git",
@@ -271,6 +313,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     let mut out = Vec::new();
     let mut tray_menu = false;
     let mut capture_keys = false;
+    let mut chromium = false;
     match Manifest::load(&root) {
         Ok(m) => {
             let rev = if m.template.rev.is_empty() {
@@ -283,6 +326,7 @@ fn project_checks(dir: &Path) -> Vec<Check> {
             };
             tray_menu = m.is_on("tray_menu");
             capture_keys = m.is_on("web_wrapper") && m.is_on("capture_keys");
+            chromium = m.text("web_engine").is_some_and(|e| e == "chromium");
             out.push(check(
                 "Kitchen app",
                 Status::Ok,
@@ -357,7 +401,49 @@ fn project_checks(dir: &Path) -> Vec<Check> {
     if capture_keys {
         out.extend(capture_check(std::env::consts::OS, accessibility_trusted()));
     }
+    if chromium {
+        out.extend(chromium_checks(std::env::consts::OS, |p| {
+            version(p, &["--version"]).is_some()
+        }));
+    }
     out
+}
+
+/// What an app on the Chromium engine (`web_engine = "chromium"`) needs: on macOS, cmake and
+/// ninja, which build CEF's C++ wrapper the first time; elsewhere only a note, since the
+/// engine changes only macOS. `has` says whether a program runs.
+///
+/// ```
+/// use kitchen::doctor::{chromium_checks, Status};
+///
+/// let c = chromium_checks("macos", |p| p == "cmake");
+/// assert_eq!(c.iter().find(|c| c.name == "ninja").unwrap().status, Status::Fail);
+/// assert_eq!(chromium_checks("linux", |_| false)[0].status, Status::Ok);
+/// ```
+pub fn chromium_checks(os: &str, has: impl Fn(&str) -> bool) -> Vec<Check> {
+    if os != "macos" {
+        return vec![check(
+            "Chromium engine",
+            Status::Ok,
+            "macOS only: this OS builds with the system web view",
+            "",
+        )];
+    }
+    ["cmake", "ninja"]
+        .into_iter()
+        .map(|p| {
+            if has(p) {
+                check(p, Status::Ok, "found (builds CEF's wrapper)", "")
+            } else {
+                check(
+                    p,
+                    Status::Fail,
+                    "not found: the Chromium engine's first build needs it",
+                    format!("brew install {p}"),
+                )
+            }
+        })
+        .collect()
 }
 
 /// Whether this terminal (which `kitchen start` runs the app from, so macOS asks about it)
@@ -534,6 +620,7 @@ mod tests {
         );
         assert_eq!(parse_version("v20.11.1"), Some((20, 11)));
         assert_eq!(parse_version("tauri-cli 2.1.0"), Some((2, 1)));
+        assert_eq!(parse_version("tauri-cli 3.0.0-alpha.6"), Some((3, 0)));
         assert_eq!(parse_version("none"), None);
     }
 

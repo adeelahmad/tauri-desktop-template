@@ -26,6 +26,10 @@ fn main() {
             "cargo:warning=KITCHEN_ENV={env}: there is no config/environments/{env}.json, so only settings.json and the platform apply"
         );
     }
+    // `cfg(cef)`: the app runs on Chromium (feature `chromium`, macOS only; see src/engine.rs).
+    if std::env::var_os("CARGO_FEATURE_CHROMIUM").is_some() && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-cfg=cef");
+    }
     let config = config_layers::load(&dir, &env, &platform).unwrap_or_else(|e| panic!("config/: {e}"));
     let out = std::path::Path::new(&std::env::var("OUT_DIR").expect("cargo sets it")).join("app_config.json");
     std::fs::write(&out, config.to_string()).unwrap_or_else(|e| panic!("write {}: {e}", out.display()));

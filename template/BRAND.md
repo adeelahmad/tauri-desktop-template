@@ -28,7 +28,7 @@ This writes `32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.icns` (macOS), `
 (Windows), `icon.png` and the Windows Store sizes into `src-tauri/icons/`{% if mobile %}, and
 the Android and iOS icons once those projects exist (`cargo tauri android init` / `ios init`){% endif %}.
 The bundle uses the files listed under `bundle.icon` in `src-tauri/tauri.conf.json`.
-Install the Tauri CLI with `cargo install tauri-cli --version '^2' --locked` if
+Install the Tauri CLI with `cargo install tauri-cli --version '=3.0.0-alpha.6' --locked` if
 `cargo tauri` is missing (`kitchen doctor` checks it).
 
 ## Colours

@@ -18,7 +18,7 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 setup: hooks ## Install the Tauri CLI and git hooks
-	cargo install tauri-cli --version '^2' --locked
+	cargo install tauri-cli --version '=3.0.0-alpha.6' --locked
 
 hooks: ## Install pre-commit (and commit-msg) hooks
 	pre-commit install --hook-type pre-commit --hook-type commit-msg

@@ -16,7 +16,7 @@ use super::Hooks;
 use desktop_core::wrapper::{WebFeatures, LABEL};
 use gtk::gdk::prelude::*;
 use serde_json::json;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use webkit2gtk::gio::prelude::TlsCertificateExt;
 use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 
@@ -24,7 +24,7 @@ use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 pub const KEYS_ARRIVE_IN_PAGE: bool = true;
 
 /// Wire the hooks into a new web view.
-pub fn install(pv: tauri::webview::PlatformWebview, hooks: Hooks) {
+pub fn install(pv: &tauri_runtime_wry::Webview, hooks: Hooks) {
     let wv = pv.inner();
     wv.set_is_muted(hooks.muted);
     if let Some(s) = WebViewExt::settings(&wv) {
@@ -51,7 +51,7 @@ pub fn install(pv: tauri::webview::PlatformWebview, hooks: Hooks) {
 }
 
 /// Mute or unmute the page.
-pub fn set_muted(pv: tauri::webview::PlatformWebview, muted: bool) {
+pub fn set_muted(pv: &tauri_runtime_wry::Webview, muted: bool) {
     pv.inner().set_is_muted(muted);
 }
 
@@ -61,7 +61,7 @@ pub fn browser_args(_features: &WebFeatures) -> Option<String> {
 }
 
 /// Grab the keyboard for the site's window (on the main thread).
-pub fn capture_start(app: &AppHandle) -> Result<(), String> {
+pub fn capture_start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let w = app.get_webview_window(LABEL).ok_or("no window")?;
     let (tx, rx) = std::sync::mpsc::channel();
     let win = w.clone();
@@ -82,7 +82,7 @@ pub fn capture_start(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Let the keyboard go.
-pub fn capture_stop(app: &AppHandle) {
+pub fn capture_stop<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let win = w.clone();
         let _ = w.run_on_main_thread(move || {

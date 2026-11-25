@@ -172,7 +172,7 @@ VITE_DEV_MOCK=1 npm run build && npx vite preview   # http://localhost:4173
 
 **Map the parts.**
 
-| Electron | Kitchen (Tauri 2) |
+| Electron | Kitchen (Tauri 3) |
 |---|---|
 | main process (`main.js`) | `src-tauri/src/lib.rs` (`run`, the window, commands) + `desktop-core` (logic) |
 | `ipcMain.handle('search', ...)` | `#[tauri::command] fn search(...)`, registered in `generate_handler!` |
@@ -935,6 +935,15 @@ trust store is never touched.
 to the page while capture is on. The release shortcut, or the window losing focus, gives
 them back; an overlay says how. `kitchen doctor` checks the macOS permission.
 
+**The web engine.** Tauri 3 takes its engine when the app starts (`Builder::runtime` in
+`run()`), and the wrapper's code is generic over that runtime (`R: tauri::Runtime`). It uses
+Tauri's own API for navigation, new windows, downloads, permissions, page scripts and zoom.
+The few hooks that need the engine's native web view (mute, the certificate hook in direct
+mode, WebView2's headers, WebKitGTK's settings) go through the `Engine` trait in
+`src-tauri/src/wrapper/engine.rs`, which today is the system web view through wry. The
+Chromium engine implements the same trait (see "Chromium engine"); the rest of the wrapper
+does not change.
+
 **Customise.** `config/settings.json` (`wrapper`) sets everything at build time, and it is
 checked in one place (`WrapperConfig::check`, with the user's changes merged):
 the User-Agent, request headers per URL pattern (`/api/*`, a full URL, or `re:` + a regex;
@@ -962,6 +971,72 @@ untouched. WebRTC media does not go through it (fine for PiKVM, whose video stil
 | Mute | `_setPageMuted:` | `IsMuted` | `set_is_muted` |
 | Headers on every request | the loopback proxy | `WebResourceRequested` (no proxy) | the loopback proxy |
 | WebRTC / WASM / service workers off | page script | browser switches (`--disable-features=WebRtc`, `--noexpose_wasm`) + page script | WebKit setting (WebRTC) + page script |
+
+## Chromium engine
+
+`web_engine = chromium` (`kitchen new <name> --engine chromium`, or `kitchen set
+web_engine=chromium` later) runs the app on Chromium instead of WKWebView **on macOS**, through
+[`tauri-runtime-cef`](https://crates.io/crates/tauri-runtime-cef) (CEF, Tauri 3 alpha). Windows
+keeps WebView2, which is Chromium already, and Linux keeps WebKitGTK (CEF there needs GTK 4,
+which the rest of the app does not use yet). Use it when a site you wrap breaks in Safari's
+engine; try a User-Agent override and the proxy first (both cost nothing).
+
+It is a cargo feature, `chromium`, that is on only in apps generated with it. On macOS the
+build script then sets `cfg(cef)`: `src-tauri/src/engine.rs` hands `tauri_runtime_cef::Cef` to
+`Builder::runtime`, `main()` gets `#[cef_entry_point]` (CEF starts the executable again for
+its child processes), and the web wrapper's engine hooks (`src-tauri/src/wrapper/engine.rs`)
+switch to CEF. Every other part of the app uses Tauri's runtime-erased types, so it does not
+change.
+
+| Web wrapper hook | On Chromium |
+|---|---|
+| Navigation, `target=_blank`, `window.open` | The same `on_navigation` / `on_new_window` and the same origin guard: other origins open in the system browser |
+| Downloads | The same `on_download`: the Downloads folder under a free name, no save dialog |
+| Cookies and storage | A Chromium profile in `<data>/cef`, with session cookies kept across restarts; cookies are encrypted with the macOS Keychain |
+| Mute | `CefBrowserHost::SetAudioMuted`: the whole page, iframes and WebRTC included (no private API) |
+| Camera, microphone, screen | The same `on_permission_request` and `desktop_core::wrapper::perm`; kinds Tauri has no name for get Chromium's own answer, so storage access and sign-in flows work; notifications, geolocation, USB, serial and HID are blocked |
+| Pinned self-signed site (`insecureTls`) | Always through the loopback proxy (rustls with the pin, as on the other platforms); the window itself refuses every certificate error, so there is nothing to click through |
+| Request headers | Through the proxy |
+| Key capture | Unchanged (the `CGEventTap` does not depend on the engine) |
+
+**Build.** Install the Tauri 3 CLI (`kitchen doctor` says which), `cmake` and `ninja`
+(`brew install cmake ninja`). The first build downloads the CEF distribution (about 130 MB,
+340 MB unpacked) into `CEF_PATH`, by default `~/Library/Caches/tauri-cef`; set `CEF_PATH`
+to share one copy between apps and CI runs. `cargo run` does not work on macOS: CEF starts
+its renderer and GPU processes from helper apps inside the bundle. `kitchen start`
+(`cargo tauri dev`) builds and runs a `.app` for you.
+
+**Bundle and sign.** `kitchen package mac` runs `cargo tauri build`; the 3.x CLI sees
+`tauri-runtime-cef` in the manifest and does the CEF steps itself:
+
+1. copies `Chromium Embedded Framework.framework` into `Contents/Frameworks/`;
+2. builds the `tauri-cef-helper` executable against the app's own `cef` crate and writes it
+   as five helper apps: `<App> Helper.app`, `Helper (GPU)`, `Helper (Renderer)`,
+   `Helper (Plugin)` and `Helper (Alerts)` (bundle id `<identifier>.helper`, `LSUIElement`);
+3. signs from the inside out (helpers and framework, then the executable, then the `.app`)
+   with the hardened runtime, using `src-tauri/Entitlements.plist` merged with what CEF needs
+   (`com.apple.security.cs.allow-jit`, `allow-unsigned-executable-memory`,
+   `disable-library-validation`) for every signed item;
+4. notarizes and staples when the usual `APPLE_*` variables are set (as for any build).
+
+Expect a `.app` of about 340 MB and a `.dmg` of about 150 MB (today: about 10 MB). Every
+update through `tauri-plugin-updater` is the full archive, about 150 MB. Chromium has security
+fixes every two to four weeks, and macOS no longer patches the engine for you: plan releases
+on that schedule. `tauri-runtime-cef` pins one CEF build, so a fix reaches you through a
+runtime release.
+
+**Not in the alpha CLI yet** (`tauri-cli` 3.0.0-alpha.6, `tauri-bundler` 3.0.0-alpha.5):
+
+- No way to trim CEF's locales: all 220 `.lproj` folders ship (about 50 MB).
+- One entitlements file for the app and every helper, so the renderer also gets the camera
+  and microphone entitlements. A per-helper split needs a bundler change.
+- No privacy strings (`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`) in the helper
+  `Info.plist`s. macOS normally asks on behalf of the main app, which has them; if a prompt
+  names a helper, the strings have to be added before signing, which the CLI cannot do yet.
+
+**Check on a real Mac first:** the helpers start and are signed, the camera and microphone
+prompts, deep links through CEF's `NSApplication` (`tauri_deep_link`), the pinned site through
+the proxy, and notarization of the larger bundle.
 
 ## Key-value store and cache
 
@@ -1086,7 +1161,7 @@ A module only exists in your app if its feature was chosen when the app was gene
 | [`python`](../src-tauri/src/python.rs) | `python-example` | A Python child process behind a command |
 | [`claude`](../src-tauri/src/claude.rs) | `claude-mcp` | Register a Python MCP server in Claude Desktop through bundled uv |
 | [`webview`](../src-tauri/src/webview.rs) | `webview` | Remote pages in app windows: allowlist hook, isolation, no IPC, bridge |
-| [`wrapper`](../src-tauri/src/wrapper/mod.rs) | `web-wrapper` | The web app: its window, menu, Preferences, and the per-OS TLS, key capture, media and mute hooks |
+| [`wrapper`](../src-tauri/src/wrapper/mod.rs) | `web-wrapper` | The web app: its window, menu, Preferences, the engine hooks (`engine.rs`), and the per-OS TLS, key capture, media and mute hooks |
 | [`eval`](../src-tauri/src/eval.rs) | `evals` | `--eval`: the command line of the search evals |
 
 ## Docs and checks

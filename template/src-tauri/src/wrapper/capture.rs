@@ -18,11 +18,40 @@ use desktop_core::keymap::{KeyEvent, ModTracker, Shortcut};
 use desktop_core::wrapper::{page, LABEL};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
+
+/// The site's window as capture sees it, whatever the runtime (the state is a `static`, so
+/// it cannot be generic).
+trait Target: Send + Sync {
+    /// Run a script in the site's window, if it is open.
+    fn eval(&self, js: String);
+    /// Start taking keys ([`platform::capture_start`]).
+    fn start(&self) -> Result<(), String>;
+    /// Let the keys go ([`platform::capture_stop`]).
+    fn stop(&self);
+}
+
+struct App<R: Runtime>(AppHandle<R>);
+
+impl<R: Runtime> Target for App<R> {
+    fn eval(&self, js: String) {
+        if let Some(w) = self.0.get_webview_window(LABEL) {
+            let _ = w.eval(js);
+        }
+    }
+
+    fn start(&self) -> Result<(), String> {
+        platform::capture_start(&self.0)
+    }
+
+    fn stop(&self) {
+        platform::capture_stop(&self.0);
+    }
+}
 
 /// The capture state the platform hooks read (they run outside Tauri's event loop).
 struct State {
-    app: AppHandle,
+    app: Box<dyn Target>,
     enabled: AtomicBool,
     active: AtomicBool,
     keys: Mutex<Keys>,
@@ -41,9 +70,9 @@ fn lock(s: &State) -> std::sync::MutexGuard<'_, Keys> {
 }
 
 /// Set up capture (once, at start).
-pub fn init(app: &AppHandle, enabled: bool, release: Shortcut) {
+pub fn init<R: Runtime>(app: &AppHandle<R>, enabled: bool, release: Shortcut) {
     let _ = STATE.set(State {
-        app: app.clone(),
+        app: Box::new(App(app.clone())),
         enabled: AtomicBool::new(enabled),
         active: AtomicBool::new(false),
         keys: Mutex::new(Keys { release, mods: ModTracker::default(), down: Vec::new() }),
@@ -77,8 +106,8 @@ pub fn release_text() -> String {
 }
 
 fn eval(js: String) {
-    if let Some(w) = STATE.get().and_then(|s| s.app.get_webview_window(LABEL)) {
-        let _ = w.eval(js);
+    if let Some(s) = STATE.get() {
+        s.app.eval(js);
     }
 }
 
@@ -91,7 +120,7 @@ pub fn start() -> Result<(), String> {
     if s.active.load(Ordering::SeqCst) {
         return Ok(());
     }
-    platform::capture_start(&s.app)?;
+    s.app.start()?;
     s.active.store(true, Ordering::SeqCst);
     let release = lock(s).release.clone();
     eval(page::overlay_script(true, &format!("Keys captured. Press {release} to release.")));
@@ -108,7 +137,7 @@ pub fn stop() {
     if !s.active.swap(false, Ordering::SeqCst) {
         return;
     }
-    platform::capture_stop(&s.app);
+    s.app.stop();
     let mut k = lock(s);
     if !platform::KEYS_ARRIVE_IN_PAGE {
         let held: Vec<&'static str> = std::mem::take(&mut k.down);
