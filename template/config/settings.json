@@ -28,6 +28,7 @@
     "headers": [],
     "autofill": [],
     "fillOnLoad": false,
-    "proxy": "auto"
+    "proxy": "auto",
+    "userEditable": ["releaseShortcut", "zoom", "muted", "startCaptured"]
   }{% endif %}
 }

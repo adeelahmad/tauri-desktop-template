@@ -222,6 +222,20 @@ fn new_web_app_end_to_end() {
         settings.contains(&fingerprint(cert_der().as_ref())),
         "the pin is in the settings"
     );
+    // The flags are the developer's settings, built in from config/settings.json.
+    let wrapper: serde_json::Value =
+        serde_json::from_str::<serde_json::Value>(&settings).unwrap()["wrapper"].clone();
+    assert_eq!(wrapper["url"], url.as_str());
+    assert_eq!(wrapper["insecureTls"], true);
+    assert_eq!(wrapper["captureKeys"], true);
+    assert_eq!(wrapper["releaseShortcut"], "Ctrl+Alt+F12");
+    assert_eq!(wrapper["muted"], true);
+    assert_eq!(wrapper["microphone"], false);
+    assert_eq!(
+        wrapper["userEditable"],
+        serde_json::json!(["releaseShortcut", "zoom", "muted", "startCaptured"]),
+        "the user may change only these"
+    );
     assert!(app.join("src-tauri/src/wrapper/mod.rs").is_file());
     assert!(app.join("src-tauri/icons/source-1024.png").is_file());
     let _ = std::fs::remove_dir_all(&work);

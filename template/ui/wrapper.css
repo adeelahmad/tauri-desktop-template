@@ -38,14 +38,8 @@ label.check input {
   opacity: 0.75;
   font-size: 12px;
 }
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
-  gap: 4px;
-  margin: 4px 0;
-}
-.row input {
-  min-width: 0;
+[hidden] {
+  display: none !important;
 }
 #perm-list li {
   margin: 4px 0;

@@ -11,41 +11,6 @@ function errorText(e) {
   return (e && e.message) || String(e);
 }
 
-function get(obj, path) {
-  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
-}
-
-function set(obj, path, value) {
-  const keys = path.split('.');
-  const last = keys.pop();
-  keys.reduce((o, k) => (o[k] = o[k] || {}), obj)[last] = value;
-}
-
-function row(container, values, placeholders) {
-  const div = document.createElement('div');
-  div.className = 'row';
-  values.forEach((v, i) => {
-    const input = document.createElement('input');
-    input.value = v || '';
-    input.placeholder = placeholders[i];
-    input.setAttribute('aria-label', placeholders[i]);
-    input.spellcheck = false;
-    div.appendChild(input);
-  });
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.textContent = 'Remove';
-  remove.onclick = () => div.remove();
-  div.appendChild(remove);
-  container.appendChild(div);
-}
-
-function rows(container) {
-  return [...container.querySelectorAll('.row')]
-    .map((r) => [...r.querySelectorAll('input')].map((i) => i.value.trim()))
-    .filter((v) => v.some((x) => x));
-}
-
 function showPermissions(p) {
   const section = $('permissions');
   section.hidden = !(p.items && p.items.length);
@@ -65,24 +30,32 @@ function showPermissions(p) {
   });
 }
 
+// Only the fields the app's developer lets the user change are shown (`editable`); the app
+// refuses any other field, so this list is for display, not for safety.
 async function load() {
   const s = await invoke('wrapper_get');
-  current = s.config;
+  current = s;
+  const editable = new Set(s.editable || []);
+  for (const el of form.querySelectorAll('[data-field]')) el.hidden = !editable.has(el.dataset.field);
+  for (const section of form.querySelectorAll('section[data-auto]')) {
+    section.hidden = [...section.querySelectorAll('[data-field]')].every((f) => f.hidden);
+  }
   for (const el of form.elements) {
     if (!el.name) continue;
-    const v = get(current, el.name);
+    const v = (s.values || {})[el.name];
     if (el.type === 'checkbox') el.checked = !!v;
     else if (v != null) el.value = v;
   }
+  $('actions').hidden = editable.size === 0;
+  $('site').textContent = s.site || '';
+  $('certificate').hidden = !s.insecureTls;
   $('pin').textContent = s.pin || 'none';
-  $('headers').textContent = '';
-  current.headers.forEach((h) => row($('headers'), [h.pattern, h.name, h.value], ['pattern', 'name', 'value']));
-  $('autofill').textContent = '';
-  current.autofill.forEach((a) =>
-    Object.entries(a.fields).forEach(([sel, v]) =>
-      row($('autofill'), [a.pattern, sel, v], ['pattern', 'CSS selector', 'value']),
-    ),
-  );
+  $('forget').hidden = !s.canForgetPin;
+  $('forget-hint').hidden = !s.canForgetPin;
+  const names = s.secrets || [];
+  $('secrets').hidden = names.length === 0;
+  $('secret-name').textContent = '';
+  names.forEach((n) => $('secret-name').appendChild(new Option(n, n)));
   const problems = s.problems || [];
   $('problems').hidden = problems.length === 0;
   $('problems').textContent = problems.join('; ');
@@ -90,27 +63,22 @@ async function load() {
   return s;
 }
 
+// The changed values of the shown fields only.
 function collect() {
-  const c = JSON.parse(JSON.stringify(current));
+  const changes = {};
   for (const el of form.elements) {
-    if (!el.name) continue;
-    const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value;
-    set(c, el.name, v);
+    if (!el.name || !current.editable.includes(el.name)) continue;
+    const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim();
+    if (v !== current.values[el.name]) changes[el.name] = v;
   }
-  c.headers = rows($('headers')).map(([pattern, name, value]) => ({ pattern, name, value }));
-  const fills = {};
-  rows($('autofill')).forEach(([pattern, sel, value]) => {
-    (fills[pattern] = fills[pattern] || {})[sel] = value;
-  });
-  c.autofill = Object.entries(fills).map(([pattern, fields]) => ({ pattern, fields }));
-  return c;
+  return changes;
 }
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   $('status').textContent = 'Saving…';
   try {
-    const r = await invoke('wrapper_set', { config: collect() });
+    const r = await invoke('wrapper_set', { changes: collect() });
     await load();
     $('status').textContent = r.restart ? 'Saved. Some changes apply after a restart.' : 'Saved.';
     $('restart').hidden = !r.restart;
@@ -120,15 +88,13 @@ form.addEventListener('submit', async (e) => {
 });
 
 $('restart').onclick = () => invoke('wrapper_restart');
-$('add-header').onclick = () => row($('headers'), ['', '', ''], ['pattern', 'name', 'value']);
-$('add-fill').onclick = () => row($('autofill'), ['', '', ''], ['pattern', 'CSS selector', 'value']);
 $('forget').onclick = async () => {
   await invoke('wrapper_forget_pin').catch((e) => ($('status').textContent = errorText(e)));
   await load();
 };
 $('save-secret').onclick = async () => {
   try {
-    await invoke('wrapper_set_secret', { name: $('secret-name').value.trim(), value: $('secret-value').value });
+    await invoke('wrapper_set_secret', { name: $('secret-name').value, value: $('secret-value').value });
     $('secret-value').value = '';
     $('status').textContent = 'Saved in the keychain.';
   } catch (err) {

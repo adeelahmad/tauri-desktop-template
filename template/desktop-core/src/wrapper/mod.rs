@@ -6,7 +6,8 @@
 //!
 //! | Part | Module |
 //! |---|---|
-//! | Settings, and the one place they are validated | [`WrapperConfig`], [`WrapperConfig::check`] |
+//! | Settings (the developer's, built in), and the one place they are validated | [`WrapperConfig`], [`WrapperConfig::check`] |
+//! | What the user may change (the allowlist), and the user's overrides | [`user`] |
 //! | URLs: origin, navigation guard, deep links | [`url`] |
 //! | Certificate pinning (trust on first use) | [`pin`] |
 //! | Header rules, URL patterns, `${ENV}` values, masking, auto-fill | [`rules`] |
@@ -50,6 +51,9 @@ pub mod pin;
 pub mod proxy;
 pub mod rules;
 pub mod url;
+pub mod user;
+
+pub use user::{ChangeError, Editable, UserOverrides, UserWrapper, DEFAULT_EDITABLE};
 
 use crate::keymap::Shortcut;
 use serde::{Deserialize, Serialize};
@@ -95,9 +99,11 @@ pub enum ProxyMode {
     Off,
 }
 
-/// The wrapper's settings. The developer's defaults are the `wrapper` section of the
-/// app's `config/` (written by `kitchen new --web`); the user's changes in Preferences
-/// replace them as a whole (`settings.json`, `config.wrapper`).
+/// The wrapper's settings: the developer's choice, made before the build. They are the
+/// `wrapper` section of the app's `config/settings.json` (written by `kitchen new --web`,
+/// changed by editing the file or with `kitchen set`), compiled in, and read-only at run
+/// time. The user can change only the fields named in [`user_editable`](Self::user_editable),
+/// and those changes are kept apart ([`UserWrapper`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase")]
@@ -137,6 +143,10 @@ pub struct WrapperConfig {
     pub fill_on_load: bool,
     /// The loopback proxy.
     pub proxy: ProxyMode,
+    /// The fields the user may change in Preferences (camelCase keys, see [`Editable`]);
+    /// every other field stays as built. Default: [`DEFAULT_EDITABLE`]. `[]` shows no
+    /// settings at all.
+    pub user_editable: Vec<String>,
 }
 
 impl Default for WrapperConfig {
@@ -159,6 +169,7 @@ impl Default for WrapperConfig {
             autofill: Vec::new(),
             fill_on_load: false,
             proxy: ProxyMode::Auto,
+            user_editable: DEFAULT_EDITABLE.iter().map(|f| f.key().to_string()).collect(),
         }
     }
 }
@@ -204,6 +215,10 @@ impl WrapperConfig {
         if self.user_agent.len() > 512 || self.user_agent.chars().any(char::is_control) {
             errors.push("user agent: at most 512 characters, no line breaks".into());
         }
+        for key in self.user_editable.iter().filter(|k| Editable::from_key(k).is_none()) {
+            let all: Vec<_> = Editable::ALL.iter().map(|f| f.key()).collect();
+            errors.push(format!("userEditable: {key} cannot be made editable (only {})", all.join(", ")));
+        }
         let base = parsed.as_ref().map(url::WebUrl::base).unwrap_or_default();
         let mut headers = Vec::new();
         for (i, h) in self.headers.iter().enumerate() {
@@ -228,6 +243,43 @@ impl WrapperConfig {
                 Err(errors)
             }
         }
+    }
+
+    /// Whether the developer lets the user change `field`.
+    pub fn is_editable(&self, field: Editable) -> bool {
+        self.user_editable.iter().any(|k| k == field.key())
+    }
+
+    /// The fields the user may change, in the developer's order (unknown names skipped).
+    pub fn editable(&self) -> impl Iterator<Item = Editable> + '_ {
+        let mut seen = Vec::new();
+        self.user_editable.iter().filter_map(|k| Editable::from_key(k)).filter(move |f| {
+            let new = !seen.contains(f);
+            seen.push(*f);
+            new
+        })
+    }
+
+    /// Whether the certificate is pinned on first use (and can be forgotten in
+    /// Preferences): `insecureTls` is on and the developer pinned no certificate. A pin the
+    /// developer chose is fixed; change it in `config/` and rebuild.
+    pub fn learns_pin(&self) -> bool {
+        self.insecure_tls && self.pinned_sha256.trim().is_empty()
+    }
+
+    /// The keychain entries the header and auto-fill rules read (`keychain:<name>`), so
+    /// Preferences can store exactly those secrets and no others.
+    pub fn keychain_names(&self) -> Vec<String> {
+        let specs = self.headers.iter().map(|h| h.value.as_str()).chain(self.autofill.iter().flat_map(|a| a.fields.values().map(String::as_str)));
+        let mut names: Vec<String> = specs
+            .filter_map(|s| match rules::source(s) {
+                rules::Source::Keychain(n) if !n.is_empty() => Some(n.to_string()),
+                _ => None,
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     /// Whether the proxy is used, on this OS ([`ProxyMode::Auto`] turns it on for header
@@ -351,6 +403,30 @@ mod tests {
         c.proxy = ProxyMode::Auto;
         c.headers.push(rules::HeaderRule { pattern: "*".into(), name: "X-A".into(), value: "1".into() });
         assert_eq!(c.uses_proxy(), !cfg!(windows));
+    }
+
+    #[test]
+    fn the_allowlist_is_checked() {
+        let c = WrapperConfig { user_editable: vec!["zoom".into(), "url".into(), "zoom".into()], ..cfg("https://h.example/") };
+        let e = c.check().unwrap_err();
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].contains("userEditable: url"), "{e:?}");
+        assert_eq!(c.editable().collect::<Vec<_>>(), [Editable::Zoom], "unknown and repeated names are skipped");
+        assert!(c.is_editable(Editable::Zoom) && !c.is_editable(Editable::Muted));
+    }
+
+    #[test]
+    fn keychain_names_come_from_the_rules() {
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert("#pw".to_string(), "keychain:kvm-password".to_string());
+        fields.insert("#user".to_string(), "admin".to_string());
+        let c = WrapperConfig {
+            headers: vec![rules::HeaderRule { pattern: "*".into(), name: "X-Token".into(), value: "keychain:token".into() }],
+            autofill: vec![rules::AutofillRule { pattern: "/login".into(), fields }],
+            ..cfg("https://h.example/")
+        };
+        assert_eq!(c.keychain_names(), ["kvm-password", "token"]);
+        assert!(cfg("https://h.example/").keychain_names().is_empty());
     }
 
     #[test]
