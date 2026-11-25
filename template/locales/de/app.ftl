@@ -812,6 +812,7 @@ wrapper-menu-actual-size = Originalgröße
 wrapper-menu-capture = Tastenerfassung ein/aus
 wrapper-menu-mute = Stumm / Ton an
 wrapper-menu-fill = Formular ausfüllen
+wrapper-menu-open-in-browser = Im Browser öffnen…
 wrapper-prefs-title = Einstellungen
 wrapper-prefs-permissions = Berechtigungen
 wrapper-prefs-site = Website

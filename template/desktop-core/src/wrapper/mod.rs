@@ -12,6 +12,7 @@
 //! | Certificate pinning (trust on first use) | [`pin`] |
 //! | Header rules, URL patterns, `${ENV}` values, masking, auto-fill | [`rules`] |
 //! | Media permissions and download names | [`perm`] |
+//! | "Open in Browser…": the current page in a real browser | [`browser`] |
 //! | The script the wrapper adds to the page | [`page`] |
 //! | The loopback proxy (headers on every request, pinning, WebSockets) | [`proxy`] |
 //!
@@ -45,6 +46,7 @@
 //! assert_eq!(bad.check().unwrap_err().len(), 2); // plain http, and a shortcut with no modifier
 //! ```
 
+pub mod browser;
 pub mod page;
 pub mod perm;
 pub mod pin;
@@ -143,6 +145,10 @@ pub struct WrapperConfig {
     pub fill_on_load: bool,
     /// The loopback proxy.
     pub proxy: ProxyMode,
+    /// The browser "Open in Browser…" uses: empty (the default) for the user's default
+    /// browser, else an app name, e.g. `Google Chrome` (macOS: `open -a`) or `firefox` (a
+    /// program on `PATH` elsewhere). Plain app name characters only ([`browser::check_app`]).
+    pub open_in_browser_app: String,
     /// The fields the user may change in Preferences (camelCase keys, see [`Editable`]);
     /// every other field stays as built. Default: [`DEFAULT_EDITABLE`]. `[]` shows no
     /// settings at all.
@@ -169,6 +175,7 @@ impl Default for WrapperConfig {
             autofill: Vec::new(),
             fill_on_load: false,
             proxy: ProxyMode::Auto,
+            open_in_browser_app: String::new(),
             user_editable: DEFAULT_EDITABLE.iter().map(|f| f.key().to_string()).collect(),
         }
     }
@@ -195,7 +202,7 @@ pub struct Checked {
 
 impl WrapperConfig {
     /// Validate everything, in one place: the URL, the shortcut, the pin, zoom, the
-    /// User-Agent, every header rule and auto-fill rule. All problems are listed.
+    /// User-Agent, the "Open in Browser…" app, every header rule and auto-fill rule. All problems are listed.
     pub fn check(&self) -> Result<Checked, Vec<String>> {
         let mut errors = Vec::new();
         let parsed = url::WebUrl::parse(&self.url).map_err(|e| format!("url: {e}"));
@@ -214,6 +221,9 @@ impl WrapperConfig {
         }
         if self.user_agent.len() > 512 || self.user_agent.chars().any(char::is_control) {
             errors.push("user agent: at most 512 characters, no line breaks".into());
+        }
+        if let Err(e) = browser::check_app(&self.open_in_browser_app) {
+            errors.push(format!("openInBrowserApp: {e}"));
         }
         for key in self.user_editable.iter().filter(|k| Editable::from_key(k).is_none()) {
             let all: Vec<_> = Editable::ALL.iter().map(|f| f.key()).collect();
@@ -294,6 +304,12 @@ impl WrapperConfig {
 }
 
 impl Checked {
+    /// The URL "Open in Browser…" may open for the page the window shows (the site's own
+    /// URL): only an `http(s)` page on the wrapped origin ([`browser::page_url`]).
+    pub fn browser_url(&self, page: &str) -> Result<String, String> {
+        browser::page_url(&self.origin, page)
+    }
+
     /// The navigation guard's decision for `url` ([`url::decide`]).
     pub fn decide(&self, url: &str) -> url::Verdict {
         url::decide(&self.origin, url)
@@ -392,6 +408,20 @@ mod tests {
         let missing = |s: &str| rules::interpolate(s, &|_| None);
         let e = ok.headers_for("https://h.example/api/x", &missing).unwrap_err();
         assert!(e.contains("X-Token") && e.contains("TOKEN") && !e.contains("s3cret"), "{e}");
+    }
+
+    #[test]
+    fn open_in_browser_app_is_checked() {
+        assert_eq!(WrapperConfig::default().open_in_browser_app, "", "the default browser");
+        let ok = WrapperConfig { open_in_browser_app: "Google Chrome".into(), ..cfg("https://h.example/") }.check().unwrap();
+        assert_eq!(ok.browser_url("https://h.example/a?b#c").unwrap(), "https://h.example/a?b#c");
+        assert!(ok.browser_url("https://other.example/").is_err());
+        assert!(ok.browser_url("about:blank").is_err());
+        let e = WrapperConfig { open_in_browser_app: "Chrome; rm -rf ~".into(), ..cfg("https://h.example/") }.check().unwrap_err();
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].starts_with("openInBrowserApp:"), "{e:?}");
+        let c: WrapperConfig = serde_json::from_str(r#"{"url":"https://a.b","openInBrowserApp":"Firefox"}"#).unwrap();
+        assert_eq!(c.open_in_browser_app, "Firefox");
     }
 
     #[test]

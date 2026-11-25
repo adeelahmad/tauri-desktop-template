@@ -753,6 +753,7 @@ certificate pinned on first use are kept apart (`config.wrapper` in the user's
 | `captureKeys`, `releaseShortcut` | `--capture-keys`, `--release-shortcut` / `kitchen set capture_keys=true`, `release_shortcut=Ctrl+Alt+Shift+K` | send system keys to the page, and the shortcut that gives them back |
 | `microphone`, `camera`, `screen`, `muted` | `--mic`, `--camera`, `--screen`, `--muted` / `kitchen set web_microphone=true` (and `web_camera`, `web_screen`, `web_muted`) | media for the site; start muted |
 | `startCaptured`, `zoom`, `userAgent`, `features`, `headers`, `autofill`, `fillOnLoad`, `proxy` | edit the file | see docs/GUIDE.md, "Wrap a web app" |
+| `openInBrowserApp` | edit the file | the browser for "Open in Browser…" (Page menu, Cmd/Ctrl+Shift+O), the fallback for sites that break in the web view: empty (default) for the default browser, or an app name such as `Google Chrome` (macOS, `open -a`) or `firefox` (a program on `PATH`); only the current page of the site, http(s) only |
 | `userEditable` | edit the file | what the user may change: default `["releaseShortcut", "zoom", "muted", "startCaptured"]`; also allowed: `captureKeys`, `microphone`, `camera`, `screen`; `[]` for none |
 
 `kitchen set` rewrites `config/settings.json` from the new answer (keeping your other edits
