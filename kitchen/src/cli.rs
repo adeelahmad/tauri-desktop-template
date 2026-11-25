@@ -120,6 +120,7 @@ const VALUED: &[&str] = &[
     "web",
     "release-shortcut",
     "scheme",
+    "engine",
     "out",
 ];
 

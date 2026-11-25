@@ -52,6 +52,21 @@ pub fn runtime() -> tauri_runtime_cef::Cef {
     )
 }
 
+/// Write Chromium's cookies to disk now. Chromium writes them lazily, so without this a
+/// sign-in made just before the app is quit (or killed) can be lost. Called when the app
+/// is about to exit and whenever a window loses focus. Does nothing with the system engine.
+#[cfg(cef)]
+pub fn flush_cookies() {
+    use tauri_runtime_cef::cef::{cookie_manager_get_global_manager, ImplCookieManager};
+    if let Some(m) = cookie_manager_get_global_manager(None) {
+        m.flush_store(None);
+    }
+}
+
+/// Write Chromium's cookies to disk now (nothing to do with the system engine).
+#[cfg(not(cef))]
+pub fn flush_cookies() {}
+
 /// The Chromium profile folder inside the app's data folder.
 #[cfg_attr(not(cef), allow(dead_code))]
 pub fn profile_dir(data: &std::path::Path) -> std::path::PathBuf {

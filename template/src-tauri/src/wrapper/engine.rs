@@ -118,6 +118,7 @@ where
         window.with_cef_webview(move |cw| {
             if let Some(host) = cw.browser().host() {
                 host.set_audio_muted(i32::from(muted));
+                log::info!("page audio {}", if muted { "muted" } else { "unmuted" });
             }
         })
     }

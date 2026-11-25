@@ -365,7 +365,10 @@ fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> 
             }
         }
         // Safety: keys are never held while another window has focus.
-        tauri::WindowEvent::Focused(false) => capture::stop(),
+        tauri::WindowEvent::Focused(false) => {
+            capture::stop();
+            crate::engine::flush_cookies();
+        }
         tauri::WindowEvent::Destroyed => {
             capture::stop();
             app2.exit(0);

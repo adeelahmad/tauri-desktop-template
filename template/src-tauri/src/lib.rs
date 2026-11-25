@@ -1560,10 +1560,11 @@ pub fn run() {
         ]{% if webview or web_wrapper %}){% endif %})
         .build(tauri::generate_context!())
         .expect("error while building the app")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                on_exit(app);
-            }
+        .run(|app, event| match event {
+            // Chromium writes cookies lazily: save them while the engine is still up.
+            tauri::RunEvent::ExitRequested { .. } => engine::flush_cookies(),
+            tauri::RunEvent::Exit => on_exit(app),
+            _ => {}
         });
 }
 
