@@ -275,6 +275,7 @@ The generators insert code at these comments. Never remove or reword them.
   lists a remote URL, and external pages open in the system browser, not in the app's
   window. Fetch remote data in Rust through `desktop_core::net` instead.
 - Never disable or loosen the CSP in `src-tauri/tauri.conf.json` (no `'unsafe-eval'`, no
-  remote `script-src`, never `"csp": null`), and never turn off `freezePrototype`.
+  remote `script-src`, never `"csp": null`), and never turn off `freezePrototype` (web apps are the one exception: it is off so the
+  wrapped site works, and the app's own windows freeze the prototype themselves).
 - Never remove the `// kitchen:` markers, or edit `kitchen.toml` by hand.
 - Never turn a feature on by default.

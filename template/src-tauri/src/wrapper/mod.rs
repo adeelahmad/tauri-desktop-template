@@ -136,6 +136,14 @@ pub(crate) fn resolve(identifier: &str, spec: &str) -> Result<String, String> {
     }
 }
 
+/// `Object.freeze(Object.prototype)` for the app's own windows only.
+///
+/// Tauri's `freezePrototype` setting runs in every web view, the wrapped site's too, and
+/// many sites' code (antd, older polyfills) assigns properties that then become read-only
+/// ("Attempted to assign to readonly property", a blank page). So web apps turn the setting
+/// off in `tauri.conf.json` and freeze the prototype here, in Preferences and Settings.
+pub const FREEZE_PROTOTYPE: &str = "Object.freeze(Object.prototype);";
+
 /// Open the site's window, the menu and (when keys need a permission first) Preferences.
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let cfg = effective(app);
@@ -664,6 +672,8 @@ pub fn open_prefs(app: &AppHandle, anchor: &str) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, PREFS_LABEL, WebviewUrl::App(format!("wrapper.html{anchor}").into()))
         .title("Preferences")
         .inner_size(620.0, 720.0)
+        // The app's own page keeps the frozen prototype (see `FREEZE_PROTOTYPE`).
+        .initialization_script(FREEZE_PROTOTYPE)
         .build()
         .map(|_| ())
 }

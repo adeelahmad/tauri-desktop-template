@@ -93,6 +93,10 @@ pub fn show_settings(app: &AppHandle) -> tauri::Result<()> {
         .inner_size(760.0, 680.0)
         .min_inner_size(480.0, 400.0)
         .initialization_script(appearance.init_script(std::env::consts::OS, 1))
+{%- if web_wrapper %}
+        // Web apps turn `freezePrototype` off for the site's sake; keep it for this page.
+        .initialization_script("Object.freeze(Object.prototype);")
+{%- endif %}
         .build()?
         .set_focus()
 }
