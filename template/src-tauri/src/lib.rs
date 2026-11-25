@@ -1582,8 +1582,16 @@ pub fn run() {
         .expect("error while building the app")
         .run(|app, event| match event {
             // Chromium writes cookies lazily: save them while the engine is still up.
-            tauri::RunEvent::ExitRequested { .. } => engine::flush_cookies(),
-            tauri::RunEvent::Exit => on_exit(app),
+            tauri::RunEvent::ExitRequested { code, .. } => {
+                log::info!("quit requested ({code:?})");
+                engine::flush_cookies();
+{% if web_wrapper %}                #[cfg(all(desktop, feature = "web-wrapper"))]
+                wrapper::save_window(app);
+{% endif %}            }
+            tauri::RunEvent::Exit => {
+                log::info!("exiting");
+                on_exit(app)
+            }
             _ => {}
         });
 }

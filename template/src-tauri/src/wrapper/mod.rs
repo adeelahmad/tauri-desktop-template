@@ -153,6 +153,12 @@ pub fn effective<R: Runtime>(app: &AppHandle<R>) -> WrapperConfig {
     user(app).merge(&baked())
 }
 
+/// Write the site window's size and place now ([`presence::save_window`]), with the
+/// settings in force. Also called when the app is asked to quit.
+pub fn save_window<R: Runtime>(app: &AppHandle<R>) {
+    presence::save_window(app, &effective(app));
+}
+
 /// Save the user's part.
 fn save_user<R: Runtime>(app: &AppHandle<R>, u: UserWrapper) -> Result<(), String> {
     let mut s = crate::load_settings(app);
@@ -378,7 +384,10 @@ fn open_window<R: Engine>(app: &AppHandle<R>, c: &Checked) -> tauri::Result<()> 
         tauri::WindowEvent::Focused(false) => {
             capture::stop();
             crate::engine::flush_cookies();
+            save_window(&app2);
         }
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => presence::save_soon(&app2, save_window),
+        tauri::WindowEvent::CloseRequested { .. } => save_window(&app2),
         tauri::WindowEvent::Destroyed => {
             capture::stop();
             app2.exit(0);
@@ -824,7 +833,7 @@ pub fn wrapper_get<R: Runtime>(app: AppHandle<R>) -> Result<Value, CommandError>
     let cfg = user(&app).merge(&baked);
     let state = app.state::<Wrapper>();
     let p = platform::permissions();
-    let editable: Vec<Editable> = cfg.editable().filter(|f| presence::available(*f)).collect();
+    let editable: Vec<Editable> = cfg.editable().filter(|f| presence::offered(*f, &cfg)).collect();
     let mut values = UserOverrides::shown(&cfg);
     values.retain(|k, _| editable.iter().any(|f| f.key() == k));
     Ok(json!({
