@@ -64,6 +64,12 @@ pub fn available(field: Editable) -> bool {
     }
 }
 
+/// Whether Preferences shows `field`: [`available`] in this build, and the capture options
+/// (`startCaptured`, `releaseShortcut`) only while key capture is on.
+pub fn offered(field: Editable, cfg: &WrapperConfig) -> bool {
+    available(field) && (cfg.capture_keys || !matches!(field, Editable::StartCaptured | Editable::ReleaseShortcut))
+}
+
 /// When a change to `field` takes effect: `"now"` or `"nextLaunch"` (for Preferences).
 pub fn applies(field: Editable) -> &'static str {
     match field {
@@ -174,6 +180,40 @@ pub fn restore_and_show<R: Runtime>(w: &WebviewWindow<R>, cfg: &WrapperConfig, h
 {% endif %}    w.set_focus()
 }
 
+/// Write the window's size and place to disk now, when the user keeps `rememberWindow`
+/// on. The window-state plugin saves only on `RunEvent::Exit`, which a quit from the menu
+/// bar or the Chromium engine can skip, so the wrapper also saves when the window loses
+/// focus, is closed, and shortly after it stops moving or resizing ([`save_soon`]).
+pub fn save_window<R: Runtime>(app: &AppHandle<R>, cfg: &WrapperConfig) {
+{% if tauri_plugins and tauri_window_state %}    use tauri_plugin_window_state::AppHandleExt;
+    if !cfg.remember_window {
+        return;
+    }
+    match app.save_window_state(WINDOW_FLAGS) {
+        Ok(()) => log::debug!("window size and place saved"),
+        Err(e) => log::warn!("could not save the window: {e}"),
+    }
+{% else %}    let _ = (app, cfg);
+{% endif %}}
+
+/// [`save_window`] once the window has been still for [`SAVE_DELAY`]: a drag or a resize
+/// sends many events, and only the last one is written.
+pub fn save_soon<R: Runtime>(app: &AppHandle<R>, save: impl FnOnce(&AppHandle<R>) + Send + 'static) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    let mine = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(SAVE_DELAY);
+        if GENERATION.load(Ordering::SeqCst) == mine {
+            save(&app);
+        }
+    });
+}
+
+/// How long the window must be still before [`save_soon`] writes it.
+pub const SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(800);
+
 /// Move (and shrink) the window onto a display when it is off screen, e.g. its display was
 /// removed since it was saved ([`screen::fit`], on the displays' work areas).
 {% unless tauri_plugins and tauri_window_state %}#[allow(dead_code)] // used with tauri_window_state
@@ -218,6 +258,15 @@ mod tests {
         assert_eq!(available(Editable::RememberWindow), HAS_WINDOW_STATE);
         assert_eq!(applies(Editable::RememberWindow), "nextLaunch");
         assert_eq!(applies(Editable::DockIcon), "now");
+    }
+
+    #[test]
+    fn capture_options_only_with_capture() {
+        let off = cfg();
+        assert!(!offered(Editable::StartCaptured, &off) && !offered(Editable::ReleaseShortcut, &off));
+        assert!(offered(Editable::Zoom, &off));
+        let on = WrapperConfig { capture_keys: true, ..cfg() };
+        assert!(offered(Editable::StartCaptured, &on) && offered(Editable::ReleaseShortcut, &on));
     }
 
     #[test]
